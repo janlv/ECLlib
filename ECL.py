@@ -6,13 +6,22 @@ import struct
 import os
 from pathlib import Path
 from .utils import list2str, float_or_str
-from numpy import zeros, int32, float32, float64
-from collections import namedtuple
-#import warnings
-#    rst = reader(case + '.UNRST')
-#    for b in rst.parse_forward(data=False, keep_list=[b'SEQNUM  ',b'INTEHEAD']):
-#        b.print()
+from numpy import zeros, int32, float32, float64, ceil
+#from collections import namedtuple
 
+#
+#
+#  import IORlib.ECL as ECL
+#  import sys
+#  fname = sys.argv[1]
+#  for block in ECL.unformatted_file(fname).blocks():
+#      if block.key()=='SEQNUM':
+#           block.print()
+#
+#
+#
+
+max_block_length = 1000
 
 endian = '>' # big-endian
 
@@ -66,7 +75,7 @@ class _datablock:                                                          # dat
     #--------------------------------------------------------------------------------
     def set_header(self, chunk, filepos):                                 # datablock
     #--------------------------------------------------------------------------------
-        self._key, self.num, self.datatype = struct.unpack(endian+'8si4s', chunk)
+        self._key, self.length, self.datatype = struct.unpack(endian+'8si4s', chunk)
         # Set filepos to start of header.
         # The header is 4+16+4 = 24 bytes long
         self.startpos = filepos - 24 # for forward parsing!
@@ -82,12 +91,14 @@ class _datablock:                                                          # dat
     def data(self):                                             # datablock
     #--------------------------------------------------------------------------------
         #if self.chunk in (b'0',):
+        if len(self.chunk)==0:
+            return None
         if len(self.chunk)==1 and self.chunk[0]==0:
             raise SystemError('No data to unpack in data().\nDid you pass data=True to parse_file()?')
         if self.datatype in (b'CHAR',):
-            self.num *= datasize[self.datatype]
+            self.length *= datasize[self.datatype]
         try:
-            return struct.unpack(endian + str(self.num) + unpack_char[self.datatype], self.chunk)
+            return struct.unpack(endian + str(self.length) + unpack_char[self.datatype], self.chunk)
         except struct.error as e:
             raise SystemError(e)
         
@@ -96,13 +107,14 @@ class _datablock:                                                          # dat
     #--------------------------------------------------------------------------------
         #self.chunk = b''
         self.chunk = bytearray()
-        self.num = None
+        self.length = None
+        #self.endpos = self.startpos = None
         
     #--------------------------------------------------------------------------------
     def ready(self):                                                      # datablock
     #--------------------------------------------------------------------------------
-        #if self.chunk != b'' or self.num == 0:
-        if len(self.chunk)!=0 or self.num==0:
+        #if self.chunk != b'' or self.length == 0:
+        if len(self.chunk)!=0 or self.length==0:
             return True
         else:
             return False
@@ -110,11 +122,9 @@ class _datablock:                                                          # dat
     #--------------------------------------------------------------------------------
     def info(self):                                                       # datablock
     #--------------------------------------------------------------------------------
-        return '{:s} block of {:5d} bytes holding {:5d} {:s} starting at {:d}'.format(self._key.decode(),
-                                                                                      len(self.chunk),
-                                                                                      self.num,
-                                                                                      self.datatype.decode(),
-                                                                                      self.startpos)
+        string = '{:s} block of {:5d} bytes holding {:5d} {} at [{}, {}]'
+        return string.format(self._key.decode(), len(self.chunk), self.length,
+                             self.datatype.decode(), self.startpos, self.end())
 
     #--------------------------------------------------------------------------------
     def print(self):                                                      # datablock
@@ -144,11 +154,28 @@ class _datablock:                                                          # dat
     #--------------------------------------------------------------------------------
         return self._key.decode().strip()
         
+    #--------------------------------------------------------------------------------
+    def start(self):                                             # datablock
+    #-------------------------------------------------------------------------------
+        return self.startpos
+        
+    #--------------------------------------------------------------------------------
+    def end(self):                                             # datablock
+    #-------------------------------------------------------------------------------
+        # A data-block is split in chunks if the length exceeds 1000 elements
+        # Each data-block is sandwiched by a 4 byte int giving the size of the block
+        return self.startpos + 24 + len(self.chunk) + 8*int(ceil(self.length/max_block_length))
+    
+    #--------------------------------------------------------------------------------
+    def datatype(self):                                             # datablock
+    #-------------------------------------------------------------------------------
+        return self.datatype.decode(),
+        
 
         
 #====================================================================================
 #class reader:                                                                # reader
-class unformatted_file:
+class unfmt_file:
 #====================================================================================
 
     #--------------------------------------------------------------------------------
@@ -359,6 +386,222 @@ class unformatted_file:
         if self._filename.is_file():
             return True
 
+
+    #--------------------------------------------------------------------------------
+    def insert(self, sections):
+    #--------------------------------------------------------------------------------
+        if not isinstance(sections, tuple):
+            sections = (sections,)
+        out_file = open(self._filename, 'wb')
+        in_files = []
+        for sec in sections:
+            in_files.append(open(sec.filename(), 'rb'))
+        OK = True
+        while OK: 
+            for i,sec in enumerate(sections):
+                OK = sec.write_unit(in_files[i], out_file)
+            #OK = sec2.write_unit(sec1_file, out_file)
+            #unit = sec1.unit()
+            #for pos, size in zip(unit[::2],unit[1::2]):#for pos,size in sec1.next_unit():
+            #    sec1_file.seek(pos)
+            #    out_file.write( sec1_file.read(size) )
+            #for pos,size in sec2.next_unit():
+            #    sec2_file.seek(pos)
+            #    out_file.write( sec2_file.read(size) )
+        for fil in in_files+[out_file,]:
+            fil.close()
+        return self._filename
+
+
+    # #--------------------------------------------------------------------------------
+    # def insert(self, from_section, before=None, after=None, overwrite=False):
+    # #--------------------------------------------------------------------------------
+    #     # copy the whole record 
+    #     self_file = open(self._filename, 'rb')
+    #     from_file = open(from_section.filename(), 'rb')
+    #     out = self._filename.parent/'merged.UNRST'
+    #     out_file = open(out, 'wb')
+
+    #     copy_section = Section(self._filename, start_before=before, end_before=before,
+    #                            start_after=after, end_after=after)
+    #     while (from_section.not_empty() and copy_section.not_empty()):
+    #         self_file.seek(copy_section.startpos())
+    #         copy = self_file.read(copy_section.size())
+    #         out_file.write(copy)
+    #         from_file.seek(from_section.startpos())
+    #         insert = from_file.read(from_section.size())
+    #         out_file.write(insert)
+    #     self_file.close()
+    #     from_file.close()
+    #     out_file.close()
+    #     if overwrite:
+    #         shutil.copy(out, self._filename)
+    #         out = self._filename
+    #     return out
+
+
+    # #--------------------------------------------------------------------------------
+    # def remove(self, blocks=None):
+    # #--------------------------------------------------------------------------------
+    #     if isinstance(blocks, str):
+    #         blocks = (blocks,)
+    #     startpos, size= [0,], []
+    #     for block in self.blocks():
+    #         if block.key() in blocks:
+    #             size.append(block.start()-startpos[-1])
+    #             startpos.append(block.end())
+    #     #print(startpos)
+    #     #print(size)
+    #     #return
+    #     self_file = open(self._filename, 'rb')
+    #     out = self._filename.parent/'merged.UNRST'
+    #     out_file = open(out, 'wb')
+    #     while (startpos and size):
+    #         pos = startpos.pop(0)
+    #         self_file.seek(pos)
+    #         print('pos: '+str(pos)+', '+str(self_file.tell()))
+    #         read = size.pop(0)
+    #         write=out_file.write(self_file.read(read))
+    #         print('read: '+str(read)+', '+str(write))
+    #     self_file.close()
+    #     out_file.close()
+    #     return out
+    
+    
+#====================================================================================
+class Section:
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, filename, init_key='SEQNUM', start_before=None, start_after=None,
+                 end_before=None, end_after=None, skip_first=False, remove_blocks=None):
+    #--------------------------------------------------------------------------------
+        self._filename = Path(filename)
+        self.init_key = init_key
+        self.start_before = start_before
+        self.start_after = start_after
+        self.end_before = end_before
+        self.end_after = end_after
+        if isinstance(remove_blocks, str):
+            remove_blocks = (remove_blocks,)
+        self.remove_blocks = remove_blocks
+        self._units = self.startpos_and_size()
+        #self._startpos, self._size, self._units = self.startpos_and_size()
+        #print(self._startpos)
+        #print(self._size)
+        if skip_first:
+            self._startpos.pop(0)
+            
+    #--------------------------------------------------------------------------------
+    def not_empty(self): # is_filled
+    #--------------------------------------------------------------------------------
+        #if len(self._startpos)>0 and len(self._size)>0:
+        if len(self._units)>0:
+            return True
+        else:
+            return False
+        
+    #--------------------------------------------------------------------------------
+    def filename(self):
+    #--------------------------------------------------------------------------------
+        return self._filename
+        
+    #--------------------------------------------------------------------------------
+    def write_unit(self, in_file, out_file):
+    #--------------------------------------------------------------------------------
+        if len(self._units)==0:
+            return False
+        unit = self._units.pop(0)
+        for pos, size in zip(unit[::2],unit[1::2]):
+            in_file.seek(pos)
+            out_file.write( in_file.read(size) )
+        return True
+    
+    #--------------------------------------------------------------------------------
+    def unit(self):
+    #--------------------------------------------------------------------------------
+        return self._units.pop(0)
+
+    # #--------------------------------------------------------------------------------
+    # def startpos(self):
+    # #--------------------------------------------------------------------------------
+    #     return self._startpos.pop(0)
+        
+    # #--------------------------------------------------------------------------------
+    # def size(self):
+    # #--------------------------------------------------------------------------------
+    #     return self._size.pop(0)
+        
+    #--------------------------------------------------------------------------------
+    def print(self):
+    #--------------------------------------------------------------------------------
+        # print('startpos: {}'.format(self._startpos))
+        # print('size: {}'.format(self._size))
+        for unit in self._units:
+            print(unit)
+        #print('units: {}'.format(self._units))
+        #print('names: {}'.format(self.keys))
+
+                             
+    #--------------------------------------------------------------------------------
+    def startpos_and_size(self):
+    #--------------------------------------------------------------------------------
+        #start, size = [0,], []
+        #start, size = [], []
+        units = []
+        inside = False
+        #self.keys = []
+        for block in unfmt_file(self._filename).blocks():
+            key = block.key()
+            if inside and key==self.end_before:# and len(start)>1:
+                inside = False
+                # size
+                unit.append(block.start()-unit[-1])
+                #size.append(block.start()-start[-1])
+                #self.keys.append('A:'+key+',size:'+str(size[-1]))
+                #unit.append(size[-1])
+                #units.append(unit)
+            if inside and key==self.end_after:
+                inside = False
+                # size
+                unit.append(block.end()-unit[-1])
+                #size.append(block.end()-start[-1])
+                #self.keys.append('B:'+key+',size:'+str(size[-1]))
+                #unit.append(size[-1])
+            if not inside and key==self.start_before:
+                inside = True
+                # pos
+                unit = [block.start(),]
+                #start.append(block.start())
+                #self.keys.append('C:'+key+',start:'+str(start[-1]))
+                #unit = [start[-1],]
+                units.append(unit)
+            if not inside and key==self.start_after:
+                inside = True
+                # pos
+                unit = [block.end(),]
+                #start.append(block.end())
+                #self.keys.append('D:'+key+',start:'+str(start[-1]))
+                #unit = [start[-1],]
+                units.append(unit)
+            if inside and self.remove_blocks and key in self.remove_blocks:
+                # size
+                unit.append(block.start()-unit[-1])
+                # pos
+                unit.append(block.end())
+                # size.append(block.start()-start[-1])
+                # start.append(block.end())
+                # unit.append(size[-1])
+                # unit.append(start[-1])
+                #self.keys.append('E:'+key+',size:'+str(size[-1])+',start:'+str(start[-1]))
+                #unit.append(block.start()-unit[-1])
+                #unit.append(block.end())
+        if self.end_before==self.init_key:
+            unit.append(self._filename.stat().st_size-unit[-1])
+            #size.append(self._filename.stat().st_size-start[-1])
+            #self.keys.append('F:'+self.end_before+',size:'+str(size[-1]))
+            #unit.append(size[-1])
+        #return start, size, units
+        return units
         
 
 #====================================================================================
@@ -369,7 +612,7 @@ class check_blocks:                                                # output_chec
     def __init__(self, filename, start=None, end=None, var=None):           # output_checker
     #--------------------------------------------------------------------------------
         #self.reader = reader(file)
-        self.file = unformatted_file(filename)
+        self.file = unfmt_file(filename)
         self.key = {'start':encode(start), 'end':encode(end)}
         self._var = var
         self.out = {k:[] for k in ('start', 'end', 'startpos')+(self._var,)}
@@ -465,13 +708,15 @@ class check_blocks:                                                # output_chec
 class Block:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, keyword, length, datatype, data):
+    def __init__(self, keyword, length, datatype, data=zeros(0)):
     #--------------------------------------------------------------------------------
         self.keyword = keyword
         self.length = length
         self.datatype = datatype
         self.data = data
-        self.max_size = 4000 #2**31
+        self.max_length = max_block_length
+        self.max_size = 1000*datasize[self.datatype]
+        #self.max_size = 4000 #2**31
 
     #--------------------------------------------------------------------------------
     def key(self):
@@ -491,7 +736,8 @@ class Block:
         data = self.data
         typesize = datasize[dtype]
         while data.size > 0:
-            length = min(len(data), int(self.max_size/typesize))
+            #length = min(len(data), int(self.max_size/typesize))
+            length = min(len(data), self.max_length)
             size = typesize*length
             bytes_ += struct.pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
             data = data[length:]
@@ -520,10 +766,13 @@ class Block:
     #--------------------------------------------------------------------------------
     def print(self):
     #--------------------------------------------------------------------------------
-        print(self.keyword, self.length, self.datatype, 'data[0,-1] = ['+str(self.data[0])+', '+str(self.data[-1])+']')
+        data = ''
+        if len(self.data) > 0:
+            data = 'data[0,-1] = ['+str(self.data[0])+', '+str(self.data[-1])+']'
+        print(self.keyword, self.length, self.datatype, data)
         
 #====================================================================================
-class formatted_file:
+class fmt_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, filename):
