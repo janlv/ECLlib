@@ -388,10 +388,11 @@ class unfmt_file:
 
 
     #--------------------------------------------------------------------------------
-    def insert(self, sections):
+    def insert(self, *args):
     #--------------------------------------------------------------------------------
-        if not isinstance(sections, tuple):
-            sections = (sections,)
+        #if len(args)==1:
+        #    sections = (args[0],)
+        sections = args
         out_file = open(self._filename, 'wb')
         in_files = []
         for sec in sections:
@@ -400,72 +401,34 @@ class unfmt_file:
         while OK: 
             for i,sec in enumerate(sections):
                 OK = sec.write_unit(in_files[i], out_file)
-            #OK = sec2.write_unit(sec1_file, out_file)
-            #unit = sec1.unit()
-            #for pos, size in zip(unit[::2],unit[1::2]):#for pos,size in sec1.next_unit():
-            #    sec1_file.seek(pos)
-            #    out_file.write( sec1_file.read(size) )
-            #for pos,size in sec2.next_unit():
-            #    sec2_file.seek(pos)
-            #    out_file.write( sec2_file.read(size) )
         for fil in in_files+[out_file,]:
             fil.close()
         return self._filename
+    
 
-
-    # #--------------------------------------------------------------------------------
-    # def insert(self, from_section, before=None, after=None, overwrite=False):
-    # #--------------------------------------------------------------------------------
-    #     # copy the whole record 
-    #     self_file = open(self._filename, 'rb')
-    #     from_file = open(from_section.filename(), 'rb')
-    #     out = self._filename.parent/'merged.UNRST'
-    #     out_file = open(out, 'wb')
-
-    #     copy_section = Section(self._filename, start_before=before, end_before=before,
-    #                            start_after=after, end_after=after)
-    #     while (from_section.not_empty() and copy_section.not_empty()):
-    #         self_file.seek(copy_section.startpos())
-    #         copy = self_file.read(copy_section.size())
-    #         out_file.write(copy)
-    #         from_file.seek(from_section.startpos())
-    #         insert = from_file.read(from_section.size())
-    #         out_file.write(insert)
-    #     self_file.close()
-    #     from_file.close()
-    #     out_file.close()
-    #     if overwrite:
-    #         shutil.copy(out, self._filename)
-    #         out = self._filename
-    #     return out
-
-
-    # #--------------------------------------------------------------------------------
-    # def remove(self, blocks=None):
-    # #--------------------------------------------------------------------------------
-    #     if isinstance(blocks, str):
-    #         blocks = (blocks,)
-    #     startpos, size= [0,], []
-    #     for block in self.blocks():
-    #         if block.key() in blocks:
-    #             size.append(block.start()-startpos[-1])
-    #             startpos.append(block.end())
-    #     #print(startpos)
-    #     #print(size)
-    #     #return
-    #     self_file = open(self._filename, 'rb')
-    #     out = self._filename.parent/'merged.UNRST'
-    #     out_file = open(out, 'wb')
-    #     while (startpos and size):
-    #         pos = startpos.pop(0)
-    #         self_file.seek(pos)
-    #         print('pos: '+str(pos)+', '+str(self_file.tell()))
-    #         read = size.pop(0)
-    #         write=out_file.write(self_file.read(read))
-    #         print('read: '+str(read)+', '+str(write))
-    #     self_file.close()
-    #     out_file.close()
-    #     return out
+    #--------------------------------------------------------------------------------
+    def remove(self, blocks=None):
+    #--------------------------------------------------------------------------------
+        if not isinstance(blocks, tuple):
+            blocks = (blocks,)
+        startpos, size= [0,], []
+        for block in self.blocks():
+            if block.key() in blocks:
+                size.append(block.start()-startpos[-1])
+                startpos.append(block.end())
+        in_file = open(self._filename, 'rb')
+        out = self._filename.parent/'removed.UNRST'
+        out_file = open(out, 'wb')
+        while (startpos and size):
+            pos = startpos.pop(0)
+            self_file.seek(pos)
+            #print('pos: '+str(pos)+', '+str(self_file.tell()))
+            read = size.pop(0)
+            write=out_file.write(self_file.read(read))
+            #print('read: '+str(read)+', '+str(write))
+        in_file.close()
+        out_file.close()
+        return out
     
     
 #====================================================================================
@@ -473,7 +436,7 @@ class Section:
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, filename, init_key='SEQNUM', start_before=None, start_after=None,
-                 end_before=None, end_after=None, skip_first=False, remove_blocks=None):
+                 end_before=None, end_after=None, skip_sections=None, remove_blocks=None):
     #--------------------------------------------------------------------------------
         self._filename = Path(filename)
         self.init_key = init_key
@@ -481,20 +444,20 @@ class Section:
         self.start_after = start_after
         self.end_before = end_before
         self.end_after = end_after
-        if isinstance(remove_blocks, str):
+        if not isinstance(remove_blocks, tuple):
             remove_blocks = (remove_blocks,)
         self.remove_blocks = remove_blocks
         self._units = self.startpos_and_size()
-        #self._startpos, self._size, self._units = self.startpos_and_size()
-        #print(self._startpos)
-        #print(self._size)
-        if skip_first:
-            self._startpos.pop(0)
+        if skip_sections != None:
+            if not isinstance(skip_sections, tuple):
+                skip_sections = (skip_sections,)
+            for sec in skip_sections:
+                print('sec:'+str(sec))
+                self._units.pop(sec)
             
     #--------------------------------------------------------------------------------
     def not_empty(self): # is_filled
     #--------------------------------------------------------------------------------
-        #if len(self._startpos)>0 and len(self._size)>0:
         if len(self._units)>0:
             return True
         else:
@@ -521,32 +484,19 @@ class Section:
     #--------------------------------------------------------------------------------
         return self._units.pop(0)
 
-    # #--------------------------------------------------------------------------------
-    # def startpos(self):
-    # #--------------------------------------------------------------------------------
-    #     return self._startpos.pop(0)
-        
-    # #--------------------------------------------------------------------------------
-    # def size(self):
-    # #--------------------------------------------------------------------------------
-    #     return self._size.pop(0)
-        
     #--------------------------------------------------------------------------------
     def print(self):
     #--------------------------------------------------------------------------------
-        # print('startpos: {}'.format(self._startpos))
-        # print('size: {}'.format(self._size))
         for unit in self._units:
             print(unit)
-        #print('units: {}'.format(self._units))
-        #print('names: {}'.format(self.keys))
 
                              
     #--------------------------------------------------------------------------------
     def startpos_and_size(self):
     #--------------------------------------------------------------------------------
-        #start, size = [0,], []
-        #start, size = [], []
+        # A unit is a list of consecutive absolute filepositions and relative
+        # byte chuncks corresponding to the length of the blocks to be kept.
+        # A unit list always starts with a pos and ends with a size
         units = []
         inside = False
         #self.keys = []
@@ -556,54 +506,37 @@ class Section:
                 inside = False
                 # size
                 unit.append(block.start()-unit[-1])
-                #size.append(block.start()-start[-1])
                 #self.keys.append('A:'+key+',size:'+str(size[-1]))
-                #unit.append(size[-1])
-                #units.append(unit)
             if inside and key==self.end_after:
                 inside = False
                 # size
                 unit.append(block.end()-unit[-1])
-                #size.append(block.end()-start[-1])
                 #self.keys.append('B:'+key+',size:'+str(size[-1]))
-                #unit.append(size[-1])
             if not inside and key==self.start_before:
                 inside = True
                 # pos
                 unit = [block.start(),]
-                #start.append(block.start())
-                #self.keys.append('C:'+key+',start:'+str(start[-1]))
-                #unit = [start[-1],]
                 units.append(unit)
+                #self.keys.append('C:'+key+',start:'+str(start[-1]))
             if not inside and key==self.start_after:
                 inside = True
                 # pos
                 unit = [block.end(),]
-                #start.append(block.end())
-                #self.keys.append('D:'+key+',start:'+str(start[-1]))
-                #unit = [start[-1],]
                 units.append(unit)
+                #self.keys.append('D:'+key+',start:'+str(start[-1]))
             if inside and self.remove_blocks and key in self.remove_blocks:
                 # size
                 unit.append(block.start()-unit[-1])
                 # pos
                 unit.append(block.end())
-                # size.append(block.start()-start[-1])
-                # start.append(block.end())
-                # unit.append(size[-1])
-                # unit.append(start[-1])
                 #self.keys.append('E:'+key+',size:'+str(size[-1])+',start:'+str(start[-1]))
-                #unit.append(block.start()-unit[-1])
-                #unit.append(block.end())
         if self.end_before==self.init_key:
             unit.append(self._filename.stat().st_size-unit[-1])
-            #size.append(self._filename.stat().st_size-start[-1])
             #self.keys.append('F:'+self.end_before+',size:'+str(size[-1]))
-            #unit.append(size[-1])
-        #return start, size, units
         return units
         
 
+    
 #====================================================================================
 class check_blocks:                                                # output_checker
 #====================================================================================
