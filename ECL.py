@@ -386,12 +386,9 @@ class unfmt_file:
         if self._filename.is_file():
             return True
 
-
     #--------------------------------------------------------------------------------
-    def insert(self, *args):
+    def create(self, *args):
     #--------------------------------------------------------------------------------
-        #if len(args)==1:
-        #    sections = (args[0],)
         sections = args
         out_file = open(self._filename, 'wb')
         in_files = []
@@ -452,17 +449,9 @@ class Section:
             if not isinstance(skip_sections, tuple):
                 skip_sections = (skip_sections,)
             for sec in skip_sections:
-                print('sec:'+str(sec))
+                #print('sec:'+str(sec))
                 self._units.pop(sec)
             
-    #--------------------------------------------------------------------------------
-    def not_empty(self): # is_filled
-    #--------------------------------------------------------------------------------
-        if len(self._units)>0:
-            return True
-        else:
-            return False
-        
     #--------------------------------------------------------------------------------
     def filename(self):
     #--------------------------------------------------------------------------------
@@ -480,11 +469,6 @@ class Section:
         return True
     
     #--------------------------------------------------------------------------------
-    def unit(self):
-    #--------------------------------------------------------------------------------
-        return self._units.pop(0)
-
-    #--------------------------------------------------------------------------------
     def print(self):
     #--------------------------------------------------------------------------------
         for unit in self._units:
@@ -497,6 +481,8 @@ class Section:
         # A unit is a list of consecutive absolute filepositions and relative
         # byte chuncks corresponding to the length of the blocks to be kept.
         # A unit list always starts with a pos and ends with a size
+        if not self._filename.is_file():
+            raise FileNotFoundError(self._filename + ' not found in Section')
         units = []
         inside = False
         #self.keys = []
@@ -560,13 +546,11 @@ class check_blocks:                                                # output_chec
     #--------------------------------------------------------------------------------
         return self.out[_var][0]
             
-
     #--------------------------------------------------------------------------------
     def filename(self):                                              # output_checker
     #--------------------------------------------------------------------------------
         return self.file.filename
 
-    
     #--------------------------------------------------------------------------------
     def start_values(self):                                          # output_checker
     #--------------------------------------------------------------------------------
@@ -638,7 +622,10 @@ class check_blocks:                                                # output_chec
 
 
 #====================================================================================
-class Block:
+class fmt_block:
+    #
+    # formatted block of Eclipse data
+    #
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, keyword, length, datatype, data=zeros(0)):
@@ -648,13 +635,18 @@ class Block:
         self.datatype = datatype
         self.data = data
         self.max_length = max_block_length
-        self.max_size = 1000*datasize[self.datatype]
+        #self.max_size = 1000*datasize[self.datatype]
         #self.max_size = 4000 #2**31
 
     #--------------------------------------------------------------------------------
     def key(self):
     #--------------------------------------------------------------------------------
-        return self.keyword
+        return self.keyword.strip()
+    
+    #--------------------------------------------------------------------------------
+    def set_key(self, keyword):
+    #--------------------------------------------------------------------------------
+        self.keyword = keyword #.ljust(8)
     
     #--------------------------------------------------------------------------------
     def unformatted(self):
@@ -675,27 +667,7 @@ class Block:
             bytes_ += struct.pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
             data = data[length:]
         return bytes_
-        
-        
-    # #--------------------------------------------------------------------------------
-    # def unformatted_header(self):
-    # #--------------------------------------------------------------------------------
-    #     return struct.pack(endian + 'i8si4si', 16, self.keyword.encode(), self.length, self.datatype.encode(), 16)
-
-    # #--------------------------------------------------------------------------------
-    # def unformatted_data(self):
-    # #--------------------------------------------------------------------------------
-    #     #print(endian + 'i' + str(self.length) + pack_char[self.datatype] + 'i')
-    #     dtype = self.datatype.encode()
-    #     data = self.data
-    #     bytes_ = bytearray()
-    #     while data.size > 0:
-    #         length = min(len(data), int(self.max_size/datasize[dtype]))
-    #         dsize = datasize[dtype]*length
-    #         bytes_ += struct.pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), dsize, *data[:length], dsize)
-    #         data = data[length:]
-    #     return bytes_
-        
+                
     #--------------------------------------------------------------------------------
     def print(self):
     #--------------------------------------------------------------------------------
@@ -703,16 +675,25 @@ class Block:
         if len(self.data) > 0:
             data = 'data[0,-1] = ['+str(self.data[0])+', '+str(self.data[-1])+']'
         print(self.keyword, self.length, self.datatype, data)
+
         
 #====================================================================================
 class fmt_file:
+    #
+    # Class to handle formatted Eclipse files.
+    #
+    # Functions:
+    #             blocks(warn_missing=False)
+    #             convert()
+    #             is_file()
+    #
+    #
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, filename):
     #--------------------------------------------------------------------------------
         self.name = Path(filename)
         self.fh = None
-        self.blocks_read = 0
 
     #--------------------------------------------------------------------------------
     def is_file(self):
@@ -740,48 +721,8 @@ class fmt_file:
                 except TypeError:
                     return
                 else: 
-                    yield Block(keyword, length, dtype, data)
+                    yield fmt_block(keyword, length, dtype, data)
                            
-    #--------------------------------------------------------------------------------
-    def records(self, skip=0, warn_missing=False):
-    #--------------------------------------------------------------------------------
-        if not self.name.is_file():
-            print('File {} does not exist!'.format(self.name))
-            return
-        num = -1
-        record = []
-        end_key = None
-        header_line = ''
-        with open(self.name) as self.fh:
-            for line in self.fh:
-                try:
-                    keyword, length, dtype = self.read_header(line)
-                    if num==-1:
-                        start = keyword
-                    if keyword==start:
-                        num += 1
-                        if num < skip:
-                            skip_this = True
-                        else:
-                            skip_this = False
-                        if record and not skip_this:
-                            if end_key and end_key != record[-1].key():
-                                print('WARNING! End keyword difference in records')
-                                raise StopIteration
-                            yield record
-                            end_key = record[-1].key()
-                            record = []
-                    data = self.read_data(length, dtype, skip=skip_this) #, line=line)
-                    if not skip_this:
-                        record.append( Block(keyword, length, dtype, data) )
-                except StopIteration:
-                    if warn_missing:
-                        print("\n  WARNING: Missing data in '{}' block, file {} not complete!".format(keyword,self.name.name))
-                    return
-            yield record
-            if end_key and end_key != record[-1].key():
-                print('WARNING! End keyword difference in records')
-            
                 
     #--------------------------------------------------------------------------------
     def read_header(self, line): 
@@ -825,49 +766,152 @@ class fmt_file:
         return start.strip()
         
         
+
     #----------------------------------------------------------------------------
-    #def convert(self, ext='UNRST', check_duplicate=False, ignore=1, echo=False, progress=False, message=False): 
-    def convert(self, ext='UNRST', duplicate=None, ignore=None, echo=False, progress=False, message=False): 
+    def convert(self, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
+                rename_key=None, echo=False, progress=False): 
     #--------------------------------------------------------------------------------
         #  
         #
-        start = self.start_key().ljust(8)
-        if duplicate:
-            duplicate = duplicate.ljust(8)
+        #start = self.start_key().ljust(8)
+        if rename_key and len(rename_key)<2:
+            raise SystemError('ERROR in convert: Format of rename_keyword options is ' +
+                              "('old name', 'new name'), but "+
+                              '{} were given'.format(rename_key))
         fname = str(self.name.parent/self.name.stem)+'.'+ext
-        unformatted_file = open(fname, 'wb')
+        out_file = open(fname, 'wb')
         bytes_ = bytearray()
         n = 0
-        num = {}
+        count = {}
         for block in self.blocks():
             #block.print()
             key = block.key()
-            if key==start and len(bytes_)>0:
+            if key==init_key and len(bytes_)>0:
                 # write previous block to file, and reset bytes_
                 n += 1
-                unformatted_file.write(bytes_)
+                out_file.write(bytes_)
+                # reset bytes for next section
+                bytes_ = bytearray()
                 if progress:
                     progress(n)
-                bytes_ = bytearray()
-                num = {}
-            num[key] = 1 + (num.get(key) or 0)
-            #bytes_ += block.unformatted()
-            if duplicate and key==duplicate:
-                if num[key] != ignore:
-                    #print(key, str(ignore))
-                    bytes_ += block.unformatted()
-            elif num[key] < 2:
-                bytes_ += block.unformatted()
-                #print(key)
-        unformatted_file.close()
+                count = {}
+            if rename_duplicate:
+                if count.get(key):
+                    # duplicate keyname, rename key
+                    block.set_key(key[:-1]+str(count[key]))
+                else:
+                    # create new entry
+                    count[key] = 0
+                count[key] += 1
+            if rename_key and key==rename_key[0]:
+                block.set_key(rename_key[1])
+            bytes_ += block.unformatted()
+        out_file.close()
         if echo:
             print('{} converted to {}'.format(self.name.name,Path(fname)))
-        if message and any([n>1 for n in num.values()]):
-                message(('info',"Duplicate keyword '{}' in {} ignored during convert".
-                         format(', '.join([k for k,v in num.items() if v>1]),self.name.name)))            
+        # if message and any([n>1 for n in num.values()]):
+        #         message(('info',"Duplicate keyword '{}' in {} ignored during convert".
+        #                  format(', '.join([k for k,v in num.items() if v>1]),self.name.name)))            
         return fname
+
+    # #----------------------------------------------------------------------------
+    # def convert(self, ext='UNRST', duplicate=None, ignore=None, echo=False, progress=False, message=False): 
+    # #--------------------------------------------------------------------------------
+    #     #  
+    #     #
+    #     start = self.start_key().ljust(8)
+    #     if duplicate:
+    #         duplicate = duplicate.ljust(8)
+    #     fname = str(self.name.parent/self.name.stem)+'.'+ext
+    #     unformatted_file = open(fname, 'wb')
+    #     bytes_ = bytearray()
+    #     n = 0
+    #     num = {}
+    #     for block in self.blocks():
+    #         #block.print()
+    #         key = block.key()
+    #         if key==start and len(bytes_)>0:
+    #             # write previous block to file, and reset bytes_
+    #             n += 1
+    #             unformatted_file.write(bytes_)
+    #             if progress:
+    #                 progress(n)
+    #             bytes_ = bytearray()
+    #             num = {}
+    #         num[key] = 1 + (num.get(key) or 0)
+    #         #bytes_ += block.unformatted()
+    #         if duplicate and key==duplicate:
+    #             if num[key] != ignore:
+    #                 #print(key, str(ignore))
+    #                 bytes_ += block.unformatted()
+    #         elif num[key] < 2:
+    #             bytes_ += block.unformatted()
+    #             #print(key)
+    #     unformatted_file.close()
+    #     if echo:
+    #         print('{} converted to {}'.format(self.name.name,Path(fname)))
+    #     if message and any([n>1 for n in num.values()]):
+    #             message(('info',"Duplicate keyword '{}' in {} ignored during convert".
+    #                      format(', '.join([k for k,v in num.items() if v>1]),self.name.name)))            
+    #     return fname
+
+    
+    # ----------------------------------------------------------------------------
+    # def find_duplicate(self, init_key='SEQNUM'):
+    # ----------------------------------------------------------------------------
+    #     n = 0
+    #     count = {}
+    #     for block in self.blocks():
+    #         key = block.key()
+    #         if key==init_key:
+    #             n += 1
+    #             if n>2:
+    #                 break
+    #         count[key] = 1 + (count.get(key) or 0)
+    #     return [k for k,v in count.items() if v>1]
+        
+    # #--------------------------------------------------------------------------------
+    # def records(self, skip=0, warn_missing=False):
+    # #--------------------------------------------------------------------------------
+    #     if not self.name.is_file():
+    #         print('File {} does not exist!'.format(self.name))
+    #         return
+    #     num = -1
+    #     record = []
+    #     end_key = None
+    #     header_line = ''
+    #     with open(self.name) as self.fh:
+    #         for line in self.fh:
+    #             try:
+    #                 keyword, length, dtype = self.read_header(line)
+    #                 if num==-1:
+    #                     start = keyword
+    #                 if keyword==start:
+    #                     num += 1
+    #                     if num < skip:
+    #                         skip_this = True
+    #                     else:
+    #                         skip_this = False
+    #                     if record and not skip_this:
+    #                         if end_key and end_key != record[-1].key():
+    #                             print('WARNING! End keyword difference in records')
+    #                             raise StopIteration
+    #                         yield record
+    #                         end_key = record[-1].key()
+    #                         record = []
+    #                 data = self.read_data(length, dtype, skip=skip_this) #, line=line)
+    #                 if not skip_this:
+    #                     record.append( Block(keyword, length, dtype, data) )
+    #             except StopIteration:
+    #                 if warn_missing:
+    #                     print("\n  WARNING: Missing data in '{}' block, file {} not complete!".format(keyword,self.name.name))
+    #                 return
+    #         yield record
+    #         if end_key and end_key != record[-1].key():
+    #             print('WARNING! End keyword difference in records')
             
 
+    
 #====================================================================================
 class RSM_block:
 #====================================================================================
