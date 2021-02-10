@@ -390,16 +390,26 @@ class unfmt_file:
     def create(self, *args):
     #--------------------------------------------------------------------------------
         sections = args
-        out_file = open(self._filename, 'wb')
-        in_files = []
+        # Make sure the sizes of each section are equal
+        # Remove last unit if they are unequal
+        min_size = min([sec.size() for sec in sections])
         for sec in sections:
-            in_files.append(open(sec.filename(), 'rb'))
+            while sec.size() > min_size:
+                sec.pop_unit(-1)
+                #print('pop from '+str(sec.filename()))
+        # Open files
+        out_file = open(self._filename, 'wb')
+        for sec in sections:
+            sec.open_file()
+        # Write sections to out_file
         OK = True
         while OK: 
-            for i,sec in enumerate(sections):
-                OK = sec.write_unit(in_files[i], out_file)
-        for fil in in_files+[out_file,]:
-            fil.close()
+            for sec in sections:
+                OK = sec.write_next_unit(out_file)
+        # Close files
+        for sec in sections:
+            sec.close_file()
+        out_file.close()
         return self._filename
     
 
@@ -436,12 +446,13 @@ class Section:
                  end_before=None, end_after=None, skip_sections=None, remove_blocks=None):
     #--------------------------------------------------------------------------------
         self._filename = Path(filename)
+        self._fh = None # filehandle
         self.init_key = init_key
         self.start_before = start_before
         self.start_after = start_after
         self.end_before = end_before
         self.end_after = end_after
-        if not isinstance(remove_blocks, tuple):
+        if remove_blocks and not isinstance(remove_blocks, tuple):
             remove_blocks = (remove_blocks,)
         self.remove_blocks = remove_blocks
         self._units = self.startpos_and_size()
@@ -453,19 +464,39 @@ class Section:
                 self._units.pop(sec)
             
     #--------------------------------------------------------------------------------
+    def open_file(self):
+    #--------------------------------------------------------------------------------
+        self._fh = open(self._filename, 'rb')
+        
+    #--------------------------------------------------------------------------------
+    def close_file(self):
+    #--------------------------------------------------------------------------------
+        self._fh.close()
+        
+    #--------------------------------------------------------------------------------
     def filename(self):
     #--------------------------------------------------------------------------------
         return self._filename
         
     #--------------------------------------------------------------------------------
-    def write_unit(self, in_file, out_file):
+    def size(self):
+    #--------------------------------------------------------------------------------
+        return len(self._units)
+        
+    #--------------------------------------------------------------------------------
+    def pop_unit(self, nr):
+    #--------------------------------------------------------------------------------
+        return self._units.pop(nr)
+        
+    #--------------------------------------------------------------------------------
+    def write_next_unit(self, out_file):
     #--------------------------------------------------------------------------------
         if len(self._units)==0:
             return False
         unit = self._units.pop(0)
         for pos, size in zip(unit[::2],unit[1::2]):
-            in_file.seek(pos)
-            out_file.write( in_file.read(size) )
+            self._fh.seek(pos)
+            out_file.write( self._fh.read(size) )
         return True
     
     #--------------------------------------------------------------------------------
@@ -482,7 +513,7 @@ class Section:
         # byte chuncks corresponding to the length of the blocks to be kept.
         # A unit list always starts with a pos and ends with a size
         if not self._filename.is_file():
-            raise FileNotFoundError(self._filename + ' not found in Section')
+            raise FileNotFoundError(str(self._filename) + ' not found in Section')
         units = []
         inside = False
         #self.keys = []
@@ -628,7 +659,7 @@ class fmt_block:
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, keyword, length, datatype, data=zeros(0)):
+    def __init__(self, keyword=None, length=None, datatype=None, data=zeros(0)):
     #--------------------------------------------------------------------------------
         self.keyword = keyword
         self.length = length
@@ -638,6 +669,15 @@ class fmt_block:
         #self.max_size = 1000*datasize[self.datatype]
         #self.max_size = 4000 #2**31
 
+    # #--------------------------------------------------------------------------------
+    # def update(self, keyword=None, length=None, datatype=None, data=zeros(0)):
+    # #--------------------------------------------------------------------------------
+    #     self.keyword = keyword
+    #     self.length = length
+    #     self.datatype = datatype
+    #     self.data = data
+    #     self.max_length = max_block_length
+        
     #--------------------------------------------------------------------------------
     def key(self):
     #--------------------------------------------------------------------------------
@@ -657,15 +697,21 @@ class fmt_block:
         bytes_ = bytearray()
         # header
         bytes_ += struct.pack(endian + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
-        # data (split in multiple records if size > 2**31)
+        # data is split in multiple records if length > 1000 
         data = self.data
         typesize = datasize[dtype]
+        #start = 0
+        #self.print()
+        #while len(data[start:]) > 0:
         while data.size > 0:
-            #length = min(len(data), int(self.max_size/typesize))
             length = min(len(data), self.max_length)
+            #length = min(len(data[start:]), self.max_length)
+            #print(start, start+length)
             size = typesize*length
             bytes_ += struct.pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
+            #bytes_ += struct.pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[start:start+length], size)
             data = data[length:]
+            #start += length
         return bytes_
                 
     #--------------------------------------------------------------------------------
@@ -709,6 +755,7 @@ class fmt_file:
     #--------------------------------------------------------------------------------
         if not self.is_file():
              return
+        #block = fmt_block()
         with open(self.name) as self.fh:
             for line in self.fh:
                 try:
@@ -720,7 +767,9 @@ class fmt_file:
                     return
                 except TypeError:
                     return
-                else: 
+                else:
+                    #block.update(keyword, length, dtype, data)
+                    #yield block
                     yield fmt_block(keyword, length, dtype, data)
                            
                 
@@ -778,7 +827,8 @@ class fmt_file:
             raise SystemError('ERROR in convert: Format of rename_keyword options is ' +
                               "('old name', 'new name'), but "+
                               '{} were given'.format(rename_key))
-        fname = str(self.name.parent/self.name.stem)+'.'+ext
+        stem = self.name.stem.upper()
+        fname = str(self.name.parent/stem)+'.'+ext
         out_file = open(fname, 'wb')
         bytes_ = bytearray()
         n = 0
@@ -798,7 +848,7 @@ class fmt_file:
             if rename_duplicate:
                 if count.get(key):
                     # duplicate keyname, rename key
-                    block.set_key(key[:-1]+str(count[key]))
+                    block.set_key(key[:-1]+str(count[key]+1))
                 else:
                     # create new entry
                     count[key] = 0
