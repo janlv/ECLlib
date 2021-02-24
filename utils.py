@@ -126,16 +126,22 @@ def delete_files_matching(pattern, echo=False):
 
 #------------------------------------------------
 def loop_until(func, limit=None, sleep_sec=None, assert_running=None, error=None,
-               wait_func=None, wait=1, kill_func=None, kill_msg=None, **kwargs):
+               wait_func=None, wait=1, kill_func=None, kill_msg=None, progress=None,
+               progress_limit=1, **kwargs):
 #------------------------------------------------
     n = 0
     while True:
         if func(**kwargs):
             return n
-        if assert_running:
-            assert_running()
         if sleep_sec:
             sleep(sleep_sec)
+        if assert_running:
+            if progress:
+                if progress()<progress_limit:
+                    #print(progress())
+                    assert_running()
+            else:
+                assert_running()
         n += 1
         if limit and n > limit:
             raise SystemError('{} ({}() called > {} times)'.format(error or '', func.__qualname__, limit))
