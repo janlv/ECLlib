@@ -156,6 +156,23 @@ def loop_until(func, limit=None, sleep_sec=None, assert_running=None, error=None
 
 
 #------------------------------------------------
+def loop_until_2(func, limit=None, pause=None, error=None,
+                 loop_func=None, **kwargs):
+#------------------------------------------------
+    n = 0
+    while True:
+        if func(**kwargs):
+            return n
+        if pause:
+            sleep(pause)
+        n += 1
+        if limit and n > limit:
+            raise SystemError(error or '{}() called > {} times'.format(func.__qualname__, limit))
+        if loop_func:
+            loop_func(n)
+
+
+#------------------------------------------------
 def list2str(alist, start='', end='', sep=''):
 #------------------------------------------------
     return start + '%s'%', '.join(sep+'{}'.format(i)+sep for i in alist) + end

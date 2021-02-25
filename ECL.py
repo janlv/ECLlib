@@ -862,7 +862,7 @@ class fmt_file:
         # if message and any([n>1 for n in num.values()]):
         #         message(('info',"Duplicate keyword '{}' in {} ignored during convert".
         #                  format(', '.join([k for k,v in num.items() if v>1]),self.name.name)))            
-        return fname
+        return Path(fname)
 
     # #----------------------------------------------------------------------------
     # def convert(self, ext='UNRST', duplicate=None, ignore=None, echo=False, progress=False, message=False): 
