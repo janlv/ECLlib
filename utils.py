@@ -124,35 +124,35 @@ def delete_files_matching(pattern, echo=False):
             raise SystemError('Unable to delete file '+str(file)+', maybe it belongs to another process')
 
 
-#------------------------------------------------
-def loop_until(func, limit=None, sleep_sec=None, assert_running=None, error=None,
-               wait_func=None, wait=1, kill_func=None, kill_msg=None, progress=None,
-               progress_limit=1, **kwargs):
-#------------------------------------------------
-    n = 0
-    while True:
-        if func(**kwargs):
-            return n
-        if sleep_sec:
-            sleep(sleep_sec)
-        if assert_running:
-            if progress:
-                if progress()<progress_limit:
-                    #print(progress())
-                    assert_running()
-            else:
-                assert_running()
-        n += 1
-        if limit and n > limit:
-            raise SystemError('{} ({}() called > {} times)'.format(error or '', func.__qualname__, limit))
-        if wait_func and n%wait==0:
-            wait_func()
-        if kill_func and kill_func():
-            if kill_msg:
-                raise SystemError(kill_msg())
-            else:
-                raise SystemError('loop_until: Loop over {}() stopped by {}() after {} iterations'.
-                                  format(func.__qualname__, kill_func.__qualname__, n))
+# #------------------------------------------------
+# def loop_until(func, limit=None, sleep_sec=None, assert_running=None, error=None,
+#                wait_func=None, wait=1, kill_func=None, kill_msg=None, progress=None,
+#                progress_limit=1, **kwargs):
+# #------------------------------------------------
+#     n = 0
+#     while True:
+#         if func(**kwargs):
+#             return n
+#         if sleep_sec:
+#             sleep(sleep_sec)
+#         if assert_running:
+#             if progress:
+#                 if progress()<progress_limit:
+#                     #print(progress())
+#                     assert_running()
+#             else:
+#                 assert_running()
+#         n += 1
+#         if limit and n > limit:
+#             raise SystemError('{} ({}() called > {} times)'.format(error or '', func.__qualname__, limit))
+#         if wait_func and n%wait==0:
+#             wait_func()
+#         if kill_func and kill_func():
+#             if kill_msg:
+#                 raise SystemError(kill_msg())
+#             else:
+#                 raise SystemError('loop_until: Loop over {}() stopped by {}() after {} iterations'.
+#                                   format(func.__qualname__, kill_func.__qualname__, n))
 
 
 #------------------------------------------------
