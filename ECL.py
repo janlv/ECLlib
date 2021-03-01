@@ -3,7 +3,7 @@
 
 #from struct import unpack
 import struct
-import os
+#import os
 from pathlib import Path
 from .utils import list2str, float_or_str
 from numpy import zeros, int32, float32, float64, ceil
