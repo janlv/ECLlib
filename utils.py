@@ -10,6 +10,8 @@ from datetime import timedelta, datetime
 #--------------------------------------------------------------------------------
 def file_contains(fname, text='', comment='#'):
 #--------------------------------------------------------------------------------
+    if not Path(fname).is_file():
+        raise SyntaxError('ERROR ' + fname + ' is not found')    
     with open(fname, 'r') as f:
         for line in f:
             line = line.lstrip()
@@ -114,7 +116,6 @@ def float_or_str(word):
 def delete_files_matching(pattern, echo=False):
 #------------------------------------------------
     pattern = Path(pattern)
-    #for f in Path('').parent.glob(pattern):
     for file in pattern.parent.glob(pattern.name):
         if echo:
             print('Removing ' + str(file))
@@ -170,6 +171,24 @@ def loop_until_2(func, limit=None, pause=None, error=None,
             raise SystemError(error or '{}() called > {} times'.format(func.__qualname__, limit))
         if loop_func:
             loop_func(n)
+
+#------------------------------------------------
+def loop_until_3(func, *args, limit=None, pause=None, error=None, loop_func=lambda:None, **kwargs):
+#------------------------------------------------
+    n = 0
+    while True:
+        if func(**kwargs):
+            return n
+        if pause:
+            sleep(pause)
+        n += 1
+        #print(n, limit, pause, error, loop_func)
+        if limit and n > limit:
+            if error:
+                raise SystemError(error)
+            else:
+                return -1
+        loop_func()
 
 
 #------------------------------------------------
@@ -239,7 +258,7 @@ class Progress:
             #if n>self.steps[-1]:
             #    self.steps.append(n) 
             Dt = time()-self.start_time
-            eta = int((self.N-n)*Dt/n)
+            eta = max(int((self.N-n)*Dt/n), 0)
             #t_step = Dt/len(self.steps)
             #interval = 1
             #if len(self.steps)>1:

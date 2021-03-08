@@ -108,6 +108,7 @@ class _datablock:                                                          # dat
         #self.chunk = b''
         self.chunk = bytearray()
         self.length = None
+        self._key = ''
         #self.endpos = self.startpos = None
         
     #--------------------------------------------------------------------------------
@@ -185,6 +186,7 @@ class unfmt_file:
         self._filename = Path(filename)
         #self.data_chunk = b''
         self.endpos = self.startpos = 0
+        #print('init', flush=True)
 
     #--------------------------------------------------------------------------------
     def set_startpos(self, pos):                                             # reader
@@ -245,13 +247,16 @@ class unfmt_file:
 
     #--------------------------------------------------------------------------------
     #def parse_backward(self, data=False):                               # reader
-    def tail_blocks(self, data=False):                               # reader
+    def tail_blocks(self, data=True, datalist=[]):                               # reader
     #--------------------------------------------------------------------------------
         #self.set_direction('backward')
+        if not Path(self._filename).is_file():
+            return
+        if datalist:
+            data = False
         with open(self._filename, 'rb') as self.fileobj:
-            #if startpos:
-            #    self.fileobj.seek(startpos, 1)
-            self.fileobj.seek(0, 2) # go to end of file
+            # Go to end of file
+            self.fileobj.seek(0, 2)
             db = _datablock()
             while True:
                 try:
@@ -265,7 +270,7 @@ class unfmt_file:
                         yield db
                         db.reset()
                 else:
-                    if not data:
+                    if not data and not db._key in datalist:
                         #chunk = b'0'
                         chunk = bytearray(1)
                     #db.add_chunk(chunk)
@@ -414,28 +419,28 @@ class unfmt_file:
     
 
     #--------------------------------------------------------------------------------
-    def remove(self, blocks=None):
-    #--------------------------------------------------------------------------------
-        if not isinstance(blocks, tuple):
-            blocks = (blocks,)
-        startpos, size= [0,], []
-        for block in self.blocks():
-            if block.key() in blocks:
-                size.append(block.start()-startpos[-1])
-                startpos.append(block.end())
-        in_file = open(self._filename, 'rb')
-        out = self._filename.parent/'removed.UNRST'
-        out_file = open(out, 'wb')
-        while (startpos and size):
-            pos = startpos.pop(0)
-            self_file.seek(pos)
-            #print('pos: '+str(pos)+', '+str(self_file.tell()))
-            read = size.pop(0)
-            write=out_file.write(self_file.read(read))
-            #print('read: '+str(read)+', '+str(write))
-        in_file.close()
-        out_file.close()
-        return out
+    # def remove(self, blocks=None):
+    # #--------------------------------------------------------------------------------
+    #     if not isinstance(blocks, tuple):
+    #         blocks = (blocks,)
+    #     startpos, size= [0,], []
+    #     for block in self.blocks():
+    #         if block.key() in blocks:
+    #             size.append(block.start()-startpos[-1])
+    #             startpos.append(block.end())
+    #     in_file = open(self._filename, 'rb')
+    #     out = self._filename.parent/'removed.UNRST'
+    #     out_file = open(out, 'wb')
+    #     while (startpos and size):
+    #         pos = startpos.pop(0)
+    #         self_file.seek(pos)
+    #         #print('pos: '+str(pos)+', '+str(self_file.tell()))
+    #         read = size.pop(0)
+    #         write=out_file.write(self_file.read(read))
+    #         #print('read: '+str(read)+', '+str(write))
+    #     in_file.close()
+    #     out_file.close()
+    #     return out
     
     
 #====================================================================================
