@@ -173,9 +173,11 @@ def loop_until_2(func, limit=None, pause=None, error=None,
             loop_func(n)
 
 #------------------------------------------------
-def loop_until_3(func, *args, limit=None, pause=None, error=None, loop_func=lambda:None, **kwargs):
+def loop_until_3(func, *args, limit=None, pause=None, error=None, loop_func=None, **kwargs):
 #------------------------------------------------
     n = 0
+    if not loop_func:
+        loop_func = lambda:None
     while True:
         if func(**kwargs):
             return n
