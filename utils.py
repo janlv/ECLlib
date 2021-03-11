@@ -85,9 +85,9 @@ def assert_python_version(major=None, minor=None):
 #------------------------------------------------
 def silentdelete(fname, echo=False):
 #------------------------------------------------
-    if isinstance(fname, str) or isinstance(fname, Path):
+    if isinstance(fname, (str,Path)):
         fname = list(str(fname))
-    if isinstance(fname, list) or isinstance(fname, tuple):
+    if isinstance(fname, (list, tuple)): # or isinstance(fname, tuple):
         for f in fname:
             try:
                 Path(f).unlink()

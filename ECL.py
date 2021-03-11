@@ -823,7 +823,7 @@ class fmt_file:
 
     #----------------------------------------------------------------------------
     def convert(self, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
-                rename_key=None, echo=False, progress=False): 
+                rename_key=None, echo=False, progress=lambda x:None): 
     #--------------------------------------------------------------------------------
         #  
         #
@@ -847,8 +847,8 @@ class fmt_file:
                 out_file.write(bytes_)
                 # reset bytes for next section
                 bytes_ = bytearray()
-                if progress:
-                    progress(n)
+                progress(n)
+                #print(n)
                 count = {}
             if rename_duplicate:
                 if count.get(key):
