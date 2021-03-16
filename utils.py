@@ -11,7 +11,7 @@ from datetime import timedelta, datetime
 def file_contains(fname, text='', comment='#'):
 #--------------------------------------------------------------------------------
     if not Path(fname).is_file():
-        raise SyntaxError('ERROR ' + fname + ' is not found')    
+        raise SystemError('ERROR ' + fname + ' is not found')    
     with open(fname, 'r') as f:
         for line in f:
             line = line.lstrip()
@@ -125,55 +125,9 @@ def delete_files_matching(pattern, echo=False):
             raise SystemError('Unable to delete file '+str(file)+', maybe it belongs to another process')
 
 
-# #------------------------------------------------
-# def loop_until(func, limit=None, sleep_sec=None, assert_running=None, error=None,
-#                wait_func=None, wait=1, kill_func=None, kill_msg=None, progress=None,
-#                progress_limit=1, **kwargs):
-# #------------------------------------------------
-#     n = 0
-#     while True:
-#         if func(**kwargs):
-#             return n
-#         if sleep_sec:
-#             sleep(sleep_sec)
-#         if assert_running:
-#             if progress:
-#                 if progress()<progress_limit:
-#                     #print(progress())
-#                     assert_running()
-#             else:
-#                 assert_running()
-#         n += 1
-#         if limit and n > limit:
-#             raise SystemError('{} ({}() called > {} times)'.format(error or '', func.__qualname__, limit))
-#         if wait_func and n%wait==0:
-#             wait_func()
-#         if kill_func and kill_func():
-#             if kill_msg:
-#                 raise SystemError(kill_msg())
-#             else:
-#                 raise SystemError('loop_until: Loop over {}() stopped by {}() after {} iterations'.
-#                                   format(func.__qualname__, kill_func.__qualname__, n))
-
 
 #------------------------------------------------
-def loop_until_2(func, limit=None, pause=None, error=None,
-                 loop_func=None, **kwargs):
-#------------------------------------------------
-    n = 0
-    while True:
-        if func(**kwargs):
-            return n
-        if pause:
-            sleep(pause)
-        n += 1
-        if limit and n > limit:
-            raise SystemError(error or '{}() called > {} times'.format(func.__qualname__, limit))
-        if loop_func:
-            loop_func(n)
-
-#------------------------------------------------
-def loop_until_3(func, *args, limit=None, pause=None, error=None, loop_func=None, **kwargs):
+def loop_until(func, *args, limit=None, pause=None, error=None, loop_func=None, **kwargs):
 #------------------------------------------------
     n = 0
     if not loop_func:
@@ -183,13 +137,14 @@ def loop_until_3(func, *args, limit=None, pause=None, error=None, loop_func=None
             return n
         if pause:
             sleep(pause)
-        n += 1
         #print(n, limit, pause, error, loop_func)
-        if limit and n > limit:
-            if error:
-                raise SystemError(error)
-            else:
-                return -1
+        if limit:
+            n += 1
+            if n > limit:
+                if error:
+                    raise SystemError(error)
+                else:
+                    return -1
         loop_func()
 
 
@@ -231,23 +186,63 @@ def warn_empty_file(file, comment=''):
 class Progress:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, N=0, update=1):
+    def __init__(self, N=0, update=1, format='%', indent=3):
     #--------------------------------------------------------------------------------
         self.start_time = time()
         self.update = update
         self.N = N
+        if '%' in format:
+            self.format = self.format_percent
+        if '#' in format:
+            self.format = self.format_bar
+            try: n = int(format.split('#')[0])
+            except ValueError: n = 1
+            self.bar_length = n
+        self.indent = indent*' '
         #self.steps = [0]
-        
+
+    #--------------------------------------------------------------------------------
+    def calc_estimated_arrival(self, n):
+    #--------------------------------------------------------------------------------
+        Dt = time()-self.start_time
+        self.ela = timedelta(seconds=int(Dt))
+        self.eta = timedelta(seconds=int((self.N-n)*Dt/n))
+
+    #--------------------------------------------------------------------------------
+    def format_percent(self, n):
+    #--------------------------------------------------------------------------------
+        return 'Progress {: 4d}/{:4d} = {:.0f} %   ETA: {}'.format(n, self.N, 100*n/self.N, self.eta) 
+
+    #--------------------------------------------------------------------------------
+    def format_bar(self, n):
+    #--------------------------------------------------------------------------------
+        hash = int(self.bar_length*n/self.N)
+        rest = self.bar_length - hash
+        return '{: 4d}/{:4d}  [{}{}]  {}'.format(n, self.N, hash*'#', rest*'-', self.eta) 
+
+    #--------------------------------------------------------------------------------
+    def set_N(self, N):
+    #--------------------------------------------------------------------------------
+        self.N = N
+
     #--------------------------------------------------------------------------------
     def print(self, n):
     #--------------------------------------------------------------------------------
-        if n%self.update==0:
-            Dt = time()-self.start_time
-            eta = timedelta(seconds=int((self.N-n)*Dt/n))
+        if n>0 and n%self.update==0:
+            #Dt = time()-self.start_time
+            #self.eta = timedelta(seconds=int((self.N-n)*Dt/n))
+            self.calc_estimated_arrival(n)
+            print('\r'+self.indent+self.format(n)+10*' ', end='', flush=True)
             #tot = timedelta(seconds=int(Dt*self.N/n))
-            ela = timedelta(seconds=int(Dt))
-            print('\r  Progress {: 4d}/{:4d} = {:.0f} %   ETA: {:s} (elapsed: {:s})'.
-                  format(n, self.N, 100*n/self.N, str(eta), str(ela)), end='', flush=True)
+            #ela = timedelta(seconds=int(Dt))
+            #print('\r  Progress {: 4d}/{:4d} = {:.0f} %   ETA: {:s} (elapsed: {:s})'.
+            #      format(n, self.N, 100*n/self.N, str(eta), str(ela)), end='', flush=True)
+            # if '%' in format:
+            #     print('\r   Progress {: 4d}/{:4d} = {:.0f} %   ETA: {}'.
+            #         format(n, self.N, 100*n/self.N, str(eta)), end='', flush=True)
+            # if '#' in format:
+            #     print('\r   {: 4d}/{:4d}  [{}]   {}'.
+            #         format(n, self.N, (10*n/self.N)*'#', str(eta)), end='', flush=True)
 
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
