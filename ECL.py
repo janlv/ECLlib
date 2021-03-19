@@ -7,6 +7,8 @@ import struct
 from pathlib import Path
 from .utils import list2str, float_or_str
 from numpy import zeros, int32, float32, float64, ceil
+from mmap import mmap, ACCESS_READ
+from re import finditer
 #from collections import namedtuple
 
 #
@@ -103,7 +105,7 @@ def input_days_and_steps(root):
 
 
 #====================================================================================
-class _datablock:                                                          # datablock
+class _datablock:                                                         # datablock
 #====================================================================================
 
     #--------------------------------------------------------------------------------
@@ -283,6 +285,8 @@ class unfmt_file:
                         chunk = bytearray(1)
                     #db.add_chunk(chunk)
                     db.chunk += chunk
+
+
 
     #--------------------------------------------------------------------------------
     #def parse_backward(self, data=False):                               # reader
@@ -802,6 +806,12 @@ class fmt_file:
         #block = fmt_block()
         with open(self.name) as self.fh:
             for line in self.fh:
+            #self.wholefile = mmap(self.fh.fileno(), 0, access=ACCESS_READ)
+            #while True:
+            #    line = self.wholefile.readline()
+            #    if not line:
+            #        break
+            #    line = line.decode()
                 try:
                     keyword, length, dtype = self.read_header(line)
                     data = self.read_data(length, dtype)
@@ -836,6 +846,7 @@ class fmt_file:
         n = 0
         while n < length:
             line = next(self.fh)
+            #line = (self.wholefile.readline()).decode()
             cols = line.rstrip().split()
             m = len(cols)
             #print(n,m,cols)
@@ -849,20 +860,20 @@ class fmt_file:
             n += m
         return data
             
-    #--------------------------------------------------------------------------------
-    def start_key(self):
-    #--------------------------------------------------------------------------------
-        if not self.is_file():
-             return
-        with open(self.name) as f:
-            start = f.readline().split("'")[1]
-        return start.strip()
+    # #--------------------------------------------------------------------------------
+    # def start_key(self):
+    # #--------------------------------------------------------------------------------
+    #     if not self.is_file():
+    #          return
+    #     with open(self.name) as f:
+    #         start = f.readline().split("'")[1]
+    #     return start.strip()
         
         
 
     #----------------------------------------------------------------------------
     def convert(self, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
-                rename_key=None, echo=False, progress=lambda x:None): 
+                rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None): 
     #--------------------------------------------------------------------------------
         #  
         #
@@ -880,6 +891,10 @@ class fmt_file:
         for block in self.blocks():
             #block.print()
             key = block.key()
+            #if key==init_key:
+            #    n += 1
+            #    progress(n)
+            #continue
             if key==init_key and len(bytes_)>0:
                 # write previous block to file, and reset bytes_
                 n += 1
@@ -887,6 +902,7 @@ class fmt_file:
                 # reset bytes for next section
                 bytes_ = bytearray()
                 progress(n)
+                cancel()
                 #print(n)
                 count = {}
             if rename_duplicate:

@@ -3,9 +3,10 @@
 import os
 import errno
 from pathlib import Path, PurePath
-from re import match
+from re import findall, finditer
 from time import sleep, time
 from datetime import timedelta, datetime
+from mmap import mmap, ACCESS_READ
 
 #--------------------------------------------------------------------------------
 def file_contains(fname, text='', comment='#'):
@@ -180,13 +181,41 @@ def warn_empty_file(file, comment=''):
                 return
     print('WARNING! {} is empty'.format(file))
 
+#--------------------------------------------------------------------------------
+def matches(file=None, pattern=None, length=0):
+#--------------------------------------------------------------------------------
+    with open(file) as f:
+        with mmap(f.fileno(), length=length, access=ACCESS_READ) as data:
+            for match in finditer(pattern.encode(), data):
+                yield match
+        
+
+#--------------------------------------------------------------------------------
+def number_of_blocks(file=None, blockstart=None):
+#--------------------------------------------------------------------------------
+    prev = None
+    for match in matches(file=file, pattern=blockstart):
+        if prev:
+            blocksize = match.start()-prev
+            break
+        prev = match.start()
+    return round(Path(file).stat().st_size/blocksize)
+
+#--------------------------------------------------------------------------------
+def count_match(file=None, pattern=None):
+#--------------------------------------------------------------------------------
+    with open(file) as f:
+        # Use mmap to read the whole file into memory
+        wholefile = mmap(f.fileno(), 0, access=ACCESS_READ)
+        return len(findall(pattern.encode(), wholefile))
+
 
 
 #====================================================================================
 class Progress:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, N=0, update=1, format='%', indent=3):
+    def __init__(self, N=1, update=1, format='%', indent=3):
     #--------------------------------------------------------------------------------
         self.start_time = time()
         self.update = update
@@ -199,7 +228,12 @@ class Progress:
             except ValueError: n = 1
             self.bar_length = n
         self.indent = indent*' '
-        #self.steps = [0]
+
+    #--------------------------------------------------------------------------------
+    def reset(self, N=1):
+    #--------------------------------------------------------------------------------
+        self.N = N
+        self.start_time = time()
 
     #--------------------------------------------------------------------------------
     def calc_estimated_arrival(self, n):
@@ -218,7 +252,7 @@ class Progress:
     #--------------------------------------------------------------------------------
         hash = int(self.bar_length*n/self.N)
         rest = self.bar_length - hash
-        return '{: 4d}/{:4d}  [{}{}]  {}'.format(n, self.N, hash*'#', rest*'-', self.eta) 
+        return '{:4d}/{:4d}  [{}{}]  {}'.format(n, self.N, hash*'#', rest*'-', self.eta) 
 
     #--------------------------------------------------------------------------------
     def set_N(self, N):
@@ -229,21 +263,9 @@ class Progress:
     def print(self, n):
     #--------------------------------------------------------------------------------
         if n>0 and n%self.update==0:
-            #Dt = time()-self.start_time
-            #self.eta = timedelta(seconds=int((self.N-n)*Dt/n))
             self.calc_estimated_arrival(n)
             print('\r'+self.indent+self.format(n)+10*' ', end='', flush=True)
-            #tot = timedelta(seconds=int(Dt*self.N/n))
-            #ela = timedelta(seconds=int(Dt))
-            #print('\r  Progress {: 4d}/{:4d} = {:.0f} %   ETA: {:s} (elapsed: {:s})'.
-            #      format(n, self.N, 100*n/self.N, str(eta), str(ela)), end='', flush=True)
-            # if '%' in format:
-            #     print('\r   Progress {: 4d}/{:4d} = {:.0f} %   ETA: {}'.
-            #         format(n, self.N, 100*n/self.N, str(eta)), end='', flush=True)
-            # if '#' in format:
-            #     print('\r   {: 4d}/{:4d}  [{}]   {}'.
-            #         format(n, self.N, (10*n/self.N)*'#', str(eta)), end='', flush=True)
-
+ 
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
     #--------------------------------------------------------------------------------
