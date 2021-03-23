@@ -23,7 +23,7 @@ from re import finditer
 #
 #
 
-max_block_length = 1000
+max_length = 1000
 
 endian = '>' # big-endian
 
@@ -206,7 +206,7 @@ class _datablock:                                                         # data
     #-------------------------------------------------------------------------------
         # A data-block is split in chunks if the length exceeds 1000 elements
         # Each data-block is sandwiched by a 4 byte int giving the size of the block
-        return self.startpos + 24 + len(self.chunk) + 8*int(ceil(self.length/max_block_length))
+        return self.startpos + 24 + len(self.chunk) + 8*int(ceil(self.length/max_length))
     
     #--------------------------------------------------------------------------------
     def datatype(self):                                             # datablock
@@ -713,7 +713,7 @@ class fmt_block:
         self.length = length
         self.datatype = datatype
         self.data = data
-        self.max_length = max_block_length
+        self.max_length = max_length
         #self.max_size = 1000*datasize[self.datatype]
         #self.max_size = 4000 #2**31
 
