@@ -6,10 +6,11 @@ import struct
 #import os
 from pathlib import Path
 from .utils import list2str, float_or_str
-from numpy import zeros, int32, float32, float64, ceil
-from mmap import mmap, ACCESS_READ
+from numpy import zeros, int32, float32, float64, ceil, array as nparray, append as npappend
+from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import finditer
-#from collections import namedtuple
+from copy import deepcopy
+from collections import namedtuple
 
 #
 #
@@ -923,6 +924,146 @@ class fmt_file:
         #         message(('info',"Duplicate keyword '{}' in {} ignored during convert".
         #                  format(', '.join([k for k,v in num.items() if v>1]),self.name.name)))            
         return Path(fname)
+
+    #----------------------------------------------------------------------------
+    def get_blocks(self, filemap, init_key, rename_duplicate, rename_key):
+    #----------------------------------------------------------------------------
+        n = 0
+        pos = {k:0 for k in datasize.keys()}
+        Blocks = namedtuple('Blocks',['format', 'type', 'head', 'tail', 'slice', 'stride',])
+        blocks = Blocks(format=[], type=[], head=[], tail=[], slice=[], stride=pos)
+        head_format='i8si4si' # 4+8+4+4+4 = 24
+        count = {}
+        for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
+            # header
+            key, length, dtype = match.groups()
+            if key.decode().strip()==init_key:
+                n += 1
+                if n>1:
+                    bytesize = sum(blocks.tail) + len(blocks.format)*24
+                    return blocks, match.start(), bytesize
+            length = int(length.decode())
+            if rename_duplicate:
+                #print(key)
+                if count.get(key):
+                    key = (key.decode()[:-1]+str(count[key]+1)).encode()
+                    count[key] = 0
+                else:
+                    # create new entry
+                    count[key] = 0
+                count[key] += 1
+            if rename_key and key.decode()==rename_key[0]:
+                key = rename_key[1].encode()
+            head_data = [16, key, length, dtype, 16]
+            # split block data in chunks
+            L = [min(max_length, length-n*max_length) for n in range(int(length/max_length)+1)]
+            blocks.format.append( head_format+''.join(['i'+str(l)+unpack_char[dtype]+'i' for l in L]) )
+            for i,l in enumerate(L):
+                blocks.type.append( dtype )
+                head = [l*datasize[dtype],]
+                if i==0:
+                    head = head_data + head  
+                blocks.head.append( head )
+                blocks.tail.append( l*datasize[dtype] )
+                blocks.slice.append( [pos[dtype]+sum(L[:i]), pos[dtype]+sum(L[:i])+l] )
+            pos[dtype] += length
+
+
+    #----------------------------------------------------------------------------
+    def get_data_pos(self, filemap, size):
+    #----------------------------------------------------------------------------
+        data = filemap[:size].split()
+        dtypes = [("'"+k+"'").encode() for k in datatype.keys()]
+        data_pos = {k:[] for k in datasize.keys()}
+        for i in range(len(data)):
+            if data[i] in dtypes:
+                dty = data[i][1:-1] # remove quotes
+                data_pos[dty].append([i+1, i+1+int(data[i-1])])
+        return data_pos, len(data)
+
+    #----------------------------------------------------------------------------
+    def get_datalist(self, data_pos, nblocks, data, pos_stride, dtyp):
+    #----------------------------------------------------------------------------
+        for i,j in data_pos[dtyp]:
+            for nb in range(nblocks):
+                yield data[i+nb*pos_stride:j+nb*pos_stride]
+
+    #----------------------------------------------------------------------------
+    def data_gen(self, head, array, type, slices, tail, nblocks, N):
+    #----------------------------------------------------------------------------
+        for i in range(nblocks*N):    
+            yield (*head[i], *array[type[i]][slices[i][0]:slices[i][1]], tail[i])
+
+
+    #----------------------------------------------------------------------------
+    def fast_convert(self, nblocks=1, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
+                rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None): 
+    #--------------------------------------------------------------------------------
+        stem = self.name.stem.upper()
+        fname = str(self.name.parent/stem)+'.'+ext
+        outfile = open(fname, 'wb')
+        #outfile = open(Path(file).parent/'test.UNRST', 'wb')
+        #outmap = mmap(outfile.fileno(), length=0, access=ACCESS_WRITE)
+        with open(self.name) as f:
+            with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
+                # prepare 
+                blocks, block_size, block_bytes = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
+                unit_format = ''.join(blocks.format) 
+                data_pos, pos_stride = self.get_data_pos(filemap, block_size)
+                N = int(len(filemap)/block_size)
+                progress(-N)
+                #outfile = open(fname, 'wb')
+                #outfile.truncate(N*block_bytes)
+                #outfile.close()
+                #outfile = open(fname, 'r+b')
+                #outmap = mmap(outfile.fileno(), length=0, access=ACCESS_WRITE)
+                N = len(blocks.type)
+                block_slices = nparray(blocks.slice)
+                slices = nparray(block_slices)
+                stride = nparray( [[blocks.stride[blocks.type[i]],] for i in range(N)] )
+                head = deepcopy(blocks.head)
+                tail = deepcopy(blocks.tail)
+                type = deepcopy(blocks.type)
+                for n in range(1,nblocks):
+                    slices = npappend(slices, n*stride+block_slices, axis=0)
+                    head += blocks.head
+                    tail += blocks.tail
+                    type += blocks.type
+                # create array buffers for each datatype
+                buffer = {}
+                for dtyp,size in blocks.stride.items():
+                    if size>0: 
+                        buffer[dtyp] = zeros(nblocks*size, dtype=datatype[dtyp.decode()])
+                # process file
+                a = 0
+                end = len(filemap)
+                finished = False
+                n = 0
+                while not finished:
+                    # convert from string to array datatype
+                    b = a + nblocks*block_size
+                    n += nblocks
+                    if b>end:
+                        b = end
+                        nblocks = int((b-a)/block_size)
+                        finished = True
+                    data = filemap[a:b].split()
+                    a = b
+                    for dtyp in buffer.keys():
+                        #datalist = ( data[i+nb*pos_stride:j+nb*pos_stride] for nb in range(nblocks) for i,j in data_pos[dtyp] )
+                        m = nblocks*blocks.stride[dtyp]
+                        try: buffer[dtyp][:m] = [x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
+                        except ValueError: buffer[dtyp][:m] = [x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
+                    #data_gen = ((*head[i], *array[type[i]][slices[i][0]:slices[i][1]], tail[i]) for i in range(nblocks*N))
+                    #outmap.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
+                    outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
+                    #print('\r'+str(n),end='')
+                    progress(n)
+                    cancel()
+
+        #outmap.close()
+        outfile.close()
+        return Path(outfile.name)
 
     # #----------------------------------------------------------------------------
     # def convert(self, ext='UNRST', duplicate=None, ignore=None, echo=False, progress=False, message=False): 
