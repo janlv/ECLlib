@@ -940,7 +940,9 @@ class fmt_file:
         for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
             # header
             key, length, dtype = match.groups()
-            if key.decode().strip()==init_key:
+            key = key.decode().strip()
+            length = int(length.decode())
+            if key==init_key:
                 n += 1
                 if n>1:
                     size['bytes'] = sum(blocks.tail) + len(blocks.format)*24
@@ -948,19 +950,19 @@ class fmt_file:
                     num['blocks'] = len(blocks.format)
                     num['chunks'] = len(blocks.type)
                     return blocks
-            length = int(length.decode())
             if rename_duplicate:
                 #print(key)
                 if count.get(key):
-                    key = (key.decode()[:-1]+str(count[key]+1)).encode()
+                    key = key[:-1]+str(count[key]+1) #).encode()
                     count[key] = 0
                 else:
                     # create new entry
                     count[key] = 0
                 count[key] += 1
-            if rename_key and key.decode()==rename_key[0]:
-                key = rename_key[1].encode()
-            head_data = [16, key, length, dtype, 16]
+            if rename_key and key==rename_key[0]:
+                key = rename_key[1] #.encode()
+                #print(key)
+            head_data = [16, key.ljust(8).encode(), length, dtype, 16]
             # split block data in chunks
             L = [min(max_length, length-n*max_length) for n in range(int(length/max_length)+1)]
             blocks.format.append( head_format+''.join(['i'+str(l)+unpack_char[dtype]+'i' for l in L]) )
@@ -1023,7 +1025,6 @@ class fmt_file:
     #--------------------------------------------------------------------------------
         stem = self.name.stem.upper()
         fname = str(self.name.parent/stem)+'.'+ext
-        outfile = open(fname, 'wb')
         with open(self.name) as f:
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
                 # prepare 
@@ -1033,42 +1034,29 @@ class fmt_file:
                 N = int(len(filemap)/blocks.size['blocks'])
                 progress(-N)
                 heads, slices, tails, types = self.prepare_helper_arrays(blocks, nblocks)
-                #N = len(blocks.type)
-                #block_slices = nparray(blocks.slice)
-                #slices = nparray(block_slices)
-                #stride = nparray( [[blocks.stride[blocks.type[i]],] for i in range(N)] )
-                #head = deepcopy(blocks.head)
-                #tail = deepcopy(blocks.tail)
-                #type = deepcopy(blocks.type)
-                #for n in range(1,nblocks):
-                #    slices = npappend(slices, n*stride+block_slices, axis=0)
-                #    head += blocks.head
-                #    tail += blocks.tail
-                #    type += blocks.type
                 # process file
-                a = 0
-                end = len(filemap)
-                finished = False
-                n = 0
-                while not finished:
-                    # convert from string to array datatype
-                    b = a + nblocks*blocks.size['blocks']
-                    n += nblocks
-                    if b>end:
-                        b = end
-                        nblocks = int((b-a)/blocks.size['blocks'])
-                        finished = True
-                    data = filemap[a:b].split()
-                    a = b
-                    buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
-                    #data_chunks = ((*head[i], *buffer[type[i]][slices[i][0]:slices[i][1]], tail[i]) for i in range(nblocks*N))
-                    data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                    outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
-                    #outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
-                    print('\r'+str(n),end='')
-                    progress(n)
-                    cancel()
-        outfile.close()
+                with open(fname, 'wb') as outfile:
+                    a = 0
+                    end = len(filemap)
+                    finished = False
+                    n = 0
+                    while not finished:
+                        # convert from string to array datatype
+                        b = a + nblocks*blocks.size['blocks']
+                        if b>end:
+                            b = end
+                            nblocks = int((b-a)/blocks.size['blocks'])
+                            finished = True
+                        data = filemap[a:b].split()
+                        a = b
+                        buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
+                        data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
+                        outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                        #print('\r'+str(n),end='')
+                        n += nblocks
+                        progress(n)
+                        cancel()
+        #outfile.close()
         return Path(outfile.name)
 
     #----------------------------------------------------------------------------
