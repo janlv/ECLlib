@@ -11,7 +11,7 @@ from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import finditer
 from copy import deepcopy
 from collections import namedtuple
-from numba import njit, jit
+#from numba import njit, jit
 
 #
 #

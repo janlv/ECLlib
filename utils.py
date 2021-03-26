@@ -90,8 +90,9 @@ def silentdelete(fname, echo=False):
         fname = list(str(fname))
     if isinstance(fname, (list, tuple)): # or isinstance(fname, tuple):
         for f in fname:
+            file = Path(f)
             try:
-                Path(f).unlink()
+                file.is_file() and file.unlink()
             except (PermissionError, FileNotFoundError) as e:
                 if echo:
                     print('Unable to delete {}: {}'.format(f, e))
