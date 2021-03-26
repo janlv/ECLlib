@@ -6,11 +6,12 @@ import struct
 #import os
 from pathlib import Path
 from .utils import list2str, float_or_str
-from numpy import zeros, int32, float32, float64, ceil, array as nparray, append as npappend
+from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend, vectorize
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import finditer
 from copy import deepcopy
 from collections import namedtuple
+from numba import njit, jit
 
 #
 #
@@ -51,7 +52,7 @@ datasize = {b'INTE' : 4,
 
 datatype = {'INTE' : int32,
             'REAL' : float32,
-            'LOGI' : bool,
+            'LOGI' : np_bool,
             'DOUB' : float64,
             'CHAR' : str,
             'MESS' : str}
@@ -1030,10 +1031,10 @@ class fmt_file:
                     tail += blocks.tail
                     type += blocks.type
                 # create array buffers for each datatype
-                buffer = {}
-                for dtyp,size in blocks.stride.items():
-                    if size>0: 
-                        buffer[dtyp] = zeros(nblocks*size, dtype=datatype[dtyp.decode()])
+                #buffer = {}
+                #for dtyp,size in blocks.stride.items():
+                #    if size>0: 
+                #        buffer[dtyp] = zeros(nblocks*size, dtype=datatype[dtyp.decode()])
                 # process file
                 a = 0
                 end = len(filemap)
@@ -1049,15 +1050,24 @@ class fmt_file:
                         finished = True
                     data = filemap[a:b].split()
                     a = b
-                    for dtyp in buffer.keys():
-                        #datalist = ( data[i+nb*pos_stride:j+nb*pos_stride] for nb in range(nblocks) for i,j in data_pos[dtyp] )
-                        m = nblocks*blocks.stride[dtyp]
-                        try: buffer[dtyp][:m] = [x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
-                        except ValueError: buffer[dtyp][:m] = [x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
-                    #data_gen = ((*head[i], *array[type[i]][slices[i][0]:slices[i][1]], tail[i]) for i in range(nblocks*N))
-                    #outmap.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
+                    buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
+                    # buffer = {}
+                    # for dtyp in blocks.stride.keys():
+                    #     buf = []
+                    #     for i,j in data_pos[dtyp]:
+                    #         for nb in range(nblocks):
+                    #             buf.append(data[i+nb*pos_stride:j+nb*pos_stride])
+                    #     buf = [x.decode() for y in buf for x in y]
+                    #     buffer[dtyp] = numba_convert_buffer(buf, dtyp.decode())
+                    # #for dtyp in buffer.keys():
+                    # #    #datalist = ( data[i+nb*pos_stride:j+nb*pos_stride] for nb in range(nblocks) for i,j in data_pos[dtyp] )
+                    # #    m = nblocks*blocks.stride[dtyp]
+                    # #    try: buffer[dtyp][:m] = [x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
+                    # #    except ValueError: buffer[dtyp][:m] = [x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
+                    # #data_gen = ((*head[i], *array[type[i]][slices[i][0]:slices[i][1]], tail[i]) for i in range(nblocks*N))
+                    # #outmap.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
                     outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
-                    #print('\r'+str(n),end='')
+                    print('\r'+str(n),end='')
                     progress(n)
                     cancel()
 
@@ -1065,102 +1075,49 @@ class fmt_file:
         outfile.close()
         return Path(outfile.name)
 
-    # #----------------------------------------------------------------------------
-    # def convert(self, ext='UNRST', duplicate=None, ignore=None, echo=False, progress=False, message=False): 
-    # #--------------------------------------------------------------------------------
-    #     #  
-    #     #
-    #     start = self.start_key().ljust(8)
-    #     if duplicate:
-    #         duplicate = duplicate.ljust(8)
-    #     fname = str(self.name.parent/self.name.stem)+'.'+ext
-    #     unformatted_file = open(fname, 'wb')
-    #     bytes_ = bytearray()
-    #     n = 0
-    #     num = {}
-    #     for block in self.blocks():
-    #         #block.print()
-    #         key = block.key()
-    #         if key==start and len(bytes_)>0:
-    #             # write previous block to file, and reset bytes_
-    #             n += 1
-    #             unformatted_file.write(bytes_)
-    #             if progress:
-    #                 progress(n)
-    #             bytes_ = bytearray()
-    #             num = {}
-    #         num[key] = 1 + (num.get(key) or 0)
-    #         #bytes_ += block.unformatted()
-    #         if duplicate and key==duplicate:
-    #             if num[key] != ignore:
-    #                 #print(key, str(ignore))
-    #                 bytes_ += block.unformatted()
-    #         elif num[key] < 2:
-    #             bytes_ += block.unformatted()
-    #             #print(key)
-    #     unformatted_file.close()
-    #     if echo:
-    #         print('{} converted to {}'.format(self.name.name,Path(fname)))
-    #     if message and any([n>1 for n in num.values()]):
-    #             message(('info',"Duplicate keyword '{}' in {} ignored during convert".
-    #                      format(', '.join([k for k,v in num.items() if v>1]),self.name.name)))            
-    #     return fname
+    #----------------------------------------------------------------------------
+    def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride):
+    #----------------------------------------------------------------------------
+        buffer = {}
+        for dtyp in blocks.stride.keys():
+            dtype=datatype[dtyp.decode()]
+            #datalist = ( data[i+nb*pos_stride:j+nb*pos_stride] for nb in range(nblocks) for i,j in data_pos[dtyp] )
+            #m = nblocks*blocks.stride[dtyp]
+            try: buffer[dtyp] = nparray([x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
+            except ValueError: buffer[dtyp] = nparray([x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
+        return buffer
 
-    
-    # ----------------------------------------------------------------------------
-    # def find_duplicate(self, init_key='SEQNUM'):
-    # ----------------------------------------------------------------------------
-    #     n = 0
-    #     count = {}
-    #     for block in self.blocks():
-    #         key = block.key()
-    #         if key==init_key:
-    #             n += 1
-    #             if n>2:
-    #                 break
-    #         count[key] = 1 + (count.get(key) or 0)
-    #     return [k for k,v in count.items() if v>1]
-        
-    # #--------------------------------------------------------------------------------
-    # def records(self, skip=0, warn_missing=False):
-    # #--------------------------------------------------------------------------------
-    #     if not self.name.is_file():
-    #         print('File {} does not exist!'.format(self.name))
-    #         return
-    #     num = -1
-    #     record = []
-    #     end_key = None
-    #     header_line = ''
-    #     with open(self.name) as self.fh:
-    #         for line in self.fh:
-    #             try:
-    #                 keyword, length, dtype = self.read_header(line)
-    #                 if num==-1:
-    #                     start = keyword
-    #                 if keyword==start:
-    #                     num += 1
-    #                     if num < skip:
-    #                         skip_this = True
-    #                     else:
-    #                         skip_this = False
-    #                     if record and not skip_this:
-    #                         if end_key and end_key != record[-1].key():
-    #                             print('WARNING! End keyword difference in records')
-    #                             raise StopIteration
-    #                         yield record
-    #                         end_key = record[-1].key()
-    #                         record = []
-    #                 data = self.read_data(length, dtype, skip=skip_this) #, line=line)
-    #                 if not skip_this:
-    #                     record.append( Block(keyword, length, dtype, data) )
-    #             except StopIteration:
-    #                 if warn_missing:
-    #                     print("\n  WARNING: Missing data in '{}' block, file {} not complete!".format(keyword,self.name.name))
-    #                 return
-    #         yield record
-    #         if end_key and end_key != record[-1].key():
-    #             print('WARNING! End keyword difference in records')
+
             
+# #@njit
+# #----------------------------------------------------------------------------
+# def numba_convert_buffer(buffer, dtyp):
+# #----------------------------------------------------------------------------
+#     for i in range(len(buffer)):
+#         buffer[i] = numba_str_to_num(buffer[i], dtyp)
+#     return buffer
+#     # if dtyp=='INTE':
+#     #     return nparray(buffer, dtype=int)
+#     # if dtyp=='REAL':
+#     #     return nparray(buffer, dtype=float)
+#     # if dtyp=='DOUB':
+#     #     return nparray(buffer, dtype=float)
+#     # if dtyp=='LOGI':
+#     #     return nparray(buffer, dtype=bool)
+
+# #@njit
+# #----------------------------------------------------------------------------
+# def numba_str_to_num(string, dtyp):
+# #----------------------------------------------------------------------------
+#     #print(string)
+#     if dtyp=='INTE':
+#         return int(string)
+#     if dtyp=='REAL':
+#         return float(string)
+#     if dtyp=='DOUB':
+#         return float(string[:15]+'E'+string[17:])
+#     if dtyp=='LOGI':
+#         return string=='T'
 
     
 #====================================================================================
