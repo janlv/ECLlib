@@ -931,8 +931,10 @@ class fmt_file:
     #----------------------------------------------------------------------------
         n = 0
         pos = {k:0 for k in datasize.keys()}
-        Blocks = namedtuple('Blocks',['format', 'type', 'head', 'tail', 'slice', 'stride',])
-        blocks = Blocks(format=[], type=[], head=[], tail=[], slice=[], stride=pos)
+        size = {'blocks':0, 'bytes':0}
+        num = {'chunks':0, 'blocks':0}
+        Blocks = namedtuple('Blocks',['format', 'type', 'head', 'tail', 'slice', 'stride','size','num'])
+        blocks = Blocks(format=[], type=[], head=[], tail=[], slice=[], stride=pos, size=size, num=num)
         head_format='i8si4si' # 4+8+4+4+4 = 24
         count = {}
         for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
@@ -941,8 +943,11 @@ class fmt_file:
             if key.decode().strip()==init_key:
                 n += 1
                 if n>1:
-                    bytesize = sum(blocks.tail) + len(blocks.format)*24
-                    return blocks, match.start(), bytesize
+                    size['bytes'] = sum(blocks.tail) + len(blocks.format)*24
+                    size['blocks'] = match.start()
+                    num['blocks'] = len(blocks.format)
+                    num['chunks'] = len(blocks.type)
+                    return blocks
             length = int(length.decode())
             if rename_duplicate:
                 #print(key)
@@ -982,19 +987,35 @@ class fmt_file:
                 data_pos[dty].append([i+1, i+1+int(data[i-1])])
         return data_pos, len(data)
 
-    #----------------------------------------------------------------------------
-    def get_datalist(self, data_pos, nblocks, data, pos_stride, dtyp):
-    #----------------------------------------------------------------------------
-        for i,j in data_pos[dtyp]:
-            for nb in range(nblocks):
-                yield data[i+nb*pos_stride:j+nb*pos_stride]
+    # #----------------------------------------------------------------------------
+    # def get_datalist(self, data_pos, nblocks, data, pos_stride, dtyp):
+    # #----------------------------------------------------------------------------
+    #     for i,j in data_pos[dtyp]:
+    #         for nb in range(nblocks):
+    #             yield data[i+nb*pos_stride:j+nb*pos_stride]
+
+    # #----------------------------------------------------------------------------
+    # def data_gen(self, head, array, type, slices, tail, nblocks, N):
+    # #----------------------------------------------------------------------------
+    #     for i in range(nblocks*N):    
+    #         yield (*head[i], *array[type[i]][slices[i][0]:slices[i][1]], tail[i])
+
 
     #----------------------------------------------------------------------------
-    def data_gen(self, head, array, type, slices, tail, nblocks, N):
+    def prepare_helper_arrays(self, blocks, nblocks):
     #----------------------------------------------------------------------------
-        for i in range(nblocks*N):    
-            yield (*head[i], *array[type[i]][slices[i][0]:slices[i][1]], tail[i])
-
+        block_slices = nparray(blocks.slice)
+        slices = nparray(block_slices)
+        stride = nparray( [[blocks.stride[blocks.type[i]],] for i in range(blocks.num['chunks'])] )
+        heads = deepcopy(blocks.head)
+        tails = deepcopy(blocks.tail)
+        types = deepcopy(blocks.type)
+        for n in range(1,nblocks):
+            slices = npappend(slices, n*stride+block_slices, axis=0)
+            heads += blocks.head
+            tails += blocks.tail
+            types += blocks.type
+        return heads, slices, tails, types
 
     #----------------------------------------------------------------------------
     def fast_convert(self, nblocks=1, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
@@ -1003,38 +1024,27 @@ class fmt_file:
         stem = self.name.stem.upper()
         fname = str(self.name.parent/stem)+'.'+ext
         outfile = open(fname, 'wb')
-        #outfile = open(Path(file).parent/'test.UNRST', 'wb')
-        #outmap = mmap(outfile.fileno(), length=0, access=ACCESS_WRITE)
         with open(self.name) as f:
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
                 # prepare 
-                blocks, block_size, block_bytes = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
+                blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
                 unit_format = ''.join(blocks.format) 
-                data_pos, pos_stride = self.get_data_pos(filemap, block_size)
-                N = int(len(filemap)/block_size)
+                data_pos, pos_stride = self.get_data_pos(filemap, blocks.size['blocks'])
+                N = int(len(filemap)/blocks.size['blocks'])
                 progress(-N)
-                #outfile = open(fname, 'wb')
-                #outfile.truncate(N*block_bytes)
-                #outfile.close()
-                #outfile = open(fname, 'r+b')
-                #outmap = mmap(outfile.fileno(), length=0, access=ACCESS_WRITE)
-                N = len(blocks.type)
-                block_slices = nparray(blocks.slice)
-                slices = nparray(block_slices)
-                stride = nparray( [[blocks.stride[blocks.type[i]],] for i in range(N)] )
-                head = deepcopy(blocks.head)
-                tail = deepcopy(blocks.tail)
-                type = deepcopy(blocks.type)
-                for n in range(1,nblocks):
-                    slices = npappend(slices, n*stride+block_slices, axis=0)
-                    head += blocks.head
-                    tail += blocks.tail
-                    type += blocks.type
-                # create array buffers for each datatype
-                #buffer = {}
-                #for dtyp,size in blocks.stride.items():
-                #    if size>0: 
-                #        buffer[dtyp] = zeros(nblocks*size, dtype=datatype[dtyp.decode()])
+                heads, slices, tails, types = self.prepare_helper_arrays(blocks, nblocks)
+                #N = len(blocks.type)
+                #block_slices = nparray(blocks.slice)
+                #slices = nparray(block_slices)
+                #stride = nparray( [[blocks.stride[blocks.type[i]],] for i in range(N)] )
+                #head = deepcopy(blocks.head)
+                #tail = deepcopy(blocks.tail)
+                #type = deepcopy(blocks.type)
+                #for n in range(1,nblocks):
+                #    slices = npappend(slices, n*stride+block_slices, axis=0)
+                #    head += blocks.head
+                #    tail += blocks.tail
+                #    type += blocks.type
                 # process file
                 a = 0
                 end = len(filemap)
@@ -1042,36 +1052,22 @@ class fmt_file:
                 n = 0
                 while not finished:
                     # convert from string to array datatype
-                    b = a + nblocks*block_size
+                    b = a + nblocks*blocks.size['blocks']
                     n += nblocks
                     if b>end:
                         b = end
-                        nblocks = int((b-a)/block_size)
+                        nblocks = int((b-a)/blocks.size['blocks'])
                         finished = True
                     data = filemap[a:b].split()
                     a = b
                     buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
-                    # buffer = {}
-                    # for dtyp in blocks.stride.keys():
-                    #     buf = []
-                    #     for i,j in data_pos[dtyp]:
-                    #         for nb in range(nblocks):
-                    #             buf.append(data[i+nb*pos_stride:j+nb*pos_stride])
-                    #     buf = [x.decode() for y in buf for x in y]
-                    #     buffer[dtyp] = numba_convert_buffer(buf, dtyp.decode())
-                    # #for dtyp in buffer.keys():
-                    # #    #datalist = ( data[i+nb*pos_stride:j+nb*pos_stride] for nb in range(nblocks) for i,j in data_pos[dtyp] )
-                    # #    m = nblocks*blocks.stride[dtyp]
-                    # #    try: buffer[dtyp][:m] = [x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
-                    # #    except ValueError: buffer[dtyp][:m] = [x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y]
-                    # #data_gen = ((*head[i], *array[type[i]][slices[i][0]:slices[i][1]], tail[i]) for i in range(nblocks*N))
-                    # #outmap.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
-                    outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
+                    #data_chunks = ((*head[i], *buffer[type[i]][slices[i][0]:slices[i][1]], tail[i]) for i in range(nblocks*N))
+                    data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
+                    outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                    #outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in self.data_gen(head, buffer, type, slices, tail, nblocks, N) for x in y]))
                     print('\r'+str(n),end='')
                     progress(n)
                     cancel()
-
-        #outmap.close()
         outfile.close()
         return Path(outfile.name)
 
@@ -1081,10 +1077,14 @@ class fmt_file:
         buffer = {}
         for dtyp in blocks.stride.keys():
             dtype=datatype[dtyp.decode()]
-            #datalist = ( data[i+nb*pos_stride:j+nb*pos_stride] for nb in range(nblocks) for i,j in data_pos[dtyp] )
-            #m = nblocks*blocks.stride[dtyp]
-            try: buffer[dtyp] = nparray([x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
-            except ValueError: buffer[dtyp] = nparray([x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
+            buf = []
+            for i,j in data_pos[dtyp]:
+                for nb in range(nblocks):
+                    buf.append(data[i+nb*pos_stride:j+nb*pos_stride])
+            try: buffer[dtyp] = nparray([x for y in buf for x in y], dtype=dtype)
+            except ValueError: buffer[dtyp] = nparray([x.decode().replace('D','E') for y in buf for x in y], dtype=dtype)
+            #try: buffer[dtyp] = nparray([x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
+            #except ValueError: buffer[dtyp] = nparray([x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
         return buffer
 
 
