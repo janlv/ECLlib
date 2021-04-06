@@ -7,6 +7,7 @@ from re import findall, finditer
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
+from struct import unpack
 
 #--------------------------------------------------------------------------------
 def file_contains(fname, text='', comment='#'):

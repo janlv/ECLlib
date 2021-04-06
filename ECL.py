@@ -71,7 +71,7 @@ def input_days_and_steps(root):
     #print('get_timestep_eclipse: '+root)
     read = False
     dt = []
-    step = 0
+    #step = 0
     with open(str(root)+'.DATA', encoding='latin-1') as f:
         for line in f:
             line = line.lstrip()
@@ -83,27 +83,29 @@ def input_days_and_steps(root):
             if line.startswith('END'):
                 break
             if read:
-                if '/' in line:
-                    read = False
-                    line = line.split('/')[0]
-                words = line.split()
-                for w in words:
-                    if '*' in w:
-                        d = [float(n) for n in w.split('*')]
-                        dt.append(d[0]*d[1])
-                        step = int(d[1])
+                for word in line.split():
+                    if '*' in word:
+                        n,s = [i for i in word.split('*')]
+                        dt += [float(s) for i in range(int(n))]
+                    elif '/' in word:
+                        read = False
                     else:
-                        dt.append(float(w))
-                #if len(dt)>2:
-                #        raise Warning('More than one TSTEP read in DATA-file: {}'.format(dt))
-                #    if '*' in dt[0]:
-                #        n = dt[0].split('*')
-                #        return int(n[0])*int(n[1])
-    #print(dt)
-    #print(sum(dt))
-    if step==0:
-        step = len(dt)
-    return int(sum(dt)), step
+                        dt.append(float(word))
+                #if '/' in line:
+                #    read = False
+                #    line = line.split('/')[0]
+                #words = line.split()
+                #for w in words:
+                #    if '*' in w:
+                #        d = [float(n) for n in w.split('*')]
+                #        dt.append(d[0]*d[1])
+                #        step = int(d[1])
+                #    else:
+                #        dt.append(float(w))
+    #if step==0:
+    #step = len(dt)
+    #print(sum(dt), len(dt), dt)
+    return int(sum(dt)), len(dt), dt
 
 
 #====================================================================================
