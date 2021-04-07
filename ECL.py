@@ -86,6 +86,9 @@ def input_days_and_steps(root):
                 for word in line.split():
                     if '*' in word:
                         n,s = [i for i in word.split('*')]
+                        if '/' in s:
+                            read = False
+                            s = s.replace('/','')
                         dt += [float(s) for i in range(int(n))]
                     elif '/' in word:
                         read = False
