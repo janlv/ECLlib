@@ -3,11 +3,26 @@
 import os
 import errno
 from pathlib import Path, PurePath
-from re import findall, finditer
+from re import findall, finditer, DOTALL, MULTILINE
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
 from struct import unpack
+
+#--------------------------------------------------------------------------------
+def safeindex(alist, value):
+#--------------------------------------------------------------------------------
+    return alist.index(value) if value in alist else None
+
+#--------------------------------------------------------------------------------
+def flatten_list(alist):
+#--------------------------------------------------------------------------------
+    return [item for sublist in alist for item in sublist]
+
+#--------------------------------------------------------------------------------
+def upper_and_lower(alist):
+#--------------------------------------------------------------------------------
+    return flatten_list([[item.upper(),item.lower()] for item in alist])
 
 #--------------------------------------------------------------------------------
 def file_contains(fname, text='', comment='#'):
@@ -184,11 +199,14 @@ def warn_empty_file(file, comment=''):
     print('WARNING! {} is empty'.format(file))
 
 #--------------------------------------------------------------------------------
-def matches(file=None, pattern=None, length=0):
+def matches(file=None, pattern=None, length=0, multiline=False):
 #--------------------------------------------------------------------------------
+    flags = 0
+    if multiline:
+        flags = DOTALL
     with open(file) as f:
         with mmap(f.fileno(), length=length, access=ACCESS_READ) as data:
-            for match in finditer(pattern.encode(), data):
+            for match in finditer(pattern.encode(), data, flags=flags):
                 yield match
         
 

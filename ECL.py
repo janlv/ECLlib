@@ -5,7 +5,9 @@
 import struct
 #import os
 from pathlib import Path
-from .utils import list2str, float_or_str
+
+from numpy.lib.twodim_base import triu_indices
+from .utils import flatten_list, list2str, float_or_str, matches, safeindex
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend, vectorize
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import finditer
@@ -66,6 +68,56 @@ def encode(string):
     return ('%-8s'%string).encode()
 
 #-----------------------------------------------------------------------
+def read_TSTEP_from_DATA(case, comment='--'):
+#-----------------------------------------------------------------------
+    #print('read_TSTEP: '+root)
+    file = Path(case).with_suffix('.DATA')
+    if file.is_file():
+        with open(file, encoding='latin-1') as f:
+            lines = f.readlines()
+            lines = [line.strip() for line in lines]
+            lines = [line for line in lines if not line.startswith(comment)]
+            end = safeindex(lines, 'END')
+            if end:
+                lines = lines[:end]
+            return get_TSTEP(lines)
+
+#-----------------------------------------------------------------------
+def get_tsteps(file):
+#-----------------------------------------------------------------------
+    tsteps = [m.group(2) for m in matches(file=file, pattern=r'(TSTEP\s*\n+)(\d+[\d\s]*\r*\n*)')]
+    tsteps = [int(t) for ts in tsteps for t in ts.decode().split()]
+    return tsteps
+
+#-----------------------------------------------------------------------
+def get_TSTEP(lines):
+#-----------------------------------------------------------------------
+    start = [n+1 for n,line in enumerate(lines) if line.startswith('TSTEP')]
+    start.append(len(lines)+1)
+    tsteps = ''
+    end = []
+    for i in range(len(start)-1):
+        for n,line in enumerate(lines[start[i]:start[i+1]]):
+            tsteps += ' ' + line
+            if '/' in line:
+                tsteps = tsteps[:-1]
+                end.append(start[i]+n+1)
+                #print(tsteps)
+                break
+    # end of TSTEP-block is start of gap
+    # start of next TSTEP-block is end of gap
+    a = end
+    b = [s-1 for s in start][1:]
+    gap = [[a[i],b[i]] for i in range(len(end))]
+    dt = []
+    for step in tsteps.split():
+        n = 1
+        if '*' in step:
+            n,step = [i for i in step.split('*')]
+        dt.extend([float(step) for i in range(int(n))])
+    return dt, gap
+
+#-----------------------------------------------------------------------
 def input_days_and_steps(root):
 #-----------------------------------------------------------------------
     #print('get_timestep_eclipse: '+root)
@@ -94,20 +146,6 @@ def input_days_and_steps(root):
                         read = False
                     else:
                         dt.append(float(word))
-                #if '/' in line:
-                #    read = False
-                #    line = line.split('/')[0]
-                #words = line.split()
-                #for w in words:
-                #    if '*' in w:
-                #        d = [float(n) for n in w.split('*')]
-                #        dt.append(d[0]*d[1])
-                #        step = int(d[1])
-                #    else:
-                #        dt.append(float(w))
-    #if step==0:
-    #step = len(dt)
-    #print(sum(dt), len(dt), dt)
     return int(sum(dt)), len(dt), dt
 
 
