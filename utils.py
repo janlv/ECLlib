@@ -158,6 +158,8 @@ def loop_until(func, *args, limit=None, pause=None, error=None, loop_func=None, 
         #print(n, limit, pause, error, loop_func)
         if limit:
             n += 1
+            #if n%100==0:
+            #    print(f'\r{func.__name__}: {n}               ', end='')
             if n > limit:
                 if error:
                     raise SystemError(error)
