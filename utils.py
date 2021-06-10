@@ -66,11 +66,11 @@ def delta_timestring(string1, string2):
     sec = datetime.strptime(string1, FMT) - datetime.strptime(string2, FMT)
     return str(timedelta(seconds=int(sec)))
     
-#--------------------------------------------------------------------------------
-def exit_without_atexit():
-#--------------------------------------------------------------------------------
-    #from os import _exit as os_exit
-    os._exit(0)
+# #--------------------------------------------------------------------------------
+# def exit_without_atexit():
+# #--------------------------------------------------------------------------------
+#     #from os import _exit as os_exit
+#     os._exit(0)
 
 #--------------------------------------------------------------------------------
 def assert_python_version(major=None, minor=None):
