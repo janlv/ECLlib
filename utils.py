@@ -201,13 +201,15 @@ def warn_empty_file(file, comment=''):
     print('WARNING! {} is empty'.format(file))
 
 #--------------------------------------------------------------------------------
-def matches(file=None, pattern=None, length=0, multiline=False):
+def matches(file=None, pattern=None, length=0, multiline=False, pos=None):
 #--------------------------------------------------------------------------------
     flags = 0
     if multiline:
         flags = DOTALL
     with open(file) as f:
         with mmap(f.fileno(), length=length, access=ACCESS_READ) as data:
+            if pos:
+                data = data[pos:]
             for match in finditer(pattern.encode(), data, flags=flags):
                 yield match
         

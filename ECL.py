@@ -67,20 +67,20 @@ def encode(string):
 #....................................................................................
     return ('%-8s'%string).encode()
 
-#-----------------------------------------------------------------------
-def read_TSTEP_from_DATA(case, comment='--'):
-#-----------------------------------------------------------------------
-    #print('read_TSTEP: '+root)
-    file = Path(case).with_suffix('.DATA')
-    if file.is_file():
-        with open(file, encoding='latin-1') as f:
-            lines = f.readlines()
-            lines = [line.strip() for line in lines]
-            lines = [line for line in lines if not line.startswith(comment)]
-            end = safeindex(lines, 'END')
-            if end:
-                lines = lines[:end]
-            return get_TSTEP(lines)
+# #-----------------------------------------------------------------------
+# def read_TSTEP_from_DATA(case, comment='--'):
+# #-----------------------------------------------------------------------
+#     #print('read_TSTEP: '+root)
+#     file = Path(case).with_suffix('.DATA')
+#     if file.is_file():
+#         with open(file, encoding='latin-1') as f:
+#             lines = f.readlines()
+#             lines = [line.strip() for line in lines]
+#             lines = [line for line in lines if not line.startswith(comment)]
+#             end = safeindex(lines, 'END')
+#             if end:
+#                 lines = lines[:end]
+#             return get_TSTEP(lines)
 
 #-----------------------------------------------------------------------
 def get_tsteps(file):
