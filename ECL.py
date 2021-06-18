@@ -27,7 +27,9 @@ from collections import namedtuple
 #
 #
 
-max_length = 1000
+# Maximum number of data records in one block.
+# For REAL this means that 4*1000 bytes is the max size 
+max_length = 1000   
 
 endian = '>' # big-endian
 
@@ -1006,8 +1008,9 @@ class fmt_file:
                 key = rename_key[1] #.encode()
                 #print(key)
             head_data = [16, key.ljust(8).encode(), length, dtype, 16]
-            # split block data in chunks
+            # split block data in chunks if max_length
             L = [min(max_length, length-n*max_length) for n in range(int(length/max_length)+1)]
+            L = [l for l in L if l>0]  # Remove possible 0's at the end
             blocks.format.append( head_format+''.join(['i'+str(l)+unpack_char[dtype]+'i' for l in L]) )
             for i,l in enumerate(L):
                 blocks.type.append( dtype )
@@ -1095,7 +1098,6 @@ class fmt_file:
                         buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
                         data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
                         outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
-                        #print('\r'+str(n),end='')
                         n += nblocks
                         progress(n)
                         cancel()
@@ -1106,14 +1108,18 @@ class fmt_file:
     def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride):
     #----------------------------------------------------------------------------
         buffer = {}
+        # Loop over all datatypes (INTE, REAL, DOUB, etc.)
         for dtyp in blocks.stride.keys():
             dtype=datatype[dtyp.decode()]
             buf = []
             for i,j in data_pos[dtyp]:
                 for nb in range(nblocks):
                     buf.append(data[i+nb*pos_stride:j+nb*pos_stride])
-            try: buffer[dtyp] = nparray([x for y in buf for x in y], dtype=dtype)
-            except ValueError: buffer[dtyp] = nparray([x.decode().replace('D','E') for y in buf for x in y], dtype=dtype)
+                    #print(f'{dtyp}: data[{i}]={data[i]}, data[{j}]={data[j-1]}')
+            try: 
+                buffer[dtyp] = nparray([x for y in buf for x in y], dtype=dtype)
+            except ValueError:
+                buffer[dtyp] = nparray([x.decode().replace('D','E') for y in buf for x in y], dtype=dtype)
             #try: buffer[dtyp] = nparray([x for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
             #except ValueError: buffer[dtyp] = nparray([x.decode().replace('D','E') for y in self.get_datalist(data_pos, nblocks, data, pos_stride, dtyp) for x in y], dtype=dtype)
         return buffer
