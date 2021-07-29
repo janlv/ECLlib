@@ -92,32 +92,31 @@ def get_tsteps(file):
     return tsteps
 
 #-----------------------------------------------------------------------
-def get_TSTEP(lines):
+def get_schedule_time_and_filepos(lines):
 #-----------------------------------------------------------------------
     start = [n+1 for n,line in enumerate(lines) if line.startswith('TSTEP')]
     start.append(len(lines)+1)
-    tsteps = ''
+    tsteps = [] 
     end = []
     for i in range(len(start)-1):
         for n,line in enumerate(lines[start[i]:start[i+1]]):
-            tsteps += ' ' + line
+            tsteps.append(line)
             if '/' in line:
-                tsteps = tsteps[:-1]
+                tsteps[-1] = tsteps[-1].split('/')[0]
                 end.append(start[i]+n+1)
-                #print(tsteps)
                 break
     # end of TSTEP-block is start of gap
     # start of next TSTEP-block is end of gap
     a = end
     b = [s-1 for s in start][1:]
     gap = [[a[i],b[i]] for i in range(len(end))]
-    dt = []
-    for step in tsteps.split():
-        n = 1
-        if '*' in step:
-            n,step = [i for i in step.split('*')]
-        dt.extend([float(step) for i in range(int(n))])
-    return dt, gap
+    # process possible multiplications, i.e. '4*2' becomes '2 2 2 2'
+    mult = lambda x,y : ' '.join([y]*int(x))
+    tsteps = [mult(*t.split('*')) if '*' in t else t for t in tsteps]
+    # convert to float
+    tsteps = [[float(i) for i in t.split()] for t in tsteps]
+    #print(f'tsteps: {tsteps}')
+    return tsteps, gap
 
 #-----------------------------------------------------------------------
 def input_days_and_steps(root):
