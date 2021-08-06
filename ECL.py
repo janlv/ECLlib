@@ -481,7 +481,7 @@ class unfmt_file:
             return True
 
     #--------------------------------------------------------------------------------
-    def create(self, *args):
+    def create(self, *args, progress=lambda x:None, cancel=lambda:None):
     #--------------------------------------------------------------------------------
         sections = args
         # Make sure the sizes of each section are equal
@@ -492,14 +492,19 @@ class unfmt_file:
                 sec.pop_unit(-1)
                 #print('pop from '+str(sec.filename()))
         # Open files
+        progress(-(min_size+1))
         out_file = open(self._filename, 'wb')
         for sec in sections:
             sec.open_file()
         # Write sections to out_file
         OK = True
+        n = 0
         while OK: 
             for sec in sections:
                 OK = sec.write_next_unit(out_file)
+            n += 1
+            progress(n)
+            cancel()
         # Close files
         for sec in sections:
             sec.close_file()
@@ -835,6 +840,11 @@ class fmt_file:
         self.name = Path(filename)
         self.fh = None
 
+    # #--------------------------------------------------------------------------------
+    # def with_suffix(self, ext):
+    # #--------------------------------------------------------------------------------
+    #     return self.name.with_suffix(ext)
+
     #--------------------------------------------------------------------------------
     def is_file(self):
     #--------------------------------------------------------------------------------
@@ -1065,11 +1075,13 @@ class fmt_file:
         return heads, slices, tails, types
 
     #----------------------------------------------------------------------------
-    def fast_convert(self, nblocks=1, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
+    def fast_convert(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
                 rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None): 
     #--------------------------------------------------------------------------------
-        stem = self.name.stem.upper()
-        fname = str(self.name.parent/stem)+'.'+ext
+        #stem = self.name.stem.upper()
+        #fname = str(self.name.parent/stem)+'.'+ext
+        outfile = self.name.with_suffix(ext)
+        #outfile = self.with_suffix(ext)
         with open(self.name) as f:
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
                 # prepare 
@@ -1080,7 +1092,7 @@ class fmt_file:
                 progress(-N)
                 heads, slices, tails, types = self.prepare_helper_arrays(blocks, nblocks)
                 # process file
-                with open(fname, 'wb') as outfile:
+                with open(outfile, 'wb') as out:
                     a = 0
                     end = len(filemap)
                     finished = False
@@ -1096,12 +1108,12 @@ class fmt_file:
                         a = b
                         buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
                         data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                        outfile.write(struct.pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                        out.write(struct.pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
                         n += nblocks
                         progress(n)
                         cancel()
         #outfile.close()
-        return Path(outfile.name)
+        return outfile
 
     #----------------------------------------------------------------------------
     def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride):

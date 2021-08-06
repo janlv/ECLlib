@@ -284,11 +284,11 @@ class Progress:
         self.N = N
 
     #--------------------------------------------------------------------------------
-    def print(self, n):
+    def print(self, n, text=None):
     #--------------------------------------------------------------------------------
         if n>0 and n%self.update==0:
             self.calc_estimated_arrival(n)
-            print('\r'+self.indent+self.format(n)+10*' ', end='', flush=True)
+            print('\r'+(text or '')+self.indent+self.format(n)+10*' ', end='', flush=True)
  
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
