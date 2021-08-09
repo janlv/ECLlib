@@ -163,6 +163,8 @@ class _datablock:                                                         # data
     def set_header(self, chunk, filepos):                                 # datablock
     #--------------------------------------------------------------------------------
         self._key, self.length, self.datatype = struct.unpack(endian+'8si4s', chunk)
+        if self.datatype in (b'CHAR',):
+            self.length *= datasize[self.datatype]
         # Set filepos to start of header.
         # The header is 4+16+4 = 24 bytes long
         self.startpos = filepos - 24 # for forward parsing!
@@ -182,8 +184,8 @@ class _datablock:                                                         # data
             return None
         if len(self.chunk)==1 and self.chunk[0]==0:
             raise SystemError('No data to unpack in data().\nDid you pass data=True to parse_file()?')
-        if self.datatype in (b'CHAR',):
-            self.length *= datasize[self.datatype]
+        #if self.datatype in (b'CHAR',):
+        #    self.length *= datasize[self.datatype]
         try:
             return struct.unpack(endian + str(self.length) + unpack_char[self.datatype], self.chunk)
         except struct.error as e:
@@ -210,9 +212,7 @@ class _datablock:                                                         # data
     #--------------------------------------------------------------------------------
     def info(self):                                                       # datablock
     #--------------------------------------------------------------------------------
-        string = '{:s} block of {:5d} bytes holding {:5d} {} at [{}, {}]'
-        return string.format(self._key.decode(), len(self.chunk), self.length,
-                             self.datatype.decode(), self.startpos, self.end())
+        return f'{self._key.decode()} block of {len(self.chunk)} bytes holding {self.length} {self.datatype.decode()} at [{self.startpos}, {self.end()}]'
 
     #--------------------------------------------------------------------------------
     def print(self):                                                      # datablock

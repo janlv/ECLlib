@@ -103,7 +103,7 @@ def assert_python_version(major=None, minor=None):
 def silentdelete(fname, echo=False):
 #------------------------------------------------
     if isinstance(fname, (str,Path)):
-        fname = list(str(fname))
+        fname = [str(fname)]
     if isinstance(fname, (list, tuple)): # or isinstance(fname, tuple):
         for f in fname:
             file = Path(f)
@@ -284,12 +284,12 @@ class Progress:
         self.N = N
 
     #--------------------------------------------------------------------------------
-    def print(self, n, text=None):
+    def print(self, n, text=None, trail_space=3):
     #--------------------------------------------------------------------------------
         if n>0 and n%self.update==0:
             self.calc_estimated_arrival(n)
-            print('\r'+(text or '')+self.indent+self.format(n)+10*' ', end='', flush=True)
- 
+            print('\r'+(text or '')+self.indent+self.format(n)+trail_space*' ', end='', flush=True)
+
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
     #--------------------------------------------------------------------------------
