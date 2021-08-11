@@ -6,13 +6,14 @@ import struct
 #import os
 from pathlib import Path
 
-from numpy.lib.twodim_base import triu_indices
-from .utils import flatten_list, list2str, float_or_str, matches, safeindex
+#from numpy.lib.twodim_base import triu_indices
+from .utils import list2str, float_or_str, matches
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend, vectorize
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import finditer
 from copy import deepcopy
 from collections import namedtuple
+from datetime import date, datetime, timedelta
 #from numba import njit, jit
 
 #
@@ -88,35 +89,54 @@ def encode(string):
 def get_tsteps(file):
 #-----------------------------------------------------------------------
     tsteps = [m.group(2) for m in matches(file=file, pattern=r'(TSTEP\s*\n+)(\d+[\d\s]*\r*\n*)')]
-    tsteps = [int(t) for ts in tsteps for t in ts.decode().split()]
+    tsteps = [float(t) for ts in tsteps for t in ts.decode().split()]
     return tsteps
 
 #-----------------------------------------------------------------------
-def get_schedule_time_and_filepos(lines):
+def get_date_keyword(file, key):
 #-----------------------------------------------------------------------
-    start = [n+1 for n,line in enumerate(lines) if line.startswith('TSTEP')]
-    start.append(len(lines)+1)
-    tsteps = [] 
-    end = []
-    for i in range(len(start)-1):
-        for n,line in enumerate(lines[start[i]:start[i+1]]):
-            tsteps.append(line)
-            if '/' in line:
-                tsteps[-1] = tsteps[-1].split('/')[0]
-                end.append(start[i]+n+1)
-                break
-    # end of TSTEP-block is start of gap
-    # start of next TSTEP-block is end of gap
-    a = end
-    b = [s-1 for s in start][1:]
-    gap = [[a[i],b[i]] for i in range(len(end))]
-    # process possible multiplications, i.e. '4*2' becomes '2 2 2 2'
-    mult = lambda x,y : ' '.join([y]*int(x))
-    tsteps = [mult(*t.split('*')) if '*' in t else t for t in tsteps]
-    # convert to float
-    tsteps = [[float(i) for i in t.split()] for t in tsteps]
-    #print(f'tsteps: {tsteps}')
-    return tsteps, gap
+    dates = [m.group(1,2,3) for m in matches(file=file, pattern=rf'{key}\s*\n+\s*(\d+)\s*\'*([a-zA-Z]+)\'*\s*(\d+)')]
+    dates = [b' '.join(d) for d in dates]
+    dates = [datetime.strptime(d.decode(), '%d %b %Y').date() for d in dates]
+    return dates
+
+#-----------------------------------------------------------------------
+def get_start(case):
+#-----------------------------------------------------------------------
+    file = Path(case).with_suffix('.DATA')
+    return get_date_keyword(file, 'START')[0]
+
+#-----------------------------------------------------------------------
+def get_dates(file):
+#-----------------------------------------------------------------------
+    return get_date_keyword(file, 'DATES')
+
+# #-----------------------------------------------------------------------
+# def get_schedule_time_and_filepos(lines):
+# #-----------------------------------------------------------------------
+#     start = [n+1 for n,line in enumerate(lines) if line.startswith('TSTEP')]
+#     start.append(len(lines)+1)
+#     tsteps = [] 
+#     end = []
+#     for i in range(len(start)-1):
+#         for n,line in enumerate(lines[start[i]:start[i+1]]):
+#             tsteps.append(line)
+#             if '/' in line:
+#                 tsteps[-1] = tsteps[-1].split('/')[0]
+#                 end.append(start[i]+n+1)
+#                 break
+#     # end of TSTEP-block is start of gap
+#     # start of next TSTEP-block is end of gap
+#     a = end
+#     b = [s-1 for s in start][1:]
+#     gap = [[a[i],b[i]] for i in range(len(end))]
+#     # process possible multiplications, i.e. '4*2' becomes '2 2 2 2'
+#     mult = lambda x,y : ' '.join([y]*int(x))
+#     tsteps = [mult(*t.split('*')) if '*' in t else t for t in tsteps]
+#     # convert to float
+#     tsteps = [[float(i) for i in t.split()] for t in tsteps]
+#     #print(f'tsteps: {tsteps}')
+#     return tsteps, gap
 
 #-----------------------------------------------------------------------
 def input_days_and_steps(root):
