@@ -3,7 +3,7 @@
 import os
 import errno
 from pathlib import Path, PurePath
-from re import findall, finditer, DOTALL, MULTILINE
+from re import findall, finditer, compile, DOTALL, MULTILINE
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
@@ -206,11 +206,12 @@ def matches(file=None, pattern=None, length=0, multiline=False, pos=None):
     flags = 0
     if multiline:
         flags = DOTALL
+    regexp = compile(pattern.encode(), flags=flags)
     with open(file) as f:
         with mmap(f.fileno(), length=length, access=ACCESS_READ) as data:
             if pos:
                 data = data[pos:]
-            for match in finditer(pattern.encode(), data, flags=flags):
+            for match in regexp.finditer(data):
                 yield match
         
 
