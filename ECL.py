@@ -7,10 +7,10 @@ import struct
 from pathlib import Path
 
 #from numpy.lib.twodim_base import triu_indices
-from .utils import list2str, float_or_str, matches
+from .utils import flatten_list, list2str, float_or_str, matches, remove_comments
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend, vectorize
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
-from re import finditer
+from re import finditer, compile
 from copy import deepcopy
 from collections import namedtuple
 from datetime import date, datetime, timedelta
@@ -88,8 +88,14 @@ def encode(string):
 #-----------------------------------------------------------------------
 def get_tsteps(file):
 #-----------------------------------------------------------------------
-    tsteps = [m.group(2) for m in matches(file=file, pattern=r'(TSTEP\s*\n+)(\d+[\d\s]*\r*\n*)')]
-    tsteps = [float(t) for ts in tsteps for t in ts.decode().split()]
+    # Remove comments
+    data = remove_comments(file)
+    regex = compile(r'\bTSTEP\b\s+([0-9*\s]+)/')
+    tsteps = [t for m in regex.finditer(data) for t in m.group(1).split()]
+    # Process x*y statements
+    mult = lambda x, y : int(x)*(' '+y) 
+    tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
+    tsteps = [float(t) for ts in tsteps for t in ts.split()]
     return tsteps
 
 #-----------------------------------------------------------------------
@@ -138,36 +144,38 @@ def get_dates(file):
 #     #print(f'tsteps: {tsteps}')
 #     return tsteps, gap
 
-#-----------------------------------------------------------------------
-def input_days_and_steps(root):
-#-----------------------------------------------------------------------
-    #print('get_timestep_eclipse: '+root)
-    read = False
-    dt = []
-    #step = 0
-    with open(str(root)+'.DATA', encoding='latin-1') as f:
-        for line in f:
-            line = line.lstrip()
-            if line.startswith('--'):
-                continue
-            if line.startswith('TSTEP'):
-                read = True
-                continue
-            if line.startswith('END'):
-                break
-            if read:
-                for word in line.split():
-                    if '*' in word:
-                        n,s = [i for i in word.split('*')]
-                        if '/' in s:
-                            read = False
-                            s = s.replace('/','')
-                        dt += [float(s) for i in range(int(n))]
-                    elif '/' in word:
-                        read = False
-                    else:
-                        dt.append(float(word))
-    return int(sum(dt)), len(dt), dt
+# #-----------------------------------------------------------------------
+# def input_days_and_steps(root):
+# #-----------------------------------------------------------------------
+#     #print('get_timestep_eclipse: '+root)
+#     read = False
+#     dt = []
+#     #step = 0
+#     with open(str(root)+'.DATA', encoding='latin-1') as f:
+#         for line in f:
+#             line = line.lstrip()
+#             if line.startswith('--'):
+#                 continue
+#             if line.startswith('TSTEP'):
+#                 read = True
+#                 continue
+#             if line.startswith('END'):
+#                 break
+#             if read:
+#                 for word in line.split():
+#                     if '*' in word:
+#                         n,s = [i for i in word.split('*')]
+#                         if '/' in s:
+#                             read = False
+#                             s = s.replace('/','')
+#                         dt += [float(s) for i in range(int(n))]
+#                     elif '/' in word:
+#                         read = False
+#                     else:
+#                         dt.append(float(word))
+#     print(int(sum(dt)), len(dt), dt)
+#     print(get_tsteps(str(root)+'.DATA'))
+#     return int(sum(dt)), len(dt), dt
 
 
 #====================================================================================

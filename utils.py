@@ -9,6 +9,14 @@ from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
 from struct import unpack
 
+
+#--------------------------------------------------------------------------------
+def remove_comments(file):
+#--------------------------------------------------------------------------------
+    with open(file) as f:
+        lines = f.readlines()
+    return ''.join([l for l in lines if not l.lstrip().startswith('--')])
+
 #--------------------------------------------------------------------------------
 def safeindex(alist, value):
 #--------------------------------------------------------------------------------
