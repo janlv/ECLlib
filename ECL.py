@@ -90,26 +90,46 @@ def get_tsteps(file):
 #-----------------------------------------------------------------------
     # Remove comments
     data = remove_comments(file)
-    regex = compile(r'\bTSTEP\b\s+([0-9*\s]+)/')
+    #print(data)
+    regex = compile(r'\bTSTEP\b\s+([0-9*.\s]+)/')
     tsteps = [t for m in regex.finditer(data) for t in m.group(1).split()]
     # Process x*y statements
     mult = lambda x, y : int(x)*(' '+y) 
     tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
     tsteps = [float(t) for ts in tsteps for t in ts.split()]
+    if not tsteps:
+        raise SystemError(f'ERROR TSTEPS keyword not found in {file}')
+    #print(tsteps)
     return tsteps
 
 #-----------------------------------------------------------------------
-def get_date_keyword(file, key):
+#def get_start(file):
+def get_date_keyword(file, keyword):
 #-----------------------------------------------------------------------
-    dates = [m.group(1,2,3) for m in matches(file=file, pattern=rf'{key}\s*\n+\s*(\d+)\s*\'*([a-zA-Z]+)\'*\s*(\d+)')]
-    dates = [b' '.join(d) for d in dates]
-    dates = [datetime.strptime(d.decode(), '%d %b %Y').date() for d in dates]
+    # Remove comments
+    data = remove_comments(file)
+    #regex = compile(r'\bSTART\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
+    regex = compile(rf'\b{keyword}\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
+    dates = [' '.join(m.group(1,2,3)) for m in regex.finditer(data)]
+    dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
+    if not dates:
+        raise SystemError(f'WARNING {keyword} keyword not found in {file}')
     return dates
+    #return datetime.strptime(date[0], '%d %b %Y').date()
+
+# #-----------------------------------------------------------------------
+# def get_date_keyword(file, key):
+# #-----------------------------------------------------------------------
+#     dates = [m.group(1,2,3) for m in matches(file=file, pattern=rf'{key}\s*\n+\s*(\d+)\s*\'*([a-zA-Z]+)\'*\s*(\d+)')]
+#     dates = [b' '.join(d) for d in dates]
+#     dates = [datetime.strptime(d.decode(), '%d %b %Y').date() for d in dates]
+#     return dates
 
 #-----------------------------------------------------------------------
-def get_start(case):
+#def get_start(case):
+def get_start(file):
 #-----------------------------------------------------------------------
-    file = Path(case).with_suffix('.DATA')
+    #file = Path(case).with_suffix('.DATA')
     return get_date_keyword(file, 'START')[0]
 
 #-----------------------------------------------------------------------
