@@ -86,7 +86,7 @@ def encode(string):
 #             return get_TSTEP(lines)
 
 #-----------------------------------------------------------------------
-def get_tsteps(file):
+def get_tsteps(file, raise_error=True):
 #-----------------------------------------------------------------------
     # Remove comments
     data = remove_comments(file)
@@ -98,7 +98,10 @@ def get_tsteps(file):
     tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
     tsteps = [float(t) for ts in tsteps for t in ts.split()]
     if not tsteps:
-        raise SystemError(f'ERROR TSTEPS keyword not found in {file}')
+        if raise_error:
+            raise SystemError(f'ERROR TSTEPS keyword not found in {file}')
+        else:
+            tsteps = [0]
     #print(tsteps)
     return tsteps
 
