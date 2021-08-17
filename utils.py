@@ -278,14 +278,14 @@ class Progress:
     #--------------------------------------------------------------------------------
     def format_percent(self, n):
     #--------------------------------------------------------------------------------
-        return 'Progress {: 4d}/{:4d} = {:.0f} %   ETA: {}'.format(n, self.N, 100*n/self.N, self.eta) 
+        return 'Progress {: 4d}/{:4d} = {:.0f} %   ETA: {}'.format(int(n), int(self.N), 100*n/self.N, self.eta) 
 
     #--------------------------------------------------------------------------------
     def format_bar(self, n):
     #--------------------------------------------------------------------------------
         hash = int(self.bar_length*n/self.N)
         rest = self.bar_length - hash
-        return '{:4d}/{:4d}  [{}{}]  {}'.format(n, self.N, hash*'#', rest*'-', self.eta) 
+        return '{:4d}/{:4d}  [{}{}]  {}'.format(int(n), int(self.N), hash*'#', rest*'-', self.eta) 
 
     #--------------------------------------------------------------------------------
     def set_N(self, N):
