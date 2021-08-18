@@ -11,11 +11,12 @@ from struct import unpack
 
 
 #--------------------------------------------------------------------------------
-def remove_comments(file):
+def remove_comments(file, comment='--'):
 #--------------------------------------------------------------------------------
     with open(file) as f:
         lines = f.readlines()
-    return ''.join([l for l in lines if not l.lstrip().startswith('--')])
+    return ''.join([l for l in lines if not l.lstrip().startswith(comment)])
+    #return ['' if l.lstrip().startswith(comment) else l for l in lines]
 
 #--------------------------------------------------------------------------------
 def safeindex(alist, value):
