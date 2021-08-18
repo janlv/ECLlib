@@ -7,13 +7,13 @@ import struct
 from pathlib import Path
 
 #from numpy.lib.twodim_base import triu_indices
-from .utils import flatten_list, list2str, float_or_str, matches, remove_comments
-from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend, vectorize
-from mmap import mmap, ACCESS_READ, ACCESS_WRITE
+from .utils import list2str, float_or_str, remove_comments
+from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
+from mmap import mmap, ACCESS_READ
 from re import finditer, compile
 from copy import deepcopy
 from collections import namedtuple
-from datetime import date, datetime, timedelta
+from datetime import datetime
 #from numba import njit, jit
 
 #
@@ -70,21 +70,6 @@ def encode(string):
 #....................................................................................
     return ('%-8s'%string).encode()
 
-# #-----------------------------------------------------------------------
-# def read_TSTEP_from_DATA(case, comment='--'):
-# #-----------------------------------------------------------------------
-#     #print('read_TSTEP: '+root)
-#     file = Path(case).with_suffix('.DATA')
-#     if file.is_file():
-#         with open(file, encoding='latin-1') as f:
-#             lines = f.readlines()
-#             lines = [line.strip() for line in lines]
-#             lines = [line for line in lines if not line.startswith(comment)]
-#             end = safeindex(lines, 'END')
-#             if end:
-#                 lines = lines[:end]
-#             return get_TSTEP(lines)
-
 #-----------------------------------------------------------------------
 def get_tsteps(file, raise_error=True):
 #-----------------------------------------------------------------------
@@ -106,33 +91,21 @@ def get_tsteps(file, raise_error=True):
     return tsteps
 
 #-----------------------------------------------------------------------
-#def get_start(file):
 def get_date_keyword(file, keyword):
 #-----------------------------------------------------------------------
     # Remove comments
     data = remove_comments(file)
-    #regex = compile(r'\bSTART\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
     regex = compile(rf'\b{keyword}\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
     dates = [' '.join(m.group(1,2,3)) for m in regex.finditer(data)]
     dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
     if not dates:
         raise SystemError(f'WARNING {keyword} keyword not found in {file}')
     return dates
-    #return datetime.strptime(date[0], '%d %b %Y').date()
 
-# #-----------------------------------------------------------------------
-# def get_date_keyword(file, key):
-# #-----------------------------------------------------------------------
-#     dates = [m.group(1,2,3) for m in matches(file=file, pattern=rf'{key}\s*\n+\s*(\d+)\s*\'*([a-zA-Z]+)\'*\s*(\d+)')]
-#     dates = [b' '.join(d) for d in dates]
-#     dates = [datetime.strptime(d.decode(), '%d %b %Y').date() for d in dates]
-#     return dates
 
 #-----------------------------------------------------------------------
-#def get_start(case):
 def get_start(file):
 #-----------------------------------------------------------------------
-    #file = Path(case).with_suffix('.DATA')
     return get_date_keyword(file, 'START')[0]
 
 #-----------------------------------------------------------------------
@@ -140,65 +113,6 @@ def get_dates(file):
 #-----------------------------------------------------------------------
     return get_date_keyword(file, 'DATES')
 
-# #-----------------------------------------------------------------------
-# def get_schedule_time_and_filepos(lines):
-# #-----------------------------------------------------------------------
-#     start = [n+1 for n,line in enumerate(lines) if line.startswith('TSTEP')]
-#     start.append(len(lines)+1)
-#     tsteps = [] 
-#     end = []
-#     for i in range(len(start)-1):
-#         for n,line in enumerate(lines[start[i]:start[i+1]]):
-#             tsteps.append(line)
-#             if '/' in line:
-#                 tsteps[-1] = tsteps[-1].split('/')[0]
-#                 end.append(start[i]+n+1)
-#                 break
-#     # end of TSTEP-block is start of gap
-#     # start of next TSTEP-block is end of gap
-#     a = end
-#     b = [s-1 for s in start][1:]
-#     gap = [[a[i],b[i]] for i in range(len(end))]
-#     # process possible multiplications, i.e. '4*2' becomes '2 2 2 2'
-#     mult = lambda x,y : ' '.join([y]*int(x))
-#     tsteps = [mult(*t.split('*')) if '*' in t else t for t in tsteps]
-#     # convert to float
-#     tsteps = [[float(i) for i in t.split()] for t in tsteps]
-#     #print(f'tsteps: {tsteps}')
-#     return tsteps, gap
-
-# #-----------------------------------------------------------------------
-# def input_days_and_steps(root):
-# #-----------------------------------------------------------------------
-#     #print('get_timestep_eclipse: '+root)
-#     read = False
-#     dt = []
-#     #step = 0
-#     with open(str(root)+'.DATA', encoding='latin-1') as f:
-#         for line in f:
-#             line = line.lstrip()
-#             if line.startswith('--'):
-#                 continue
-#             if line.startswith('TSTEP'):
-#                 read = True
-#                 continue
-#             if line.startswith('END'):
-#                 break
-#             if read:
-#                 for word in line.split():
-#                     if '*' in word:
-#                         n,s = [i for i in word.split('*')]
-#                         if '/' in s:
-#                             read = False
-#                             s = s.replace('/','')
-#                         dt += [float(s) for i in range(int(n))]
-#                     elif '/' in word:
-#                         read = False
-#                     else:
-#                         dt.append(float(word))
-#     print(int(sum(dt)), len(dt), dt)
-#     print(get_tsteps(str(root)+'.DATA'))
-#     return int(sum(dt)), len(dt), dt
 
 
 #====================================================================================

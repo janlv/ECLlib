@@ -34,6 +34,16 @@ def upper_and_lower(alist):
     return flatten_list([[item.upper(),item.lower()] for item in alist])
 
 #--------------------------------------------------------------------------------
+def is_file_ignore_suffix_case(file):
+#--------------------------------------------------------------------------------
+    file = Path(file)
+    files = [ file.with_suffix(e) for e in upper_and_lower([file.suffix]) ]
+    for f in files:
+        if f.is_file():
+            return f
+    return False
+
+#--------------------------------------------------------------------------------
 def file_contains(fname, text='', comment='#'):
 #--------------------------------------------------------------------------------
     if not Path(fname).is_file():
