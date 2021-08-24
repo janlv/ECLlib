@@ -113,7 +113,32 @@ def get_dates(file):
 #-----------------------------------------------------------------------
     return get_date_keyword(file, 'DATES')
 
-
+#-----------------------------------------------------------------------
+def get_date_time_steps_MSG(root=None, file=None, end=True, datetime=False):
+#-----------------------------------------------------------------------
+    if file is None:
+        file = root+'.MSG'
+    with open(file) as f:
+        lines = f.readlines()
+    lines = ''.join(lines)
+    date_time_reg = compile(r'<\s*\bmessage\b\s+\bdate\b="([0-9/]+)"\s+time="([0-9.]+)"\s*>')
+    step_reg = compile(r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)')
+    date_time = date_time_reg.findall(lines)
+    if not date_time:
+        return 0, 0, 0
+    date, time = [list(x) for x in zip(*date_time)]
+    step = step_reg.findall(lines)
+    # Convert to numbers
+    time = [float(t) for t in time]
+    step = [int(s) for s in step]
+    if datetime:
+        # Convert to datetime object
+        date = [datetime.strptime(d,'%d/%m/%Y').date() for d in date]
+    if end:
+        # Return only last entries
+        return date[-1], time[-1], step[-1]
+    else:
+        return date, time, step
 
 #====================================================================================
 class _datablock:                                                         # datablock
@@ -239,6 +264,11 @@ class unfmt_file:
         #self.data_chunk = b''
         self.endpos = self.startpos = 0
         #print('init', flush=True)
+
+    #--------------------------------------------------------------------------------
+    def is_file(self):                                             # reader
+    #--------------------------------------------------------------------------------
+        return self._filename.is_file()
 
     #--------------------------------------------------------------------------------
     def set_startpos(self, pos):                                             # reader
