@@ -24,6 +24,8 @@ def print_error(func):
 #--------------------------------------------------------------------------------
 def remove_comments(file, comment='--'):
 #--------------------------------------------------------------------------------
+    if not Path(file).is_file():
+        raise SystemError('ERROR ' + file + ' not found in remove_comments()')    
     with open(file) as f:
         lines = f.readlines()
     return ''.join([l for l in lines if not l.lstrip().startswith(comment)])
@@ -58,7 +60,7 @@ def is_file_ignore_suffix_case(file):
 def file_contains(fname, text='', comment='#'):
 #--------------------------------------------------------------------------------
     if not Path(fname).is_file():
-        raise SystemError('ERROR ' + fname + ' is not found')    
+        raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
     with open(fname, 'r') as f:
         for line in f:
             line = line.lstrip()

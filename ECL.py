@@ -5,6 +5,7 @@
 import struct
 #import os
 from pathlib import Path
+#import traceback
 
 #from numpy.lib.twodim_base import triu_indices
 from .utils import list2str, float_or_str, remove_comments
@@ -65,10 +66,10 @@ datatype = {'INTE' : int32,
 var2key = {'nwell':b'INTEHEAD'}
 var2pos = {'nwell':16}
 
-#....................................................................................
-def encode(string):
-#....................................................................................
-    return ('%-8s'%string).encode()
+# #....................................................................................
+# def encode(string):
+# #....................................................................................
+#     return ('%-8s'%string).encode()
 
 #-----------------------------------------------------------------------
 def get_tsteps(file, raise_error=True):
@@ -77,7 +78,9 @@ def get_tsteps(file, raise_error=True):
     data = remove_comments(file)
     #print(data)
     regex = compile(r'\bTSTEP\b\s+([0-9*.\s]+)/')
-    tsteps = [t for m in regex.finditer(data) for t in m.group(1).split()]
+    #tsteps = [t for m in regex.finditer(data) for t in m.group(1).split()]
+    tsteps = [t for m in regex.findall(data) for t in m.split()]
+    #print(tsteps)
     # Process x*y statements
     mult = lambda x, y : int(x)*(' '+y) 
     tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
@@ -89,6 +92,29 @@ def get_tsteps(file, raise_error=True):
             tsteps = [0]
     #print(tsteps)
     return tsteps
+
+#-----------------------------------------------------------------------
+def get_restart_time_step(file, unformatted=True):
+#-----------------------------------------------------------------------
+    # Remove comments
+    file = Path(file)
+    data = remove_comments(file)
+    regex = compile(r'\bRESTART\b\s+([a-zA-Z0-9_-]+)\s+([0-9]+)\s*/')
+    name_step = regex.findall(data)
+    t = n = 0
+    if name_step:    
+        name, step = [list(t) for t in zip(*name_step)]
+        n = int(step[0])
+        if unformatted:
+            file = file.with_name(name[0]+'.UNRST')
+            t = get_time_step_UNRST(file=file)[0]
+            if len(t) < n:
+                raise SystemError(f'ERROR Unable to read restart time at step {n} from {file.name}')
+            t = t[n]
+        else:
+            file = file.with_name(name[0]+f'.S{n:04}')
+            t = get_time_step_UNSMRY(file=file)[0]
+    return t, n
 
 #-----------------------------------------------------------------------
 def get_date_keyword(file, keyword):
@@ -114,31 +140,57 @@ def get_dates(file):
     return get_date_keyword(file, 'DATES')
 
 #-----------------------------------------------------------------------
-def get_date_time_steps_MSG(root=None, file=None, end=True, datetime=False):
+def get_time_step_MSG(root=None, file=None, end=True): #, date=False):
 #-----------------------------------------------------------------------
     if file is None:
         file = root+'.MSG'
     with open(file) as f:
         lines = f.readlines()
     lines = ''.join(lines)
-    date_time_reg = compile(r'<\s*\bmessage\b\s+\bdate\b="([0-9/]+)"\s+time="([0-9.]+)"\s*>')
+    time_reg = compile(r'<\s*\bmessage\b\s+\bdate\b="[0-9/]+"\s+time="([0-9.]+)"\s*>')
     step_reg = compile(r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)')
-    date_time = date_time_reg.findall(lines)
-    if not date_time:
-        return 0, 0, 0
-    date, time = [list(x) for x in zip(*date_time)]
+    time = time_reg.findall(lines)
+    if not time:
+        return 0, 0
     step = step_reg.findall(lines)
     # Convert to numbers
     time = [float(t) for t in time]
     step = [int(s) for s in step]
-    if datetime:
-        # Convert to datetime object
-        date = [datetime.strptime(d,'%d/%m/%Y').date() for d in date]
     if end:
         # Return only last entries
-        return date[-1], time[-1], step[-1]
+        return time[-1], step[-1]
     else:
-        return date, time, step
+        return time, step
+
+#-----------------------------------------------------------------------
+def get_time_step_UNSMRY(root=None, file=None):
+#-----------------------------------------------------------------------
+    '''
+    Return last time and step from an UNSMRY file
+    '''
+    if file is None:
+        file = str(root)+'.UNSMRY'
+    t = n = 0
+    for block in unfmt_file(file).tail_blocks():
+        if block.key()=='PARAMS':
+            t = block.data()[0]
+        if block.key()=='MINISTEP':
+            n = block.data()[0]
+            break
+    return t,n
+
+#-----------------------------------------------------------------------
+def get_time_step_UNRST(root=None, file=None):
+#-----------------------------------------------------------------------
+    if file is None:
+        file = str(root)+'.UNRST'
+    # DOUBHEAD is time, SEQNUM is step
+    kw = {'DOUBHEAD':[], 'SEQNUM':[]}
+    for block in unfmt_file(file).blocks(datalist=kw.keys(), encode=True):
+        if block.key() in kw.keys():
+            kw[block.key()].append(block.data()[0])
+    return kw['DOUBHEAD'], kw['SEQNUM']
+
 
 #====================================================================================
 class _datablock:                                                         # datablock
@@ -291,12 +343,13 @@ class unfmt_file:
         return str(self._filename.name)
         
     #--------------------------------------------------------------------------------
-    #def parse_forward(self, data=False, datalist=[], startpos=None):   # reader
-    def blocks(self, data=True, datalist=[], only_new=False):   # reader
+    def blocks(self, data=True, datalist=(), only_new=False, encode=False):   # reader
     #--------------------------------------------------------------------------------
         if not Path(self._filename).is_file():
             return
         if datalist:
+            if encode:
+                datalist = [d.ljust(8).encode() for d in datalist]
             data = False
         with open(self._filename, 'rb') as self.fileobj:
             if only_new:
@@ -321,22 +374,23 @@ class unfmt_file:
                         db.reset()
                     db.set_header(chunk, self.get_filepos())
                 else:
+                    #print(db._key, datalist)
                     if not data and not db._key in datalist:
-                        #chunk = b'0'
                         chunk = bytearray(1)
-                    #db.add_chunk(chunk)
                     db.chunk += chunk
 
 
 
     #--------------------------------------------------------------------------------
     #def parse_backward(self, data=False):                               # reader
-    def tail_blocks(self, data=True, datalist=[]):                               # reader
+    def tail_blocks(self, data=True, datalist=(), encode=False):                               # reader
     #--------------------------------------------------------------------------------
         #self.set_direction('backward')
         if not Path(self._filename).is_file():
             return
         if datalist:
+            if encode:
+                datalist = [d.ljust(8).encode() for d in datalist]
             data = False
         with open(self._filename, 'rb') as self.fileobj:
             # Go to end of file
@@ -657,7 +711,8 @@ class check_blocks:                                                # output_chec
     #--------------------------------------------------------------------------------
         #self.reader = reader(file)
         self.file = unfmt_file(filename)
-        self.key = {'start':encode(start), 'end':encode(end)}
+        #self.key = {'start':encode(start), 'end':encode(end)}
+        self.key = {'start':start.ljust(8).encode(), 'end':end.ljust(8).encode()}
         self._var = var
         self.out = {k:[] for k in ('start', 'end', 'startpos')+(self._var,)}
         self.out['end'] = 0
@@ -706,15 +761,9 @@ class check_blocks:                                                # output_chec
     #--------------------------------------------------------------------------------
         self.reset_out()
         try:
-            #b = None
-            #startpos = None
-            #if self.last_block:
-            #    startpos = self.last_block.startpos
-            #for b in self.reader.parse_forward(data=False, datalist=self.datalist, startpos=startpos):
-            for b in self.file.blocks(data=False, datalist=self.datalist):
+            for b in self.file.blocks(datalist=self.datalist):
                 if b._key == self.key['start']:
                     #b.print()
-                    #self.out['start'].append(b.get_data_array()[0])
                     self.out['start'].append(b.data()[0])
                     self.out['startpos'].append(b.startpos)
                 if b._key == self.key['end']:
@@ -723,19 +772,15 @@ class check_blocks:                                                # output_chec
                 if self._var and b._key == var2key[self._var]:
                     self.out[self._var].append(b.get_value(self._var))
             #print(self.out['end'])
-        except (ValueError, AttributeError):
-            #if b:
-            #    self.last_block = b
+        except (ValueError, AttributeError) as e:
             return None
-        except:
+        except:  # Catch all other exceptions 
             raise
         try:
             if b._key == self.key['end'] and len(self.out['start']) >= nblocks and len(self.out['start']) == self.out['end']:
                 self.update_startpos(nblocks)
                 return True
         except UnboundLocalError:
-            #if b:
-            #    self.last_block = b
             return None
 
         
