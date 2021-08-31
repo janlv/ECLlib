@@ -565,11 +565,10 @@ class unfmt_file:
                     data.seek(4, 1)
                     # Value array
                     data_start = data.tell()
+                    max_length = 1000
                     if type==b'CHAR':
-                        bsize = length*8/840
-                    else:
-                        bsize = length/1000
-                    bytes = length*datasize[type] + 8*int(ceil(bsize))
+                        max_length = 105
+                    bytes = length*datasize[type] + 8*int(ceil(length/max_length))
                     data.seek(bytes, 1)
                     yield blockdata(key=key, length=length, type=type, start=start, end=data.tell(), 
                                     data=data, data_start=data_start)
