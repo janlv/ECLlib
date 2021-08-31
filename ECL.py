@@ -375,27 +375,60 @@ class blockdata:
         else:
             print()
 
+    # #--------------------------------------------------------------------------------
+    # def _data(self):
+    # #--------------------------------------------------------------------------------
+    #     value = []
+    #     length = self.length
+    #     if self.type == b'CHAR':
+    #         value = b''
+    #         length *= 8 
+    #     a = self.data_start
+    #     while len(value) < length:
+    #         size = struct.unpack(endian+'i',self.mmap[a:a+4])[0]
+    #         a += 4
+    #         if self.type == b'CHAR':
+    #             value += struct.unpack(endian+f'{size}s',self.mmap[a:a+size])[0]
+    #         else:      
+    #             n = int(size/datasize[self.type]) 
+    #             value.extend(struct.unpack(endian+f'{n}{unpack_char[self.type]}',self.mmap[a:a+size]))
+    #         a += size + 4
+    #     if self.type == b'CHAR':
+    #         value = [value.decode()]        
+    #     return value
+
     #--------------------------------------------------------------------------------
     def data(self):
     #--------------------------------------------------------------------------------
-        value = []
-        length = self.length
         if self.type == b'CHAR':
-            value = b''
-            length *= 8 
+            return self._data_char()
+        else:
+            return self._data_not_char()
+
+    #--------------------------------------------------------------------------------
+    def _data_not_char(self):
+    #-------------------------------<-------------------------------------------------
+        value = []
         a = self.data_start
-        while len(value) < length:
+        while len(value) < self.length:
             size = struct.unpack(endian+'i',self.mmap[a:a+4])[0]
             a += 4
-            if self.type == b'CHAR':
-                value += struct.unpack(endian+f'{size}s',self.mmap[a:a+size])[0]
-            else:      
-                n = int(size/datasize[self.type]) 
-                value.extend(struct.unpack(endian+f'{n}{unpack_char[self.type]}',self.mmap[a:a+size]))
+            n = int(size/datasize[self.type]) 
+            value.extend(struct.unpack(endian+f'{n}{unpack_char[self.type]}',self.mmap[a:a+size]))
             a += size + 4
-        if self.type == b'CHAR':
-            value = [value.decode()]        
         return value
+
+    #--------------------------------------------------------------------------------
+    def _data_char(self):
+    #--------------------------------------------------------------------------------
+        value = b''
+        a = self.data_start
+        while len(value) < 8*self.length:
+            size = struct.unpack(endian+'i',self.mmap[a:a+4])[0]
+            a += 4
+            value += struct.unpack(endian+f'{size}s',self.mmap[a:a+size])[0]
+            a += size + 4
+        return [value.decode()]
 
     #--------------------------------------------------------------------------------
     def get_value(self, var):                                             # block
