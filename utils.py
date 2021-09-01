@@ -279,11 +279,12 @@ def count_match(file=None, pattern=None):
 class Progress:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, N=1, update=1, format='%', indent=3):
+    def __init__(self, N=1, update=1, format='%', indent=3, min=0):
     #--------------------------------------------------------------------------------
         self.start_time = time()
         self.update = update
         self.N = N
+        self.min = min
         if '%' in format:
             self.format = self.format_percent
         if '#' in format:
@@ -294,34 +295,48 @@ class Progress:
         self.indent = indent*' '
 
     #--------------------------------------------------------------------------------
+    def set_min(self, min):
+    #--------------------------------------------------------------------------------
+        self.reset_time()
+        self.min = min
+
+    #--------------------------------------------------------------------------------
     def reset(self, N=1):
     #--------------------------------------------------------------------------------
         self.N = N
-        self.start_time = time()
+        self.reset_time()
 
     #--------------------------------------------------------------------------------
     def reset_time(self):
     #--------------------------------------------------------------------------------
         self.start_time = time()
+        self.min = 0
 
     #--------------------------------------------------------------------------------
     def calc_estimated_arrival(self, n):
     #--------------------------------------------------------------------------------
+        nn = max(n-self.min, 0)
         Dt = time()-self.start_time
         self.ela = timedelta(seconds=int(Dt))
-        self.eta = timedelta(seconds=int((self.N-n)*Dt/n))
+        self.eta = timedelta(seconds=int((self.N-n)*Dt/nn))
 
     #--------------------------------------------------------------------------------
     def format_percent(self, n):
     #--------------------------------------------------------------------------------
-        return 'Progress {: 4d}/{:4d} = {:.0f} %   ETA: {}'.format(int(n), int(self.N), 100*n/self.N, self.eta) 
+        nn = max(n-self.min, 0)
+        percent = 100*nn/(self.N-self.min)
+        return 'Progress {: 4d} / {:4d} = {:.0f} %   ETA: {}'.format(int(n), int(self.N), percent, self.eta) 
 
     #--------------------------------------------------------------------------------
     def format_bar(self, n):
     #--------------------------------------------------------------------------------
-        hash = int(self.bar_length*n/self.N)
+        nn = max(n-self.min, 0)
+        hash = int(self.bar_length*nn/(self.N-self.min))
         rest = self.bar_length - hash
-        return '{:4d}/{:4d}  [{}{}]  {}'.format(int(n), int(self.N), hash*'#', rest*'-', self.eta) 
+        count = f'{int(n)}'
+        if self.min > 0:
+            count = f'({int(self.min)} + {int(nn)})'
+        return f'{count} / {int(self.N)}  [{hash*"#"}{rest*"-"}]  {self.eta}'
 
     #--------------------------------------------------------------------------------
     def set_N(self, N):
@@ -331,30 +346,20 @@ class Progress:
     #--------------------------------------------------------------------------------
     def print(self, n, text=None, trail_space=3):
     #--------------------------------------------------------------------------------
-        if n>0 and n%self.update==0:
+        #print(n, self.min)
+        if n>self.min and n%self.update==0:
             self.calc_estimated_arrival(n)
             print('\r'+(text or '')+self.indent+self.format(n)+trail_space*' ', end='', flush=True)
 
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
     #--------------------------------------------------------------------------------
-        eta = 0        
+        eta = 0
         if n==0:
-            self.start_time = time()
-            #self.steps = [0]
-        if n>0:
-            #if n>self.steps[-1]:
-            #    self.steps.append(n) 
-            Dt = time()-self.start_time
-            eta = max(int((self.N-n)*Dt/n), 0)
-            #t_step = Dt/len(self.steps)
-            #interval = 1
-            #if len(self.steps)>1:
-            #    interval=self.steps[-1] - self.steps[-2]
-            #rem_steps = (self.N-n)/interval
-            #eta = int(rem_steps*t_step)
-            #print('steps:{}, int:{}, rem:{}, t: {}, eta:{}'.format(self.steps, interval, rem_steps, t_step, eta))
-        #print(self.start_time)
+            self.reset_time()
+        elif n > self.min:
+            nn = n-self.min
+            eta = max( int( (self.N-n) * (time()-self.start_time)/nn ) , 0)
         return str(timedelta(seconds=eta))
     
     #--------------------------------------------------------------------------------
