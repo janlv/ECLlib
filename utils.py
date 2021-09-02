@@ -31,7 +31,7 @@ def print_error(func):
 def remove_comments(file, comment='--'):
 #--------------------------------------------------------------------------------
     if not Path(file).is_file():
-        raise SystemError('ERROR ' + file + ' not found in remove_comments()')    
+        raise SystemError(f'ERROR {file} not found in remove_comments()')    
     with open(file) as f:
         lines = f.readlines()
     return ''.join([l for l in lines if not l.lstrip().startswith(comment)])
