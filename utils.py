@@ -23,8 +23,7 @@ def print_error(func):
         try:
             return func(*args, **kwargs)
         except SystemError as e:
-            print(f'ERROR: {e}')
-            #print(f'ERROR in {func.__qualname__}: {e}')
+            print('\n   ' + str(e) + '\n')
     return wrapper
 
 
