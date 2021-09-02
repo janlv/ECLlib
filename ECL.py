@@ -8,7 +8,7 @@ import struct
 #import os
 from pathlib import Path
 
-from psutil import net_connections
+#from psutil import net_connections
 #import traceback
 
 #from numpy.lib.twodim_base import triu_indices
