@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 #from struct import unpack
-from io import SEEK_CUR
-from os import startfile
+#from io import SEEK_CUR
+#from os import startfile
 import struct
 #import os
 from pathlib import Path
