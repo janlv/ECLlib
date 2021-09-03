@@ -18,7 +18,7 @@ from mmap import mmap, ACCESS_READ
 from re import finditer, compile
 from copy import deepcopy
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from struct import unpack
 #from numba import njit, jit
 
@@ -205,6 +205,7 @@ def get_time_step_UNSMRY(root=None, file=None):
 def get_time_step_UNRST(root=None, file=None, end=False, step=None):
 #-----------------------------------------------------------------------
     #print('get_time_step_UNRST', file)
+    #start = datetime.now()
     if file is None:
         file = str(root)+'.UNRST'
     # DOUBHEAD is time, SEQNUM is step
@@ -219,6 +220,7 @@ def get_time_step_UNRST(root=None, file=None, end=False, step=None):
         return 0, 0
     if end:
         return t[-1], n[-1]
+    #print(datetime.now()-start)
     return t, n
 
 #-----------------------------------------------------------------------
