@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
 import errno
@@ -8,6 +8,13 @@ from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
 from struct import unpack
+
+#--------------------------------------------------------------------------------
+def get_python_version():
+#--------------------------------------------------------------------------------
+    from sys import version_info
+    return version_info
+
 
 #--------------------------------------------------------------------------------
 def print_file(file):
