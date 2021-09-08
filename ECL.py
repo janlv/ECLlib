@@ -4,6 +4,7 @@
 #from struct import unpack
 #from io import SEEK_CUR
 #from os import startfile
+from os import access
 import struct
 #import os
 from pathlib import Path
@@ -14,8 +15,8 @@ from pathlib import Path
 #from numpy.lib.twodim_base import triu_indices
 from .utils import list2str, float_or_str, remove_comments
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
-from mmap import mmap, ACCESS_READ
-from re import finditer, compile
+from mmap import ACCESS_WRITE, mmap, ACCESS_READ
+from re import L, finditer, compile
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime, timedelta
@@ -348,12 +349,15 @@ class _datablock:                                                         # data
 class blockdata:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, data_start=0):
+    #def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, data_start=0, file=None, write=None):
+    def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, data_start=0, file=None):
     #--------------------------------------------------------------------------------
         self._key = key
         self.length = length
         self.type = type
         self.mmap = data
+        self.file = file
+        #self.mmap_write = write
         self.startpos = start
         self._end = end
         self.data_start = data_start
@@ -377,60 +381,85 @@ class blockdata:
         else:
             print()
 
-    # #--------------------------------------------------------------------------------
-    # def _data(self):
-    # #--------------------------------------------------------------------------------
-    #     value = []
-    #     length = self.length
-    #     if self.type == b'CHAR':
-    #         value = b''
-    #         length *= 8 
-    #     a = self.data_start
-    #     while len(value) < length:
-    #         size = struct.unpack(endian+'i',self.mmap[a:a+4])[0]
-    #         a += 4
-    #         if self.type == b'CHAR':
-    #             value += struct.unpack(endian+f'{size}s',self.mmap[a:a+size])[0]
-    #         else:      
-    #             n = int(size/datasize[self.type]) 
-    #             value.extend(struct.unpack(endian+f'{n}{unpack_char[self.type]}',self.mmap[a:a+size]))
-    #         a += size + 4
-    #     if self.type == b'CHAR':
-    #         value = [value.decode()]        
-    #     return value
+    #--------------------------------------------------------------------------------
+    def read_size_at(self, pos):
+    #--------------------------------------------------------------------------------
+        size = struct.unpack(endian+'i',self.mmap[pos:pos+4])[0]
+        if self.type == b'CHAR':
+            n = size
+        else:
+            n = int(size/datasize[self.type])
+        return size, n 
+
+    #--------------------------------------------------------------------------------
+    def pack_format(self, n):
+    #--------------------------------------------------------------------------------
+        return endian+f'{n}{unpack_char[self.type]}'
+
+    #--------------------------------------------------------------------------------
+    def replace(self, func, key=None):
+    #--------------------------------------------------------------------------------
+        with open(self.file, mode='r+') as f:
+            with mmap(f.fileno(), length=0, access=ACCESS_WRITE) as mmap_write:
+                pos = self.startpos + 4
+                if key is None:
+                    key = self.key()
+                #self.mmap_write[pos:pos+8] = f'{newkey:8s}'.encode()
+                mmap_write[pos:pos+8] = f'{key:8s}'.encode()
+                newdata = func(self.data())
+                pos = self.startpos + 24  # header: 4+8+4+4+4 = 24, data: 4 + 1000 data + 4
+                N = 0
+                while N < len(newdata):
+                    size, n = self.read_size_at(pos)
+                    pos += 4
+                    #self.mmap_write[pos:pos+size] = struct.pack(self.pack_format(n), *newdata[N:N+n])
+                    mmap_write[pos:pos+size] = struct.pack(self.pack_format(n), *newdata[N:N+n])
+                    pos += size + 4
+                    N += n
 
     #--------------------------------------------------------------------------------
     def data(self):
     #--------------------------------------------------------------------------------
-        if self.type == b'CHAR':
-            return self._data_char()
-        else:
-            return self._data_not_char()
-
-    #--------------------------------------------------------------------------------
-    def _data_not_char(self):
-    #-------------------------------<-------------------------------------------------
         value = []
         a = self.data_start
-        while len(value) < self.length:
-            size = struct.unpack(endian+'i',self.mmap[a:a+4])[0]
+        while a < self._end:
+            size, n = self.read_size_at(a)
             a += 4
-            n = int(size/datasize[self.type]) 
-            value.extend(struct.unpack(endian+f'{n}{unpack_char[self.type]}',self.mmap[a:a+size]))
+            value.extend(struct.unpack(self.pack_format(n),self.mmap[a:a+size]))
             a += size + 4
+        if self.type == b'CHAR':
+            value = [b''.join(value).decode()]
         return value
+        # if self.type == b'CHAR':
+        #     return self._data_char()
+        # else:
+        #     return self._data_not_char()
 
-    #--------------------------------------------------------------------------------
-    def _data_char(self):
-    #--------------------------------------------------------------------------------
-        value = b''
-        a = self.data_start
-        while len(value) < 8*self.length:
-            size = struct.unpack(endian+'i',self.mmap[a:a+4])[0]
-            a += 4
-            value += struct.unpack(endian+f'{size}s',self.mmap[a:a+size])[0]
-            a += size + 4
-        return [value.decode()]
+    # #--------------------------------------------------------------------------------
+    # def _data_not_char(self):
+    # #--------------------------------------------------------------------------------
+    #     value = []
+    #     a = self.data_start
+    #     #while len(value) < self.length:
+    #     while a < self._end:
+    #         size, n = self.read_size_at(a)
+    #         a += 4
+    #         value.extend(struct.unpack(self.data_format(n),self.mmap[a:a+size]))
+    #         a += size + 4
+    #     return value
+
+    # #--------------------------------------------------------------------------------
+    # def _data_char(self):
+    # #--------------------------------------------------------------------------------
+    #     value = b''
+    #     a = self.data_start
+    #     #while len(value) < 8*self.length:
+    #     while a < self._end:
+    #         size, n = self.read_size_at(a)
+    #         a += 4
+    #         value += struct.unpack(self.data_format(size),self.mmap[a:a+size])[0]
+    #         a += size + 4
+    #     return [value.decode()]
 
     #--------------------------------------------------------------------------------
     def get_value(self, var):                                             # block
@@ -548,6 +577,7 @@ class unfmt_file:
 
 
     #--------------------------------------------------------------------------------
+    #def blocks(self, only_new=False, write=True):   # unfmt_file
     def blocks(self, only_new=False):   # unfmt_file
     #--------------------------------------------------------------------------------
         if not Path(self._filename).is_file():
@@ -556,7 +586,12 @@ class unfmt_file:
             startpos = self.endpos
         else:
             startpos = self.startpos
-        with open(self._filename, mode='rb') as file:
+        # try:
+        #     write_mmap = None
+        #     if write:
+        #        write_file = open(self._filename, mode='r+')
+        #        write_mmap = mmap(write_file.fileno(), length=0, access=ACCESS_WRITE)
+        with open(self._filename, mode='r') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 data.seek(startpos, 1)
                 while data.tell() < data.size():
@@ -573,8 +608,13 @@ class unfmt_file:
                     bytes = length*datasize[type] + 8*int(ceil(length/max_length))
                     data.seek(bytes, 1)
                     yield blockdata(key=key, length=length, type=type, start=start, end=data.tell(), 
-                                    data=data, data_start=data_start)
+                                    data=data, data_start=data_start, file=self._filename)
                 self.endpos = data.tell()
+        # finally:
+        #     if write:
+        #         write_mmap.flush()
+        #         write_mmap.close()
+        #         write_file.close()
 
     #--------------------------------------------------------------------------------
     def tail_blocks(self):                                               # unfmt_file
