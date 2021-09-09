@@ -238,120 +238,19 @@ def get_tail_data_UNRST(keyword=None, root=None, file=None, raise_error=True):
     if raise_error:
         raise SystemError(f'ERROR Unable to read keyword {keyword} from {Path(file).name}')
 
-
-# #====================================================================================
-# class _datablock:                                                         # datablock
-# #====================================================================================
-
-#     #--------------------------------------------------------------------------------
-#     def __init__(self):                                                   # datablock
-#     #--------------------------------------------------------------------------------
-#         self.reset()
-        
-#     #--------------------------------------------------------------------------------
-#     def set_header(self, chunk, filepos):                                 # datablock
-#     #--------------------------------------------------------------------------------
-#         self._key, self.length, self.datatype = struct.unpack(endian+'8si4s', chunk)
-#         if self.datatype in (b'CHAR',):
-#             self.length *= datasize[self.datatype]
-#         # Set filepos to start of header.
-#         # The header is 4+16+4 = 24 bytes long
-#         self.startpos = filepos - 24 # for forward parsing!
-        
-#     #--------------------------------------------------------------------------------
-#     def add_chunk(self, chunk):                                           # datablock
-#     #--------------------------------------------------------------------------------
-#         self.chunk += chunk
-#         #self.empty = False
-
-#     #--------------------------------------------------------------------------------
-#     #def get_data_array(self):                                             # datablock
-#     def data(self):                                             # datablock
-#     #--------------------------------------------------------------------------------
-#         #if self.chunk in (b'0',):
-#         if len(self.chunk)==0:
-#             return None
-#         if len(self.chunk)==1 and self.chunk[0]==0:
-#             raise SystemError('No data to unpack in data().\nDid you pass data=True to parse_file()?')
-#         #if self.datatype in (b'CHAR',):
-#         #    self.length *= datasize[self.datatype]
-#         try:
-#             return struct.unpack(endian + str(self.length) + unpack_char[self.datatype], self.chunk)
-#         except struct.error as e:
-#             raise SystemError(e)
-        
-#     #--------------------------------------------------------------------------------
-#     def reset(self):                                                      # datablock
-#     #--------------------------------------------------------------------------------
-#         #self.chunk = b''
-#         self.chunk = bytearray()
-#         self.length = None
-#         self._key = ''
-#         #self.endpos = self.startpos = None
-        
-#     #--------------------------------------------------------------------------------
-#     def ready(self):                                                      # datablock
-#     #--------------------------------------------------------------------------------
-#         #if self.chunk != b'' or self.length == 0:
-#         if len(self.chunk)!=0 or self.length==0:
-#             return True
-#         else:
-#             return False
-
-#     #--------------------------------------------------------------------------------
-#     def info(self):                                                       # datablock
-#     #--------------------------------------------------------------------------------
-#         return f'{self._key.decode()} block of {len(self.chunk)} bytes holding {self.length} {self.datatype.decode()} at [{self.startpos}, {self.end()}]'
-
-#     #--------------------------------------------------------------------------------
-#     def print(self):                                                      # datablock
-#     #--------------------------------------------------------------------------------
-#         print(self.info())
-        
-#     #--------------------------------------------------------------------------------
-#     def get_nwell(self):                                                  # datablock
-#     #--------------------------------------------------------------------------------
-#         return self.get_value('nwell')
-#         #try:
-#         #    return self.get_data_array()[16]
-#         #except:
-#         #    raise ValueError('Only INTEHEAD blocks contain NWELL, this is a {:s} block'.format(self._key.decode())) 
-
-#     #--------------------------------------------------------------------------------
-#     def get_value(self, var):                                             # datablock
-#     #--------------------------------------------------------------------------------
-#         #if self._key == b'INTEHEAD':
-#         #if self._key != self.var2key[var]:
-#         #    raise ValueError('ERROR! {} blocks does not hold {}'.format(self._key.decode(), var))
-#         #return self.get_data_array()[var2pos[var]]
-#         return self.data()[var2pos[var]]
-        
-#     #--------------------------------------------------------------------------------
-#     def key(self):                                             # datablock
-#     #--------------------------------------------------------------------------------
-#         return self._key.decode().strip()
-        
-#     #--------------------------------------------------------------------------------
-#     def start(self):                                             # datablock
-#     #-------------------------------------------------------------------------------
-#         return self.startpos
-        
-#     #--------------------------------------------------------------------------------
-#     def end(self):                                             # datablock
-#     #-------------------------------------------------------------------------------
-#         # A data-block is split in chunks if the length exceeds 1000 elements
-#         # Each data-block is sandwiched by a 4 byte int giving the size of the block
-#         return self.startpos + 24 + len(self.chunk) + 8*int(ceil(self.length/max_length))
-    
-#     #--------------------------------------------------------------------------------
-#     def datatype(self):                                             # datablock
-#     #-------------------------------------------------------------------------------
-#         return self.datatype.decode(),
         
 
 #====================================================================================
-class blockdata:
+class unfmt_block:
+    #
+    # Block of unformatted Eclipse data
+    #
 #====================================================================================
+    #  | h e a d e r  |   d a t a     |
+    #  |4i|8s|4i|4s|4i|4i|1000 data|4i| 
+    #  |    24 bytes  |
+    #  |              |4i|8d| 
+
     #--------------------------------------------------------------------------------
     def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, data_start=0, file=None):
     #--------------------------------------------------------------------------------
@@ -365,7 +264,7 @@ class blockdata:
         self.data_start = data_start
 
     #--------------------------------------------------------------------------------
-    def info(self, details=False):                                                       # block
+    def info(self, details=False):                                      # unfmt_block
     #--------------------------------------------------------------------------------
         s = f'{self._key.decode()}'
         if details:
@@ -375,7 +274,7 @@ class blockdata:
         return s
 
     #--------------------------------------------------------------------------------
-    def print(self, data=False, details=False):                                                       # block
+    def print(self, data=False, details=False):                         # unfmt_block
     #--------------------------------------------------------------------------------
         print(self.info(details=details), end='')
         if data:
@@ -384,7 +283,7 @@ class blockdata:
             print()
 
     #--------------------------------------------------------------------------------
-    def read_size_at(self, pos):
+    def read_size_at(self, pos):                                        # unfmt_block
     #--------------------------------------------------------------------------------
         size = unpack(endian+'i',self.mmap[pos:pos+4])[0]
         if self.type == b'CHAR':
@@ -394,12 +293,12 @@ class blockdata:
         return size, n 
 
     #--------------------------------------------------------------------------------
-    def pack_format(self, n):
+    def pack_format(self, n):                                           # unfmt_block
     #--------------------------------------------------------------------------------
         return endian+f'{n}{unpack_char[self.type]}'
 
     #--------------------------------------------------------------------------------
-    def replace(self, func, key=None):
+    def replace(self, func, key=None):                                  # unfmt_block
     #--------------------------------------------------------------------------------
         with open(self.file, mode='r+') as f:
             with mmap(f.fileno(), length=0, access=ACCESS_WRITE) as mmap_write:
@@ -418,7 +317,7 @@ class blockdata:
                     N += n
 
     #--------------------------------------------------------------------------------
-    def data(self):
+    def data(self):                                                     # unfmt_block
     #--------------------------------------------------------------------------------
         value = []
         a = self.data_start
@@ -435,38 +334,34 @@ class blockdata:
         return value
 
     #--------------------------------------------------------------------------------
-    def get_value(self, var):                                             # block
+    def get_value(self, var):                                           # unfmt_block
     #--------------------------------------------------------------------------------
         return self.data()[var2pos[var]]
         
     #--------------------------------------------------------------------------------
-    def get_nwell(self):                                                  # block
+    def get_nwell(self):                                                # unfmt_block
     #--------------------------------------------------------------------------------
         return self.get_value('nwell')
 
     #--------------------------------------------------------------------------------
-    def key(self):                                             # block
+    def key(self):                                                      # unfmt_block
     #--------------------------------------------------------------------------------
         return self._key.decode().strip()
         
     #--------------------------------------------------------------------------------
-    def start(self):                                             # block
-    #-------------------------------------------------------------------------------
+    def start(self):                                                    # unfmt_block
+    #--------------------------------------------------------------------------------
         return self.startpos
 
     #--------------------------------------------------------------------------------
-    def end(self):                                             # block
-    #-------------------------------------------------------------------------------
+    def end(self):                                                      # unfmt_block
+    #--------------------------------------------------------------------------------
         return self._end
 
 
 #====================================================================================
 class unfmt_file:
 #====================================================================================
-    #  | h e a d e r  |   d a t a     |
-    #  |4i|8s|4i|4s|4i|4i|1000 data|4i| 
-    #  |    24 bytes  |
-    #  |              |4i|8d| 
 
     #--------------------------------------------------------------------------------
     def __init__(self, filename):                                        # unfmt_file
@@ -510,47 +405,8 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
         return str(self._filename.name)
         
-    # #--------------------------------------------------------------------------------
-    # #def blocks(self, data=True, datalist=(), only_new=False, encode=False):   # unfmt_file
-    # def blocks_old(self, data=True, datalist=(), only_new=False, encode=False):   # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if not Path(self._filename).is_file():
-    #         return
-    #     if datalist:
-    #         if encode:
-    #             datalist = [d.ljust(8).encode() for d in datalist]
-    #         data = False
-    #     with open(self._filename, 'rb') as self.fileobj:
-    #         if only_new:
-    #             startpos = self.endpos
-    #         else:
-    #             startpos = self.startpos
-    #         self.fileobj.seek(startpos, 1)
-    #         db = _datablock()
-    #         while True:
-    #             try:
-    #                 chunk = self._read_chunk(self._read_bytes_forward, self._safe_seek_forward)
-    #             except EOFError:
-    #                 self.endpos = self.fileobj.tell()
-    #                 if db.ready():
-    #                     yield db
-    #                 return
-    #             except MemoryError:
-    #                 return False
-    #             if self._chunk_is_header(chunk):
-    #                 if db.ready():
-    #                     yield db
-    #                     db.reset()
-    #                 db.set_header(chunk, self.get_filepos())
-    #             else:
-    #                 #print(db._key, datalist)
-    #                 if not data and not db._key in datalist:
-    #                     chunk = bytearray(1)
-    #                 db.chunk += chunk
-
-
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False):   # unfmt_file
+    def blocks(self, only_new=False):                                    # unfmt_file
     #--------------------------------------------------------------------------------
         if not Path(self._filename).is_file():
             return
@@ -574,7 +430,7 @@ class unfmt_file:
                         max_length = 105
                     bytes = length*datasize[type] + 8*int(ceil(length/max_length))
                     data.seek(bytes, 1)
-                    yield blockdata(key=key, length=length, type=type, start=start, end=data.tell(), 
+                    yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
                                     data=data, data_start=data_start, file=self._filename)
                 self.endpos = data.tell()
 
@@ -605,7 +461,7 @@ class unfmt_file:
                     # Value array
                     data_start = data.tell()
                     data.seek(start, 0)
-                    yield blockdata(key=key, length=length, type=type, start=start, end=end, 
+                    yield unfmt_block(key=key, length=length, type=type, start=start, end=end, 
                                     data=data, data_start=data_start)
                 #self.endpos = data.tell()
 
@@ -621,116 +477,6 @@ class unfmt_file:
         else:
             return False
 
-    # #--------------------------------------------------------------------------------
-    # def tail_blocks(self, data=True, datalist=(), encode=False):         # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     #self.set_direction('backward')
-    #     if not Path(self._filename).is_file():
-    #         return
-    #     if datalist:
-    #         if encode:
-    #             datalist = [d.ljust(8).encode() for d in datalist]
-    #         data = False
-    #     with open(self._filename, 'rb') as self.fileobj:
-    #         # Go to end of file
-    #         self.fileobj.seek(0, 2)
-    #         db = _datablock()
-    #         while True:
-    #             try:
-    #                 chunk = self._read_chunk(self._read_bytes_backward, self._safe_seek_backward)
-    #             except EOFError:
-    #                 self.endpos = self.fileobj.tell()
-    #                 return
-    #             if self._chunk_is_header(chunk):
-    #                 db.set_header(chunk, self.get_filepos()+24)
-    #                 if db.ready():
-    #                     yield db
-    #                     db.reset()
-    #             else:
-    #                 #print('key:', db._key, 'list:', datalist)
-    #                 #if not data and not db._key in datalist:
-    #                 if not data:
-    #                     #chunk = b'0'
-    #                     chunk = bytearray(1)
-    #                 #db.add_chunk(chunk)
-    #                 db.chunk += chunk
-
-                    
-    # #--------------------------------------------------------------------------------
-    # def get_filepos(self):                                               # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     return self.fileobj.tell() #/self.filesize
-                    
-    # #--------------------------------------------------------------------------------
-    # def _read_bytes_forward(self, nbytes):                               # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     bytesread = self.fileobj.read(nbytes)
-    #     if not bytesread:
-    #         raise EOFError('End of {:s} reached!'.format(self.fileobj.name))
-    #     return(bytesread)
-
-    # #--------------------------------------------------------------------------------
-    # def _read_bytes_backward(self, nbytes):                              # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     self._safe_seek_backward(nbytes)
-    #     bytesread = self.fileobj.read(nbytes)
-    #     if not bytesread:
-    #         raise EOFError('End of {:s} reached!'.format(self.fileobj.name))
-    #     self._safe_seek_backward(nbytes)
-    #     return(bytesread)
-    
-    # #--------------------------------------------------------------------------------
-    # def _safe_seek_backward(self, nbytes):                               # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if self.fileobj.tell() >= nbytes:
-    #         self.fileobj.seek(-nbytes, 1)
-    #     else:
-    #         raise EOFError('Cannot seek beyond start of file {:s}'.format(self.fileobj.name))
-
-    # #--------------------------------------------------------------------------------
-    # def _safe_seek_forward(self, nbytes):                                # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     #try:
-    #     self.fileobj.seek(nbytes,1)
-    #     #except EOFError:
-    #     #    pass
-
-    # #--------------------------------------------------------------------------------
-    # def _chunk_is_header(self, chunk):                                   # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if len(chunk)==16:
-    #         try:
-    #             datasize[chunk[-4:]]
-    #             return True
-    #         except KeyError as e:
-    #             return False
-    #     else:
-    #         return False
-        
-    # #--------------------------------------------------------------------------------
-    # def _read_chunk(self, read_func, seek_func):                         # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     size = struct.unpack(endian + 'i', read_func(4))[0] # read one int
-    #     chunk = read_func(size)
-    #     seek_func(4) # skip trailing/leading int
-    #     return chunk
-
-    # #--------------------------------------------------------------------------------
-    # def tail_block_is(self, key):                                        # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     try:
-    #         key = key.upper().strip().ljust(8).encode()
-    #         for block in self.tail_blocks(data=False):
-    #             if block.key() == key:
-    #                 #block.print()
-    #                 return True
-    #             else:
-    #                 return False
-    #     except (AttributeError, ValueError):
-    #         pass
-    #     except:
-    #         raise
-        
     #--------------------------------------------------------------------------------
     def has_new_blocks(self):                                            # unfmt_file
     #--------------------------------------------------------------------------------
@@ -986,7 +732,7 @@ class check_blocks:                                                    # check_b
 #====================================================================================
 class fmt_block:                                                         # fmt_block
     #
-    # formatted block of Eclipse data
+    # Block of formatted Eclipse data
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
