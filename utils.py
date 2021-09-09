@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
-import errno
-from pathlib import Path, PurePath
-from re import findall, finditer, compile, DOTALL, MULTILINE
+from pathlib import Path
+from re import findall, compile, DOTALL
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
@@ -176,17 +175,23 @@ def float_or_str(word):
 
     
 #------------------------------------------------
-def delete_files_matching(pattern, echo=False):
+def delete_files_matching(pattern, echo=False, raise_error=False):
 #------------------------------------------------
-    pattern = Path(pattern)
-    for file in pattern.parent.glob(pattern.name):
-        if echo:
-            print('Removing ' + str(file))
-        try:
-            file.unlink()
-        except PermissionError:
-            raise SystemError('Unable to delete file '+str(file)+', maybe it belongs to another process')
-
+    msg = ''
+    if not isinstance(pattern, (list, tuple)):
+        pattern = (pattern,)
+    for pat in pattern:
+        pat = Path(pat)
+        for file in pat.parent.glob(pat.name):
+            if echo:
+                print('Removing ' + str(file))
+            try:
+                file.unlink()
+            except PermissionError:
+                msg = 'WARNING Unable to delete file '+str(file)+', maybe it belongs to another process'
+                if raise_error:
+                    raise SystemError(msg)
+    return msg
 
 
 #------------------------------------------------
@@ -364,6 +369,7 @@ class Progress:
         elif n > self.min:
             nn = n-self.min
             eta = max( int( (self.N-n) * (time()-self.start_time)/nn ) , 0)
+        #print(f'remaining_time({n}) -> {eta}')
         return str(timedelta(seconds=eta))
     
     #--------------------------------------------------------------------------------
