@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+
 # -*- coding: utf-8 -*-
 
 from os import access
@@ -420,7 +420,7 @@ class unfmt_file:
             startpos = self.endpos
         else:
             startpos = self.startpos
-        with open(self._filename, mode='r') as file:
+        with open(self._filename, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 data.seek(startpos, 1)
                 while data.tell() < data.size():
