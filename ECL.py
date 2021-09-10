@@ -5,7 +5,6 @@ from os import access
 import struct
 from pathlib import Path
 
-from numpy.lib.polynomial import _raise_power
 from .utils import list2str, float_or_str, remove_comments
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
@@ -30,7 +29,7 @@ from struct import unpack, pack, error as struct_error
 
 # Maximum number of data records in one block.
 # For REAL this means that 4*1000 bytes is the max size 
-max_length = 1000   
+#max_length = 1000   
 
 endian = '>' # big-endian
 
@@ -47,6 +46,13 @@ datasize = {b'INTE' : 4,
             b'DOUB' : 8,
             b'CHAR' : 8,
             b'MESS' : 1}
+
+max_length = {b'INTE' : 1000,
+              b'REAL' : 1000,
+              b'LOGI' : 1000,
+              b'DOUB' : 1000,
+              b'CHAR' : 105,
+              b'MESS' : 1}
 
 datatype = {'INTE' : int32,
             'REAL' : float32,
@@ -243,7 +249,7 @@ def get_tail_data_UNRST(keyword=None, root=None, file=None, raise_error=True):
 #====================================================================================
 class unfmt_block:
     #
-    # Block of unformatted Eclipse data
+    # Block of formatted Eclipse data
     #
 #====================================================================================
     #  | h e a d e r  |   d a t a     |
@@ -408,7 +414,7 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
     def blocks(self, only_new=False):                                    # unfmt_file
     #--------------------------------------------------------------------------------
-        if not Path(self._filename).is_file():
+        if not self.is_file() or self.size()<24: # Header is 24 bytes
             return
         if only_new:
             startpos = self.endpos
@@ -420,16 +426,18 @@ class unfmt_file:
                 while data.tell() < data.size():
                     start = data.tell()
                     # Header
-                    data.seek(4, 1)
-                    key, length, type = unpack(endian+'8si4s', data.read(16))
-                    data.seek(4, 1)
-                    # Value array
-                    data_start = data.tell()
-                    max_length = 1000
-                    if type==b'CHAR':
-                        max_length = 105
-                    bytes = length*datasize[type] + 8*int(ceil(length/max_length))
-                    data.seek(bytes, 1)
+                    try:
+                        data.seek(4, 1)
+                        key, length, type = unpack(endian+'8si4s', data.read(16))
+                        data.seek(4, 1)
+                        # Value array
+                        data_start = data.tell()
+                        bytes = length*datasize[type] + 8*int(ceil(length/max_length[type]))
+                        data.seek(bytes, 1)
+                    except ValueError: # as e:
+                        # Catch 'seek out of range' error
+                        #print(f'break in blocks(): {e}')
+                        break
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
                                     data=data, data_start=data_start, file=self._filename)
                 self.endpos = data.tell()
@@ -437,7 +445,7 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
     def tail_blocks(self):                                               # unfmt_file
     #--------------------------------------------------------------------------------
-        if not Path(self._filename).is_file():
+        if not self.is_file() or self.size()<24: # Header is 24 bytes
             return
         with open(self._filename, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
@@ -742,7 +750,7 @@ class fmt_block:                                                         # fmt_b
         self.length = length
         self.datatype = datatype
         self.data = data
-        self.max_length = max_length
+        #self.max_length = max_length
 
     #--------------------------------------------------------------------------------
     def key(self):                                                        # fmt_block
@@ -766,7 +774,8 @@ class fmt_block:                                                         # fmt_b
         data = self.data
         typesize = datasize[dtype]
         while data.size > 0:
-            length = min(len(data), self.max_length)
+            #length = min(len(data), self.max_length)
+            length = min(len(data), max_length[dtype])
             size = typesize*length
             bytes_ += struct.pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
             data = data[length:]
@@ -939,7 +948,9 @@ class fmt_file:                                                            # fmt
                 #print(key)
             head_data = [16, key.ljust(8).encode(), length, dtype, 16]
             # split block data in chunks if max_length
-            L = [min(max_length, length-n*max_length) for n in range(int(length/max_length)+1)]
+            max_l = max_length[dtype]
+            #L = [min(max_length, length-n*max_length) for n in range(int(length/max_length)+1)]
+            L = [min(max_l, length-n*max_l) for n in range(int(length/max_l)+1)]
             L = [l for l in L if l>0]  # Remove possible 0's at the end
             blocks.format.append( head_format+''.join(['i'+str(l)+unpack_char[dtype]+'i' for l in L]) )
             for i,l in enumerate(L):
