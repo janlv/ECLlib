@@ -436,7 +436,7 @@ class unfmt_file:
                         data_start = data.tell()
                         bytes = length*datasize[type] + 8*int(ceil(length/max_length[type]))
                         data.seek(bytes, 1)
-                    except ValueError: # as e:
+                    except (ValueError, struct_error): # as e:
                         # Catch 'seek out of range' error
                         #print(f'break in blocks(): {e}')
                         break
@@ -458,16 +458,19 @@ class unfmt_file:
                     # Header
                     # Rewind until we find a header
                     while data.tell() > 0:
-                        data.seek(-4, 1)
-                        size = unpack(endian+'i',data.read(4))[0]
-                        data.seek(-4-size, 1)
-                        if self.is_header(data, size, data.tell()):
-                            start = data.tell()-4
-                            key, length, type = unpack(endian+'8si4s', data.read(16))
-                            data.seek(4, 1)
-                            break
-                        else:
+                        try:
                             data.seek(-4, 1)
+                            size = unpack(endian+'i',data.read(4))[0]
+                            data.seek(-4-size, 1)
+                            if self.is_header(data, size, data.tell()):
+                                start = data.tell()-4
+                                key, length, type = unpack(endian+'8si4s', data.read(16))
+                                data.seek(4, 1)
+                                break
+                            else:
+                                data.seek(-4, 1)
+                        except (ValueError, struct_error):
+                            return None
                     # Value array
                     data_start = data.tell()
                     data.seek(start, 0)
