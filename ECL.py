@@ -323,7 +323,7 @@ class unfmt_block:
                     N += n
 
     #--------------------------------------------------------------------------------
-    def data(self):                                                     # unfmt_block
+    def data(self, raise_error=False):                                  # unfmt_block
     #--------------------------------------------------------------------------------
         value = []
         a = self.data_start
@@ -333,7 +333,8 @@ class unfmt_block:
             try:
                 value.extend(unpack(self.pack_format(n),self.mmap[a:a+size]))
             except struct_error as e:
-                raise SystemError(f'ERROR Unable to read {self.file.name}, corrupted file?')
+                if raise_error:
+                    raise SystemError(f'ERROR Unable to read {self.file.name}, corrupted file?')
             a += size + 4
         if self.type == b'CHAR':
             value = [b''.join(value).decode()]
@@ -439,7 +440,7 @@ class unfmt_file:
                         #print(f'break in blocks(): {e}')
                         break
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
-                                    data=data, data_start=data_start, file=self._filename)
+                                      data=data, data_start=data_start, file=self._filename)
                 self.endpos = data.tell()
 
     #--------------------------------------------------------------------------------
@@ -705,30 +706,27 @@ class check_blocks:                                                    # check_b
     def blocks_complete(self, nblocks=None):                           # check_blocks
     #--------------------------------------------------------------------------------
         self.reset_out()
-        try:
-            #for b in self.file.blocks(datalist=self.datalist):
-            for b in self.file.blocks():
-                if b._key == self.key['start']:
-                    #b.print(data=True)
-                    self.out['start'].append(b.data()[0])
-                    self.out['startpos'].append(b.startpos)
-                if b._key == self.key['end']:
-                    #b.print()
-                    self.out['end'] += 1 
-                if self._var and b._key == var2key[self._var]:
-                    self.out[self._var].append(b.get_value(self._var))
-            #print(self.out['end'])
-        except (ValueError, AttributeError) as e:
-            return None
-        except:  # Catch all other exceptions 
-            raise
-        try:
-            if b._key == self.key['end'] and len(self.out['start']) >= nblocks and len(self.out['start']) == self.out['end']:
-                self.update_startpos(nblocks)
-                return True
-        except UnboundLocalError:
-            return None
-
+        b = unfmt_block()
+        #try:
+        for b in self.file.blocks():
+            if b._key == self.key['start']:
+                self.out['start'].append(b.data()[0])
+                self.out['startpos'].append(b.startpos)
+            if b._key == self.key['end']:
+                self.out['end'] += 1 
+            if self._var and b._key == var2key[self._var]:
+                self.out[self._var].append(b.get_value(self._var))
+        #except (ValueError, AttributeError) as e:
+        #    return None
+        #except:  # Catch all other exceptions 
+        #    raise
+        #try:
+        if b._key == self.key['end'] and len(self.out['start']) >= nblocks and len(self.out['start']) == self.out['end']:
+            self.update_startpos(nblocks)
+            return True
+        #except UnboundLocalError:
+        #    return None
+        return False
 
     #--------------------------------------------------------------------------------
     def reset_out(self):                                               # check_blocks
