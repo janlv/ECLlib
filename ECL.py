@@ -335,6 +335,7 @@ class unfmt_block:
             except struct_error as e:
                 if raise_error:
                     raise SystemError(f'ERROR Unable to read {self.file.name}, corrupted file?')
+                return None
             a += size + 4
         if self.type == b'CHAR':
             value = [b''.join(value).decode()]
