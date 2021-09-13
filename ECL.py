@@ -321,6 +321,7 @@ class unfmt_block:
                     mmap_write[pos:pos+size] = pack(self.pack_format(n), *newdata[N:N+n])
                     pos += size + 4
                     N += n
+                mmap_write.flush()
 
     #--------------------------------------------------------------------------------
     def data(self, raise_error=False):                                  # unfmt_block
