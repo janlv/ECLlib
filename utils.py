@@ -196,7 +196,6 @@ def delete_files_matching(pattern, echo=False, raise_error=False):
 
 
 #------------------------------------------------
-#def loop_until(func, *args, limit=None, pause=None, error=None, loop_func=None, **kwargs):
 def loop_until(func, *args, limit=None, pause=None, loop_func=None, **kwargs):
 #------------------------------------------------
     n = 0
@@ -207,13 +206,12 @@ def loop_until(func, *args, limit=None, pause=None, loop_func=None, **kwargs):
             return n
         if pause:
             sleep(pause)
-        if limit:
-            n += 1
-            if n > limit:
-                # if error:
-                #     raise SystemError(error)
-                # else:
-                return -1
+        n += 1
+        if limit and n > limit:
+            # if error:
+            #     raise SystemError(error)
+            # else:
+            return -1
         loop_func()
 
 
