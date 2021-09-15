@@ -355,9 +355,10 @@ class Progress:
     def print(self, n, text=None, trail_space=3):
     #--------------------------------------------------------------------------------
         #print(n, self.min)
-        if n>self.min and n%self.update==0:
+        if n>self.min and int(n)%self.update==0:
             self.calc_estimated_arrival(n)
-            print('\r'+(text or '')+self.indent+self.format(n)+trail_space*' ', end='', flush=True)
+            print(f'\r{text or ""}'+self.indent+self.format(n)+trail_space*' ', end='', flush=True)
+            #print(f'\r{text or ""}{self.indent}{self.format(n)}{trail_space*" "}', end='', flush=True)
 
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
