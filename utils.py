@@ -292,7 +292,8 @@ class Progress:
         self.start_time = time()
         self.update = update
         self.N = N
-        self.min = min
+        self.n0 = 0       # n0 != 0 if time-counter is reset
+        self.min = min    # sets a minimum for the progress bar
         if '%' in format:
             self.format = self.format_percent
         if '#' in format:
@@ -306,27 +307,29 @@ class Progress:
     def set_min(self, min):
     #--------------------------------------------------------------------------------
         self.reset_time()
-        self.min = min
+        self.min = self.n0 = min
 
     #--------------------------------------------------------------------------------
     def reset(self, N=1):
     #--------------------------------------------------------------------------------
         self.N = N
+        self.n0 = 0
         self.reset_time()
 
     #--------------------------------------------------------------------------------
-    def reset_time(self):
+    def reset_time(self, n=0):
     #--------------------------------------------------------------------------------
         self.start_time = time()
+        self.n0 = n
         self.min = 0
 
-    #--------------------------------------------------------------------------------
-    def calc_estimated_arrival(self, n):
-    #--------------------------------------------------------------------------------
-        nn = max(n-self.min, 0)
-        Dt = time()-self.start_time
-        self.ela = timedelta(seconds=int(Dt))
-        self.eta = timedelta(seconds=int((self.N-n)*Dt/nn))
+    # #--------------------------------------------------------------------------------
+    # def calc_estimated_arrival(self, n):
+    # #--------------------------------------------------------------------------------
+    #     nn = max(n-self.min, 0)
+    #     Dt = time()-self.start_time
+    #     self.ela = timedelta(seconds=int(Dt))
+    #     self.eta = timedelta(seconds=int((self.N-n)*Dt/nn))
 
     #--------------------------------------------------------------------------------
     def format_percent(self, n):
@@ -356,7 +359,8 @@ class Progress:
     #--------------------------------------------------------------------------------
         #print(n, self.min)
         if n>self.min and int(n)%self.update==0:
-            self.calc_estimated_arrival(n)
+            #self.calc_estimated_arrival(n)
+            self.remaining_time(n)
             print(f'\r{text or ""}'+self.indent+self.format(n)+trail_space*' ', end='', flush=True)
             #print(f'\r{text or ""}{self.indent}{self.format(n)}{trail_space*" "}', end='', flush=True)
 
@@ -364,20 +368,25 @@ class Progress:
     def remaining_time(self, n):
     #--------------------------------------------------------------------------------
         eta = 0
+        #nn = 0
         if n==0:
             self.reset_time()
-        elif n > self.min:
-            nn = n-self.min
+        #elif n > self.min:
+        #    nn = n-self.min
+        elif n > self.n0:
+            nn = n-self.n0
             eta = max( int( (self.N-n) * (time()-self.start_time)/nn ) , 0)
         #print(f'remaining_time({n}) -> {eta}')
-        return str(timedelta(seconds=eta))
+        self.eta = timedelta(seconds=eta)
+        #print(self.n0, nn)
+        return str(self.eta)
     
-    #--------------------------------------------------------------------------------
-    def elapsed_time(self):
-    #--------------------------------------------------------------------------------
-        Dt = time()-self.start_time
-        ela = timedelta(seconds=int(Dt))
-        return str(ela)
+    # #--------------------------------------------------------------------------------
+    # def elapsed_time(self):
+    # #--------------------------------------------------------------------------------
+    #     Dt = time()-self.start_time
+    #     ela = timedelta(seconds=int(Dt))
+    #     return str(ela)
 
 
     # #--------------------------------------------------------------------------------
