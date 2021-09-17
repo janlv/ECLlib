@@ -13,6 +13,7 @@ from struct import unpack
 def get_keyword(file, keyword=None, end='\*', comment='#'):
 #-----------------------------------------------------------------------
     data = remove_comments(file, comment=comment)
+    #print(data)
     # Lookahead used at the end to mark end without consuming
     regex = compile(fr'{keyword}\s+([0-9A-Za-z.-_+\s]+)(?={end})')   
     values = [v.split() for v in regex.findall(data)]
@@ -51,7 +52,7 @@ def remove_comments(file, comment='--'):
         raise SystemError(f'ERROR {file} not found in remove_comments()')    
     with open(file) as f:
         lines = f.readlines()
-    return ''.join([l for l in lines if not l.lstrip().startswith(comment)])
+    return ''.join([l.split(comment)[0]+'\n' if comment in l else l for l in lines])
     #return ['' if l.lstrip().startswith(comment) else l for l in lines]
 
 #--------------------------------------------------------------------------------
