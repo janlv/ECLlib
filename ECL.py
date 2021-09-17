@@ -1,7 +1,7 @@
 
 # -*- coding: utf-8 -*-
 
-from os import access
+#from os import access
 import struct
 from pathlib import Path
 

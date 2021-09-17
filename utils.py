@@ -9,6 +9,16 @@ from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
 from struct import unpack
 
+#-----------------------------------------------------------------------
+def get_keyword(file, keyword=None, end='\*', comment='#'):
+#-----------------------------------------------------------------------
+    data = remove_comments(file, comment=comment)
+    # Lookahead used at the end to mark end without consuming
+    regex = compile(fr'{keyword}\s+([0-9A-Za-z.-_+\s]+)(?={end})')   
+    values = [v.split() for v in regex.findall(data)]
+    return [float_or_str(v) for v in values]
+    #return list(regex.finditer(data))
+
 #--------------------------------------------------------------------------------
 def get_python_version():
 #--------------------------------------------------------------------------------
@@ -50,14 +60,14 @@ def safeindex(alist, value):
     return alist.index(value) if value in alist else None
 
 #--------------------------------------------------------------------------------
-def flatten_list(alist):
+def flat_list(alist):
 #--------------------------------------------------------------------------------
     return [item for sublist in alist for item in sublist]
 
 #--------------------------------------------------------------------------------
 def upper_and_lower(alist):
 #--------------------------------------------------------------------------------
-    return flatten_list([[item.upper(),item.lower()] for item in alist])
+    return flat_list([[item.upper(),item.lower()] for item in alist])
 
 #--------------------------------------------------------------------------------
 def is_file_ignore_suffix_case(file):
@@ -167,12 +177,20 @@ def silentdelete(fname, echo=False):
 
 
 #--------------------------------------------------------------------------------
-def float_or_str(word): 
+def float_or_str(words): 
 #--------------------------------------------------------------------------------
     try:
-        return float(word)
-    except (TypeError, ValueError):
-        return str(word)
+        iterator = iter(words)
+    except TypeError: 
+        iterator = (words,)
+    values = []
+    for w in iterator:
+        try:
+            v = float(w)
+        except ValueError:
+            v = str(w)
+        values.append(v)
+    return values
 
     
 #------------------------------------------------
