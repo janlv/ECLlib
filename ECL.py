@@ -71,7 +71,7 @@ def get_tsteps(file, raise_error=True):
     # Remove comments
     if not Path(file).is_file():
         return [0]
-    data = remove_comments(file)
+    data = remove_comments(file, end='END')
     regex = compile(r'\bTSTEP\b\s+([0-9*.\s]+)/')
     tsteps = [t for m in regex.findall(data) for t in m.split()]
     # Process x*y statements
@@ -90,7 +90,7 @@ def get_restart_file_step(file, unformatted=True):
 #-----------------------------------------------------------------------
     # Remove comments
     file = Path(file)
-    data = remove_comments(file)
+    data = remove_comments(file, end='END')
     regex = compile(r'\bRESTART\b\s+([a-zA-Z0-9_-]+)\s+([0-9]+)\s*/')
     name_step = regex.findall(data)
     if name_step:    
