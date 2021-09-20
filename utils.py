@@ -52,9 +52,13 @@ def read_file(file):
     lines = ''
     try:
         with open(file) as f:
+        #with open(file, encoding='ascii', errors='surrogateescape') as f:
             lines = f.readlines()
-    except UnicodeDecodeError:
-        with open(file, encoding='ISO-8859-1') as f:
+    except UnicodeDecodeError as e:
+        #print(e)
+        #with open(file, encoding='ISO-8859-1') as f:
+        with open(file, encoding='latin-1') as f:
+        #with open(file) as f:
             lines = f.readlines()
     except OSError as err:
         raise SystemError(f'Unable to read {file}: {err}')
@@ -67,7 +71,8 @@ def write_file(file, text):
         with open(file, 'w') as f:
             f.write(text)
     except UnicodeEncodeError:
-        with open(file, 'w', encoding='ISO-8859-1') as f:
+        #with open(file, 'w', encoding='ISO-8859-1') as f:
+        with open(file, 'w', encoding='latin-1') as f:
             f.write(text)
     except OSError as err:
         raise SystemError(f'Unable to write to {file}: {err}')
@@ -83,7 +88,8 @@ def remove_comments(file, comment='--', end=None):
         with open(file) as f:
             lines = f.readlines()
     except UnicodeDecodeError:
-        with open(file, encoding='ISO-8859-1') as f:
+        #with open(file, encoding='ISO-8859-1') as f:
+        with open(file, encoding='latin-1') as f:
             lines = f.readlines()
     lines = ''.join([l.split(comment)[0]+'\n' if comment in l else l for l in lines])
     if end:
@@ -118,18 +124,17 @@ def is_file_ignore_suffix_case(file):
     return False
 
 #--------------------------------------------------------------------------------
-def file_contains(fname, text='', comment='#'):
+def file_contains(fname, text='', regex=None, comment='#', end=None):
 #--------------------------------------------------------------------------------
     if not Path(fname).is_file():
         raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
-    # with open(fname, 'r') as f:
-    #     for line in f:
-    #         line = line.lstrip()
-    #         if not line.startswith(comment) and line.startswith(text):
-    #             return True 
-    # return False
-    lines = remove_comments(fname, comment=comment)
-    matches = compile(rf'\b{text}\b').findall(lines)
+    #print(comment, end)
+    lines = remove_comments(fname, comment=comment, end=end)
+    matches = []
+    if text:
+        matches = compile(rf'\b{text}\b').findall(lines)
+    elif regex:
+        matches = compile(regex).findall(lines)
     #print(matches)
     if len(matches) > 0:
         return True
