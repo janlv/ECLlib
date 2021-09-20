@@ -50,8 +50,12 @@ def remove_comments(file, comment='--'):
 #--------------------------------------------------------------------------------
     if not Path(file).is_file():
         raise SystemError(f'ERROR {file} not found in remove_comments()')    
-    with open(file) as f:
-        lines = f.readlines()
+    try:
+        with open(file) as f:
+            lines = f.readlines()
+    except UnicodeDecodeError:
+        with open(file, encoding='ISO-8859-1') as f:
+            lines = f.readlines()
     return ''.join([l.split(comment)[0]+'\n' if comment in l else l for l in lines])
     #return ['' if l.lstrip().startswith(comment) else l for l in lines]
 
@@ -85,11 +89,17 @@ def file_contains(fname, text='', comment='#'):
 #--------------------------------------------------------------------------------
     if not Path(fname).is_file():
         raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
-    with open(fname, 'r') as f:
-        for line in f:
-            line = line.lstrip()
-            if not line.startswith(comment) and line.startswith(text):
-                return True 
+    # with open(fname, 'r') as f:
+    #     for line in f:
+    #         line = line.lstrip()
+    #         if not line.startswith(comment) and line.startswith(text):
+    #             return True 
+    # return False
+    lines = remove_comments(fname, comment=comment)
+    matches = compile(rf'\b{text}\b').findall(lines)
+    #print(matches)
+    if len(matches) > 0:
+        return True
     return False
 
 #--------------------------------------------------------------------------------
