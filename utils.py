@@ -44,9 +44,38 @@ def print_error(func):
             print('\n   ' + str(e) + '\n')
     return wrapper
 
+#--------------------------------------------------------------------------------
+def read_file(file):
+#--------------------------------------------------------------------------------
+    if not Path(file).is_file():
+        raise SystemError(f'ERROR {file} not found in read_file()')    
+    lines = ''
+    try:
+        with open(file) as f:
+            lines = f.readlines()
+    except UnicodeDecodeError:
+        with open(file, encoding='ISO-8859-1') as f:
+            lines = f.readlines()
+    except OSError as err:
+        raise SystemError(f'Unable to read {file}: {err}')
+    return ''.join(lines)
 
 #--------------------------------------------------------------------------------
-def remove_comments(file, comment='--'):
+def write_file(file, text):
+#--------------------------------------------------------------------------------
+    try:
+        with open(file, 'w') as f:
+            f.write(text)
+    except UnicodeEncodeError:
+        with open(file, 'w', encoding='ISO-8859-1') as f:
+            f.write(text)
+    except OSError as err:
+        raise SystemError(f'Unable to write to {file}: {err}')
+
+
+
+#--------------------------------------------------------------------------------
+def remove_comments(file, comment='--', end=None):
 #--------------------------------------------------------------------------------
     if not Path(file).is_file():
         raise SystemError(f'ERROR {file} not found in remove_comments()')    
@@ -56,8 +85,12 @@ def remove_comments(file, comment='--'):
     except UnicodeDecodeError:
         with open(file, encoding='ISO-8859-1') as f:
             lines = f.readlines()
-    return ''.join([l.split(comment)[0]+'\n' if comment in l else l for l in lines])
-    #return ['' if l.lstrip().startswith(comment) else l for l in lines]
+    lines = ''.join([l.split(comment)[0]+'\n' if comment in l else l for l in lines])
+    if end:
+        pos = [m.end() for m in compile(rf'\b{end}\b').finditer(lines)]
+        if pos:
+            lines = lines[:pos[0]]+'\n'
+    return lines
 
 #--------------------------------------------------------------------------------
 def safeindex(alist, value):
