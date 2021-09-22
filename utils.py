@@ -435,17 +435,12 @@ class Progress:
     def remaining_time(self, n):
     #--------------------------------------------------------------------------------
         eta = 0
-        #nn = 0
         if n==0:
             self.reset_time()
-        #elif n > self.min:
-        #    nn = n-self.min
         elif n > self.n0:
             nn = n-self.n0
             eta = max( int( (self.N-n) * (time()-self.start_time)/nn ) , 0)
-        #print(f'remaining_time({n}) -> {eta}')
         self.eta = timedelta(seconds=eta)
-        #print(self.n0, nn)
         return str(self.eta)
     
     # #--------------------------------------------------------------------------------
@@ -464,59 +459,59 @@ class Progress:
     #     return str(tot)
 
 
-#====================================================================================
-class check_endtag:
-#====================================================================================
+# #====================================================================================
+# class check_endtag:
+# #====================================================================================
 
-    #--------------------------------------------------------------------------------
-    def __init__(self, file=None, endtag='', comment=''):
-    #--------------------------------------------------------------------------------
-        self._file = Path(file)        
-        self._endtag = endtag
-        self._endtag_size = len(endtag)
-        self._comment = comment
+#     #--------------------------------------------------------------------------------
+#     def __init__(self, file=None, endtag='', comment=''):
+#     #--------------------------------------------------------------------------------
+#         self._file = Path(file)        
+#         self._endtag = endtag
+#         self._endtag_size = len(endtag)
+#         self._comment = comment
         
-    #--------------------------------------------------------------------------------
-    def file(self):
-    #--------------------------------------------------------------------------------
-        return self._file
+#     #--------------------------------------------------------------------------------
+#     def file(self):
+#     #--------------------------------------------------------------------------------
+#         return self._file
         
-    #--------------------------------------------------------------------------------
-    def find_endtag(self, binary=False):     
-    #--------------------------------------------------------------------------------
-        if binary:
-            return self.find_endtag__binary()
-        else:
-            return self.find_endtag__ascii()
+#     #--------------------------------------------------------------------------------
+#     def find_endtag(self, binary=False):     
+#     #--------------------------------------------------------------------------------
+#         if binary:
+#             return self.find_endtag__binary()
+#         else:
+#             return self.find_endtag__ascii()
         
-    #--------------------------------------------------------------------------------
-    def find_endtag__ascii(self):     
-    #--------------------------------------------------------------------------------
-        try:
-            if self._file.stat().st_size < self._endtag_size:
-                return False
-            with open(self._file, 'r') as f:
-                for line in f:
-                    if self._endtag in line:
-                        return True
-        except FileNotFoundError:
-            return None
+#     #--------------------------------------------------------------------------------
+#     def find_endtag__ascii(self):     
+#     #--------------------------------------------------------------------------------
+#         try:
+#             if self._file.stat().st_size < self._endtag_size:
+#                 return False
+#             with open(self._file, 'r') as f:
+#                 for line in f:
+#                     if self._endtag in line:
+#                         return True
+#         except FileNotFoundError:
+#             return None
 
-    #--------------------------------------------------------------------------------
-    def find_endtag__binary(self):  
-    #--------------------------------------------------------------------------------
-        try:
-            size = self._endtag_size+2 # 2 = '\r\n'
-            if self._file.stat().st_size < size:
-                return False
-            endtag = self._endtag.encode()
-            with open(self._file, 'rb') as f:
-                f.seek(-size, os.SEEK_END)
-                end = unpack('>%ds'%size, f.read(size))[0]
-                if endtag in end:
-                    return True
-        except FileNotFoundError:
-            return None
+#     #--------------------------------------------------------------------------------
+#     def find_endtag__binary(self):  
+#     #--------------------------------------------------------------------------------
+#         try:
+#             size = self._endtag_size+2 # 2 = '\r\n'
+#             if self._file.stat().st_size < size:
+#                 return False
+#             endtag = self._endtag.encode()
+#             with open(self._file, 'rb') as f:
+#                 f.seek(-size, os.SEEK_END)
+#                 end = unpack('>%ds'%size, f.read(size))[0]
+#                 if endtag in end:
+#                     return True
+#         except FileNotFoundError:
+#             return None
 
 
 

@@ -696,41 +696,37 @@ class check_blocks:                                                    # check_b
             txt += ', {} : {}'.format(self._var, list2str(self.out[self._var]))
         return txt
 
-    #--------------------------------------------------------------------------------
-    def update_startpos(self, nblocks):                                # check_blocks
-    #--------------------------------------------------------------------------------
-        startpos = self.file.endpos
-        # if > nblocks are read, set startpos to end of nblock timestep
-        if len(self.out['start']) > nblocks: 
-            startpos = self.out['startpos'][nblocks] 
-        # update reader with startpos for next run 
-        self.file.set_startpos(startpos)
+
+    # #--------------------------------------------------------------------------------
+    # def update_startpos(self, nblocks):                                # check_blocks
+    # #--------------------------------------------------------------------------------
+    #     startpos = self.file.endpos
+    #     # if > nblocks are read, set startpos to end of nblock timestep
+    #     if len(self.out['start']) > nblocks: 
+    #         startpos = self.out['startpos'][nblocks] 
+    #     # update reader with startpos for next run 
+    #     self.file.set_startpos(startpos)
 
         
     #--------------------------------------------------------------------------------
-    def blocks_complete(self, nblocks=None):                           # check_blocks
+    def blocks_complete(self, nblocks=1):                           # check_blocks
     #--------------------------------------------------------------------------------
         self.reset_out()
         b = unfmt_block()
-        #try:
         for b in self.file.blocks():
             if b._key == self.key['start']:
                 self.out['start'].append(b.data()[0])
                 self.out['startpos'].append(b.startpos)
             if b._key == self.key['end']:
                 self.out['end'] += 1 
+                if self.out['end'] == nblocks and len(self.out['start']) == nblocks:
+                    self.file.set_startpos(b.end())
+                    return True
             if self._var and b._key == var2key[self._var]:
                 self.out[self._var].append(b.get_value(self._var))
-        #except (ValueError, AttributeError) as e:
-        #    return None
-        #except:  # Catch all other exceptions 
-        #    raise
-        #try:
-        if b._key == self.key['end'] and len(self.out['start']) >= nblocks and len(self.out['start']) == self.out['end']:
-            self.update_startpos(nblocks)
-            return True
-        #except UnboundLocalError:
-        #    return None
+        #if b._key == self.key['end'] and len(self.out['start']) >= nblocks and len(self.out['start']) == self.out['end']:
+        #    self.update_startpos(nblocks)
+        #    return True
         return False
 
     #--------------------------------------------------------------------------------
