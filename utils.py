@@ -3,20 +3,24 @@
 
 import os
 from pathlib import Path
-from re import findall, compile, DOTALL
+from re import RegexFlag, findall, compile, DOTALL
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
 from struct import unpack
 
 #-----------------------------------------------------------------------
-def get_keyword(file, keyword=None, end='\*', comment='#'):
+def get_keyword(file, keyword, end='\*', comment='#', ignore_case=True):
 #-----------------------------------------------------------------------
+    flags = 0
+    if ignore_case:
+        flags = RegexFlag.IGNORECASE
     data = remove_comments(file, comment=comment)
     #print(data)
     # Lookahead used at the end to mark end without consuming
-    regex = compile(fr'{keyword}\s+([0-9A-Za-z.-_+\s]+)(?={end})')   
+    regex = compile(fr'{keyword}\s+([0-9A-Za-z.-_+\s]+)(?={end})', flags=flags)   
     values = [v.split() for v in regex.findall(data)]
+    #print(keyword, values)
     return [float_or_str(v) for v in values]
     #return list(regex.finditer(data))
 
