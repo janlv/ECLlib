@@ -1,21 +1,35 @@
 
 # -*- coding: utf-8 -*-
 
-import os
+#import os
 from pathlib import Path
-from re import RegexFlag, findall, compile, DOTALL
+from re import RegexFlag, findall, compile, DOTALL, search
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
-from struct import unpack
+#from struct import unpack
 
 #-----------------------------------------------------------------------
-def get_keyword(file, keyword, end='\*', comment='#', ignore_case=True):
+def file_exists(file, raise_error=False):
 #-----------------------------------------------------------------------
+    if Path(file).is_file():
+        return True
+    else:
+        if raise_error:
+            raise SystemError(f'ERROR {Path(file).name} does not exist')
+        else:
+            return False
+
+#-----------------------------------------------------------------------
+def get_keyword(file, keyword, end='\*', comment='#', ignore_case=True, raise_error=True):
+#-----------------------------------------------------------------------
+    #print(f'get_keyword({file}, {keyword})')
     flags = 0
     if ignore_case:
         flags = RegexFlag.IGNORECASE
-    data = remove_comments(file, comment=comment)
+    data = remove_comments(file, comment=comment, raise_error=raise_error)
+    if data == []:
+        return []
     #print(data)
     # Lookahead used at the end to mark end without consuming
     regex = compile(fr'{keyword}\s+([0-9A-Za-z.-_+\s]+)(?={end})', flags=flags)   
@@ -84,10 +98,13 @@ def write_file(file, text):
 
 
 #--------------------------------------------------------------------------------
-def remove_comments(file, comment='--', end=None):
+def remove_comments(file, comment='--', end=None, raise_error=True):
 #--------------------------------------------------------------------------------
     if not Path(file).is_file():
-        raise SystemError(f'ERROR {file} not found in remove_comments()')    
+        if raise_error:
+            raise SystemError(f'ERROR {file} not found in remove_comments()')    
+        else:
+            return []
     try:
         with open(file) as f:
             lines = f.readlines()
@@ -128,19 +145,18 @@ def is_file_ignore_suffix_case(file):
     return False
 
 #--------------------------------------------------------------------------------
-def file_contains(fname, text='', regex=None, comment='#', end=None):
+def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=True):
 #--------------------------------------------------------------------------------
+    #print(f'file_contains({fname}, {text})')
     if not Path(fname).is_file():
-        raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
-    #print(comment, end)
-    lines = remove_comments(fname, comment=comment, end=end)
-    matches = []
+        if raise_error:
+            raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
+        else:
+            return False
     if text:
-        matches = compile(rf'\b{text}\b').findall(lines)
-    elif regex:
-        matches = compile(regex).findall(lines)
-    #print(matches)
-    if len(matches) > 0:
+        regex = rf'\b{text}\b'
+    lines = remove_comments(fname, comment=comment, end=end)
+    if search(regex, lines): 
         return True
     return False
 
