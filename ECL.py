@@ -5,7 +5,7 @@
 import struct
 from pathlib import Path
 
-from .utils import list2str, float_or_str, remove_comments
+from .utils import file_contains, list2str, float_or_str, remove_comments
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
 from re import finditer, compile
@@ -64,9 +64,27 @@ datatype = {'INTE' : int32,
 var2key = {'nwell':b'INTEHEAD'}
 var2pos = {'nwell':16}
 
+#-----------------------------------------------------------------------
+def get_tsteps_from_schedule_files(root, raise_error=False):
+#-----------------------------------------------------------------------
+    # Search for DATES in schedule-files and convert to TSTEP
+    DATA_file = Path(root).with_suffix('.DATA')
+    start = get_start(DATA_file)
+    # Find schedule-files in root folder, ignore suffix case 
+    sch_files = [f for f in Path(root).parent.glob('**/*') if f.suffix.lower() == '.sch']
+    dates = [start]
+    for fil in sch_files:
+        # Check if file is used in the .DATA-file before searching
+        if file_contains(DATA_file, fil.name, end='END') and file_contains(fil, 'DATES'):
+            dates = get_dates(fil)
+            break
+    days = [(d-start).days for d in dates]
+    tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
+    tsteps.insert(0, days[0])
+    return tsteps
 
 #-----------------------------------------------------------------------
-def get_tsteps(file, raise_error=True):
+def get_tsteps(file, raise_error=False):
 #-----------------------------------------------------------------------
     # Remove comments
     if not Path(file).is_file():
@@ -91,7 +109,7 @@ def get_restart_file_step(file, unformatted=True):
     # Remove comments
     file = Path(file)
     data = remove_comments(file, end='END')
-    regex = compile(r'\bRESTART\b\s+([a-zA-Z0-9_-]+)\s+([0-9]+)\s*/')
+    regex = compile(r"\bRESTART\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s+([0-9]+)\s*/")
     name_step = regex.findall(data)
     if name_step:    
         name, step = [list(t) for t in zip(*name_step)]
@@ -100,7 +118,9 @@ def get_restart_file_step(file, unformatted=True):
             ext = '.UNRST'
         else:
             ext = f'.S{n:04}'
-        return file.with_name(name[0]+ext), n 
+        #print(file.parent/(name[0]+ext))
+        return file.parent/(name[0]+ext), n
+        #return file.with_name(name[0]+ext), n 
     return '', 0
 
 #-----------------------------------------------------------------------
@@ -108,19 +128,20 @@ def get_restart_time_step(file, unformatted=True):
 #-----------------------------------------------------------------------
     t = 0
     file = Path(file)
+    # Get name of restart file and report number from DATA-file
+    # Report number starts at 1
     name, n = get_restart_file_step(file, unformatted=unformatted)
-    if name and n:    
-        #file = file.with_name(name)
+    if name and n:
+        name = Path(name)    
+        if not name.is_file():
+            raise SystemError(f'ERROR Restart file {name.name} included in {file.name} is missing')
         if unformatted:
             t,nn = get_time_step_UNRST(file=name, step=n)
-            if nn[-1] != n:
-                max_n = get_tail_data_UNRST(file=name, keyword='SEQNUM')[0]
-                if n > max_n:             
-                    msg = f'ERROR Restart from step {n} not possible, {name.name} holds only {max_n} steps'
-                else:
-                    msg = f'ERROR Unable to read restart time at step {n} of {max_n} steps in {name.name}'
-                raise SystemError(msg)
-            t = t[-1]
+            if n > nn[-1]: 
+                raise SystemError(f'ERROR Restart step {n} exceeds total steps {nn[-1]} in {name.name}, run stopped')
+            if not n in nn: 
+                raise SystemError(f'ERROR Restart step {n} not found (try {min(nn, key=lambda x:abs(x-n))}) in {name.name}, run stopped')
+            t = t[nn.index(n)]
         else:
             t = get_time_step_UNSMRY(file=name)[0]
     #print(t, n)
