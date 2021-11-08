@@ -21,9 +21,9 @@ def file_exists(file, raise_error=False):
             return False
 
 #-----------------------------------------------------------------------
-def get_keyword(file, keyword, end='\*', comment='#', ignore_case=True, raise_error=True):
+def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
 #-----------------------------------------------------------------------
-    #print(f'get_keyword({file}, {keyword})')
+    #print(f'get_keyword({file}, {keyword}, end={end})')
     flags = 0
     if ignore_case:
         flags = RegexFlag.IGNORECASE
@@ -32,7 +32,7 @@ def get_keyword(file, keyword, end='\*', comment='#', ignore_case=True, raise_er
         return []
     #print(data)
     # Lookahead used at the end to mark end without consuming
-    regex = compile(fr'{keyword}\s+([0-9A-Za-z.-_+\s]+)(?={end})', flags=flags)   
+    regex = compile(fr'{keyword}\s+([0-9A-Za-z._+\s\\/-]+)(?={end})', flags=flags)   
     values = [v.split() for v in regex.findall(data)]
     #print(keyword, values)
     return [float_or_str(v) for v in values]
@@ -248,12 +248,14 @@ def silentdelete(fname, echo=False):
 #--------------------------------------------------------------------------------
 def float_or_str(words): 
 #--------------------------------------------------------------------------------
-    try:
-        iterator = iter(words)
-    except TypeError: 
-        iterator = (words,)
+    if not isinstance(words, (list, tuple)):
+        words = (words,)
+    # try:
+    #     iterator = iter(words)
+    # except TypeError: 
+    #     iterator = (words,)
     values = []
-    for w in iterator:
+    for w in words: #iterator:
         try:
             v = float(w)
         except ValueError:
