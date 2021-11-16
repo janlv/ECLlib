@@ -309,6 +309,11 @@ def list2str(alist, start='', end='', sep=''):
 #------------------------------------------------
     return start + '%s'%', '.join(sep+'{}'.format(i)+sep for i in alist) + end
 
+#------------------------------------------------
+def list2text(alist):
+#------------------------------------------------
+    text = ', '.join([str(a) for a in alist])
+    return ' and'.join(text.rsplit(',',1))
 
 #------------------------------------------------
 def tail_file(fname, nchars=300):
