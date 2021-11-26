@@ -24,6 +24,8 @@ def file_exists(file, raise_error=False):
 def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
 #-----------------------------------------------------------------------
     #print(f'get_keyword({file}, {keyword}, end={end})')
+    if not Path(file).is_file():
+        return []
     flags = 0
     if ignore_case:
         flags = RegexFlag.IGNORECASE
