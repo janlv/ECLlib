@@ -34,7 +34,7 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
         return []
     #print(data)
     # Lookahead used at the end to mark end without consuming
-    regex = compile(fr'{keyword}\s+([0-9A-Za-z._+\s\\/-]+)(?={end})', flags=flags)   
+    regex = compile(fr'{keyword}\s+([0-9A-Za-z._+:\s\\/-]+)(?={end})', flags=flags)   
     values = [v.split() for v in regex.findall(data)]
     #print(keyword, values)
     return [float_or_str(v) for v in values]
@@ -65,10 +65,13 @@ def print_error(func):
     return wrapper
 
 #--------------------------------------------------------------------------------
-def read_file(file):
+def read_file(file, raise_error=True):
 #--------------------------------------------------------------------------------
     if not Path(file).is_file():
-        raise SystemError(f'ERROR {file} not found in read_file()')    
+        if raise_error:
+            raise SystemError(f'ERROR {file} not found in read_file()')
+        else:   
+            return ''    
     lines = ''
     try:
         with open(file) as f:
