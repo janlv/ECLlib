@@ -7,7 +7,15 @@ from re import RegexFlag, findall, compile, DOTALL, search
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
+
 #from struct import unpack
+
+#-----------------------------------------------------------------------
+def download_file(src):
+#-----------------------------------------------------------------------
+    from urllib import request
+    file_name, header = request.urlretrieve(src)
+    return file_name, header
 
 #-----------------------------------------------------------------------
 def file_exists(file, raise_error=False):
@@ -418,6 +426,7 @@ class Progress:
     #--------------------------------------------------------------------------------
     def reset_time(self, n=0):
     #--------------------------------------------------------------------------------
+        #print('reset_time', n)
         self.start_time = time()
         self.n0 = n
         self.min = 0
@@ -466,6 +475,7 @@ class Progress:
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
     #--------------------------------------------------------------------------------
+        #print('remaining_time: ',n, time()-self.start_time)
         eta = 0
         if n==0:
             self.reset_time()
