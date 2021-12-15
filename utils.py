@@ -22,7 +22,7 @@ def file_exists(file, raise_error=False):
             return False
 
 #-----------------------------------------------------------------------
-def get_keyword(file, keyword, with_space=True, end='', comment='#', ignore_case=True, raise_error=True):
+def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
 #-----------------------------------------------------------------------
     #print(f'get_keyword({file}, {keyword}, end={end})')
     if not Path(file).is_file():
@@ -35,11 +35,14 @@ def get_keyword(file, keyword, with_space=True, end='', comment='#', ignore_case
         return []
     #print(data)
     space = '\s'
-    if not with_space:
+    slash = '/'
+    if end == ' ':
         end = space
         space = ''
+    if end == slash:
+        slash = ''
     # Lookahead used at the end to mark end without consuming
-    regex = compile(fr'{keyword}\s+([0-9A-Za-z._+:{space}\\/-]+)(?={end})', flags=flags)   
+    regex = compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)   
     values = [v.split() for v in regex.findall(data)]
     #print(keyword, values)
     return [float_or_str(v) for v in values]

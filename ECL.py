@@ -5,7 +5,7 @@
 import struct
 from pathlib import Path
 
-from .utils import file_contains, list2str, float_or_str, remove_comments
+from .utils import file_contains, flat_list, get_keyword, list2str, float_or_str, remove_comments
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
 from re import finditer, compile
@@ -102,6 +102,14 @@ def get_tsteps(file, raise_error=False):
         else:
             tsteps = [0]
     return tsteps
+
+#-----------------------------------------------------------------------
+def get_included_files(data_file):
+#-----------------------------------------------------------------------
+    data = remove_comments(data_file, end='END')
+    regex = compile(r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/")
+    return regex.findall(data)
+
 
 #-----------------------------------------------------------------------
 def get_restart_file_step(file, unformatted=True):
