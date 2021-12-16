@@ -176,6 +176,8 @@ def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=T
 #--------------------------------------------------------------------------------
 def delete_all(folder, keep_folder=False):
 #--------------------------------------------------------------------------------
+    if not Path(folder).is_dir():
+        return
     for child in Path(folder).iterdir():
         if child.is_file():
             child.unlink()
