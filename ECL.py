@@ -5,7 +5,7 @@
 import struct
 from pathlib import Path
 
-from .utils import file_contains, flat_list, get_keyword, list2str, float_or_str, remove_comments
+from .utils import file_contains, list2str, float_or_str, remove_comments
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
 from re import finditer, compile

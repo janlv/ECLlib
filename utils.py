@@ -36,7 +36,7 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     #print(data)
     space = '\s'
     slash = '/'
-    if end == ' ':
+    if end in (' ','\s','\n','\t'):
         end = space
         space = ''
     if end == slash:
@@ -174,14 +174,15 @@ def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=T
     return False
 
 #--------------------------------------------------------------------------------
-def delete_all(folder):
+def delete_all(folder, keep_folder=False):
 #--------------------------------------------------------------------------------
     for child in Path(folder).iterdir():
         if child.is_file():
             child.unlink()
         else:
             delete_all(child)
-    Path(folder).rmdir()
+    if not keep_folder:
+        Path(folder).rmdir()
     
 #--------------------------------------------------------------------------------
 def return_matching_string(str_list, string):
