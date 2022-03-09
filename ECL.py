@@ -797,7 +797,7 @@ class fmt_block:                                                         # fmt_b
         length = self.length
         bytes_ = bytearray()
         # header
-        bytes_ += struct.pack(endian + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
+        bytes_ += pack(endian + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
         # data is split in multiple records if length > 1000 
         data = self.data
         typesize = datasize[dtype]
@@ -805,7 +805,7 @@ class fmt_block:                                                         # fmt_b
             #length = min(len(data), self.max_length)
             length = min(len(data), max_length[dtype])
             size = typesize*length
-            bytes_ += struct.pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
+            bytes_ += pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
             data = data[length:]
         return bytes_
                 
@@ -1051,7 +1051,7 @@ class fmt_file:                                                            # fmt
                         a = b
                         buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
                         data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                        out.write(struct.pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                        out.write(pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
                         n += nblocks
                         progress(n)
                         cancel()
