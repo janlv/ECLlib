@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 #from os import access
-import struct
+#import struct
 from pathlib import Path
 
 from .utils import file_contains, list2str, float_or_str, remove_comments
