@@ -4,6 +4,7 @@
 #import os
 from pathlib import Path
 from re import RegexFlag, findall, compile, DOTALL, search
+from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
@@ -587,4 +588,55 @@ class Timer:
     #--------------------------------------------------------------------------------    
         with self.timefile.open('a') as f:
             f.write('{:d}\t{:.3e}\n'.format(self.counter, time()-self.starttime))
+
+#====================================================================================
+class timer_thread:
+#====================================================================================
+    #--------------------------------------------------------------------------------    
+    def __init__(self, limit=0, func=None):
+    #--------------------------------------------------------------------------------    
+        self.sec = 0
+        self.func = func
+        self.limit = limit
+        self.running = False
+        self.thread = Thread(target=self._timer, daemon=True)
+
+    #--------------------------------------------------------------------------------    
+    def start(self):
+    #--------------------------------------------------------------------------------    
+        if not self.running:
+            self.running = True
+            self.thread.start()
+        else:
+            self.sec = 0
+
+    #--------------------------------------------------------------------------------    
+    def stop(self):
+    #--------------------------------------------------------------------------------    
+        self.running = False
+        self.thread.join()
+
+    #--------------------------------------------------------------------------------    
+    def completed(self):
+    #--------------------------------------------------------------------------------    
+        if self.sec >= self.limit:
+            return True
+        return False
+
+    #--------------------------------------------------------------------------------    
+    def is_alive(self):
+    #--------------------------------------------------------------------------------    
+        if self.sec < self.limit:
+            return True
+        return False
+
+    #--------------------------------------------------------------------------------    
+    def _timer(self):
+    #--------------------------------------------------------------------------------    
+        while self.running:
+            sleep(1)
+            print(self.sec)
+            self.sec += 1
+            if self.sec == self.limit:
+                self.func()
 
