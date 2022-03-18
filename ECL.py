@@ -1,6 +1,8 @@
 
 # -*- coding: utf-8 -*-
 
+DEBUG = False
+
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
@@ -287,22 +289,67 @@ class unfmt_block:
     def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, data_start=0, file=None):
     #--------------------------------------------------------------------------------
         self._key = key
-        self.length = length
-        self.type = type
-        self.mmap = data
-        self.file = file
-        self.startpos = start
+        self._length = length
+        self._type = type
+        self._mmap = data
+        self._file = file
+        self._startpos = start
         self._end = end
-        self.data_start = data_start
+        self._data_start = data_start
+        DEBUG and print(f'Creating {self}')
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                      # unfmt_block
+    #--------------------------------------------------------------------------------
+        return f'<unfmt_block(key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._end:8d}>'
+
+
+    #--------------------------------------------------------------------------------
+    def __del__(self):                                      # unfmt_block
+    #--------------------------------------------------------------------------------
+        DEBUG and print(f'Deleting {self}')
+
+
+    #--------------------------------------------------------------------------------
+    def length(self):                                      # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self._length*(self._type==b"CHAR" and 8 or 1)
+
+
+    #--------------------------------------------------------------------------------
+    def bytes(self):                                      # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self._type and self._length*datasize[self._type] or 0
+
+
+    #--------------------------------------------------------------------------------
+    def key(self):                                                      # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self._key.decode().strip()
+
+    #--------------------------------------------------------------------------------
+    def type(self):                                                      # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self._type.decode()
+        
+    #--------------------------------------------------------------------------------
+    def start(self):                                                    # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self._startpos
+
+    #--------------------------------------------------------------------------------
+    def end(self):                                                      # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self._end
 
     #--------------------------------------------------------------------------------
     def info(self, details=False):                                      # unfmt_block
     #--------------------------------------------------------------------------------
         s = f'{self._key.decode()}'
         if details:
-            s += f' block of {self.length*datasize[self.type]} bytes' 
-            s += f' holding {self.length*(self.type==b"CHAR" and 8 or 1)} {self.type.decode()}'
-            s += f' at [{self.startpos}, {self._end}]'
+            s += f' block of {self._length*datasize[self._type]} bytes' 
+            s += f' holding {self._length*(self._type==b"CHAR" and 8 or 1)} {self._type.decode()}'
+            s += f' at [{self._startpos}, {self._end}]'
         return s
 
     #--------------------------------------------------------------------------------
@@ -317,29 +364,29 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def read_size_at(self, pos):                                        # unfmt_block
     #--------------------------------------------------------------------------------
-        size = unpack(endian+'i',self.mmap[pos:pos+4])[0]
-        if self.type == b'CHAR':
+        size = unpack(endian+'i',self._mmap[pos:pos+4])[0]
+        if self._type == b'CHAR':
             n = size
         else:
-            n = int(size/datasize[self.type])
+            n = int(size/datasize[self._type])
         return size, n 
 
     #--------------------------------------------------------------------------------
     def pack_format(self, n):                                           # unfmt_block
     #--------------------------------------------------------------------------------
-        return endian+f'{n}{unpack_char[self.type]}'
+        return endian+f'{n}{unpack_char[self._type]}'
 
     #--------------------------------------------------------------------------------
     def replace(self, func, key=None):                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        with open(self.file, mode='r+') as f:
+        with open(self._file, mode='r+') as f:
             with mmap(f.fileno(), length=0, access=ACCESS_WRITE) as mmap_write:
-                pos = self.startpos + 4
+                pos = self._startpos + 4
                 if key is None:
                     key = self.key()
                 mmap_write[pos:pos+8] = f'{key:8s}'.encode()
                 newdata = func(self.data())
-                pos = self.startpos + 24  # header: 4+8+4+4+4 = 24, data: 4 + 1000 data + 4
+                pos = self._startpos + 24  # header: 4+8+4+4+4 = 24, data: 4 + 1000 data + 4
                 N = 0
                 while N < len(newdata):
                     size, n = self.read_size_at(pos)
@@ -353,18 +400,18 @@ class unfmt_block:
     def data(self, raise_error=False):                                  # unfmt_block
     #--------------------------------------------------------------------------------
         value = []
-        a = self.data_start
+        a = self._data_start
         while a < self._end:
             size, n = self.read_size_at(a)
             a += 4
             try:
-                value.extend(unpack(self.pack_format(n),self.mmap[a:a+size]))
+                value.extend(unpack(self.pack_format(n),self._mmap[a:a+size]))
             except struct_error as e:
                 if raise_error:
-                    raise SystemError(f'ERROR Unable to read {self.file.name}, corrupted file?')
+                    raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
                 return None
             a += size + 4
-        if self.type == b'CHAR':
+        if self._type == b'CHAR':
             value = [b''.join(value).decode()]
         return value
 
@@ -378,20 +425,6 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
         return self.get_value('nwell')
 
-    #--------------------------------------------------------------------------------
-    def key(self):                                                      # unfmt_block
-    #--------------------------------------------------------------------------------
-        return self._key.decode().strip()
-        
-    #--------------------------------------------------------------------------------
-    def start(self):                                                    # unfmt_block
-    #--------------------------------------------------------------------------------
-        return self.startpos
-
-    #--------------------------------------------------------------------------------
-    def end(self):                                                      # unfmt_block
-    #--------------------------------------------------------------------------------
-        return self._end
 
 
 #====================================================================================
@@ -404,6 +437,19 @@ class unfmt_file:
         self.fileobj = None
         self._filename = Path(filename)
         self.endpos = self.startpos = 0
+        DEBUG and print(f'Creating {self}')
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                                  # unfmt_file
+    #--------------------------------------------------------------------------------
+        return f'<unfmt_file(filename={self._filename}>'
+
+
+    #--------------------------------------------------------------------------------
+    def __del__(self):                                                  # unfmt_file
+    #--------------------------------------------------------------------------------
+        DEBUG and print(f'Deleting {self}')
+
 
     #--------------------------------------------------------------------------------
     def is_file(self):                                                   # unfmt_file
@@ -697,7 +743,20 @@ class check_blocks:                                                    # check_b
         #if var:
         #    self.datalist.append(var2key[var])
         self.last_block = None
-    
+        DEBUG and print(f'Creating {self}')
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                                 # check_blocks
+    #--------------------------------------------------------------------------------
+        return f'<check_blocks(file={self.file}>'
+
+
+    #--------------------------------------------------------------------------------
+    def __del__(self):                                                 # check_blocks
+    #--------------------------------------------------------------------------------
+        DEBUG and print(f'Deleting {self}')
+
+
     #--------------------------------------------------------------------------------
     def var(self, _var):                                               # check_blocks
     #--------------------------------------------------------------------------------
@@ -722,27 +781,16 @@ class check_blocks:                                                    # check_b
             txt += ', {} : {}'.format(self._var, list2str(self.out[self._var]))
         return txt
 
-
-    # #--------------------------------------------------------------------------------
-    # def update_startpos(self, nblocks):                                # check_blocks
-    # #--------------------------------------------------------------------------------
-    #     startpos = self.file.endpos
-    #     # if > nblocks are read, set startpos to end of nblock timestep
-    #     if len(self.out['start']) > nblocks: 
-    #         startpos = self.out['startpos'][nblocks] 
-    #     # update reader with startpos for next run 
-    #     self.file.set_startpos(startpos)
-
         
     #--------------------------------------------------------------------------------
     def blocks_complete(self, nblocks=1):                           # check_blocks
     #--------------------------------------------------------------------------------
         self.reset_out()
-        b = unfmt_block()
         for b in self.file.blocks():
             if b._key == self.key['start']:
                 self.out['start'].append(b.data()[0])
-                self.out['startpos'].append(b.startpos)
+                #self.out['startpos'].append(b.startpos)
+                self.out['startpos'].append(b.start())
             if b._key == self.key['end']:
                 self.out['end'] += 1 
                 if self.out['end'] == nblocks and len(self.out['start']) == nblocks:
@@ -750,10 +798,8 @@ class check_blocks:                                                    # check_b
                     return True
             if self._var and b._key == var2key[self._var]:
                 self.out[self._var].append(b.get_value(self._var))
-        #if b._key == self.key['end'] and len(self.out['start']) >= nblocks and len(self.out['start']) == self.out['end']:
-        #    self.update_startpos(nblocks)
-        #    return True
         return False
+
 
     #--------------------------------------------------------------------------------
     def reset_out(self):                                               # check_blocks
