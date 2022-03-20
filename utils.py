@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 #import os
+from importlib.util import set_loader
 from pathlib import Path
 from re import RegexFlag, findall, compile, DOTALL, search
 from threading import Thread
@@ -590,7 +591,7 @@ class Timer:
 #====================================================================================
 class timer_thread:
 #====================================================================================
-    DEBUG = False
+    DEBUG = True
     
     #--------------------------------------------------------------------------------    
     def __init__(self, limit=0, prec=0.5, func=None):
@@ -600,16 +601,22 @@ class timer_thread:
         self._limit = limit
         self._idle = prec   # Idle time between checks given by precision
         self._running = False
-        self._is_alive = False
+        #self._is_alive = False
         self._starttime = None
+        self._endtime = None
         self._thread = Thread(target=self._timer, daemon=True)
-        self.DEBUG and print(f'Creating {self._thread}')
+        self.DEBUG and print(f'Creating {self}')
         #print(self._limit, self._idle)
+
+    #--------------------------------------------------------------------------------    
+    def __str__(self):
+    #--------------------------------------------------------------------------------    
+        return f'<timer_thread(limit={self._limit}, prec={self._idle}, func={self._func.__qualname__}, thread={self._thread})>'
 
     #--------------------------------------------------------------------------------    
     def __del__(self):
     #--------------------------------------------------------------------------------    
-        self.DEBUG and print(f'Deleting {self._thread}')
+        self.DEBUG and print(f'Deleting {self}')
 
     #--------------------------------------------------------------------------------    
     def __enter__(self):
@@ -622,9 +629,21 @@ class timer_thread:
         self.close()
 
     #--------------------------------------------------------------------------------    
+    def endtime(self):
+    #--------------------------------------------------------------------------------    
+        return self._endtime
+
+    #--------------------------------------------------------------------------------    
+    def uptime(self):
+    #--------------------------------------------------------------------------------    
+        return self._limit - self.time()
+
+
+    #--------------------------------------------------------------------------------    
     def start(self):
     #--------------------------------------------------------------------------------    
-        self._is_alive = True
+        # self._is_alive = True
+        self._endtime = None
         self._call_func = self._func
         self._starttime = datetime.now()
         if not self._running:
@@ -642,26 +661,35 @@ class timer_thread:
     def cancel_if_alive(self):
     #--------------------------------------------------------------------------------    
         #print((datetime.now()-self._starttime).total_seconds(), self._is_alive)
-        if self._is_alive:
+        if not self._endtime:
             self._call_func = lambda : None
-            self._is_alive = False
+            #self._is_alive = False
+            self._endtime = self.time()
             return True
         return False
 
     #--------------------------------------------------------------------------------    
     def is_alive(self):
     #--------------------------------------------------------------------------------    
-        return self._is_alive
+        #return self._is_alive
+        return not self._endtime
+
+    #--------------------------------------------------------------------------------    
+    def time(self):
+    #--------------------------------------------------------------------------------    
+        return (datetime.now()-self._starttime).total_seconds()
 
     #--------------------------------------------------------------------------------    
     def _timer(self):
     #--------------------------------------------------------------------------------    
         while self._running:
             sleep(self._idle)
-            if self._is_alive:
-                sec = (datetime.now()-self._starttime).total_seconds()
-                if sec >= self._limit:
+            #if self._is_alive:
+            if not self._endtime:
+                time = self.time()
+                if time >= self._limit:
                     self._call_func()
-                    self._is_alive = False
+                    #self._is_alive = False
+                    self._endtime = time
                     #print('Called '+self._caller.__qualname__+f' at {sec}')
 
