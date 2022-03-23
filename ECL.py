@@ -63,6 +63,7 @@ datatype = {'INTE' : int32,
 var2key = {'nwell':b'INTEHEAD'}
 var2pos = {'nwell':16}
 
+
 #-----------------------------------------------------------------------
 def get_tsteps_from_schedule_files(root, raise_error=False):
 #-----------------------------------------------------------------------
@@ -415,15 +416,15 @@ class unfmt_block:
             value = [b''.join(value).decode()]
         return value
 
-    #--------------------------------------------------------------------------------
-    def get_value(self, var):                                           # unfmt_block
-    #--------------------------------------------------------------------------------
-        return self.data()[var2pos[var]]
+    # #--------------------------------------------------------------------------------
+    # def get_value(self, var):                                           # unfmt_block
+    # #--------------------------------------------------------------------------------
+    #     return self.data()[var2pos[var]]
         
-    #--------------------------------------------------------------------------------
-    def get_nwell(self):                                                # unfmt_block
-    #--------------------------------------------------------------------------------
-        return self.get_value('nwell')
+    # #--------------------------------------------------------------------------------
+    # def get_nwell(self):                                                # unfmt_block
+    # #--------------------------------------------------------------------------------
+    #     return self.get_value('nwell')
 
 
 
@@ -607,6 +608,32 @@ class unfmt_file:
         out_file.close()
         return self._filename
     
+#====================================================================================
+class UNRST_file:
+#====================================================================================
+    #            var         key      pos   name
+    var_pos = {'nwell' : ('INTEHEAD', 16,  'NWELLS'), 
+               'day'   : ('INTEHEAD', 64,  'IDAY'),
+               'month' : ('INTEHEAD', 65,  'IMON'),
+               'year'  : ('INTEHEAD', 66,  'IYEAR'),
+               'hour'  : ('INTEHEAD', 206, 'IHOURZ'),
+               'min'   : ('INTEHEAD', 207, 'IMINTS'),
+               'sec'   : ('INTEHEAD', 410, 'ISECND')}
+
+    #-----------------------------------------------------------------------
+    def __init__(self, name):
+    #-----------------------------------------------------------------------
+        self._file = unfmt_file(name)
+
+    #-----------------------------------------------------------------------
+    def var(self, var_list):
+    #-----------------------------------------------------------------------
+        values = []
+        for block in self._file.tail_blocks():
+            if block.key() == 'INTEHEAD':
+                values = [block.data()[self.var_pos[v][1]] for v in var_list]
+                break
+        return values
 
 
 #====================================================================================
@@ -730,14 +757,16 @@ class check_blocks:                                                    # check_b
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, start=None, end=None, var=None):      # check_blocks
+    # def __init__(self, filename, start=None, end=None, var=None):      # check_blocks
+    def __init__(self, filename, start=None, end=None):      # check_blocks
     #--------------------------------------------------------------------------------
         #self.reader = reader(file)
         self.file = unfmt_file(filename)
         #self.key = {'start':encode(start), 'end':encode(end)}
         self.key = {'start':start.ljust(8).encode(), 'end':end.ljust(8).encode()}
-        self._var = var
-        self.out = {k:[] for k in ('start', 'end', 'startpos')+(self._var,)}
+        # self._var = var
+        # self.out = {k:[] for k in ('start', 'end', 'startpos')+(self._var,)}
+        self.out = {k:[] for k in ('start', 'end', 'startpos')}
         self.out['end'] = 0
         #self.datalist = [self.key['start']]
         #if var:
@@ -757,10 +786,10 @@ class check_blocks:                                                    # check_b
         DEBUG and print(f'Deleting {self}')
 
 
-    #--------------------------------------------------------------------------------
-    def var(self, _var):                                               # check_blocks
-    #--------------------------------------------------------------------------------
-        return self.out[_var][0]
+    # #--------------------------------------------------------------------------------
+    # def var(self, _var):                                               # check_blocks
+    # #--------------------------------------------------------------------------------
+    #     return self.out[_var][0]
             
     #--------------------------------------------------------------------------------
     def filename(self):                                                # check_blocks
@@ -776,10 +805,11 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
     def info(self):                                                    # check_blocks
     #--------------------------------------------------------------------------------
-        txt = '   {} : {}'.format(self.key['start'].decode(), list2str(self.out['start']))
-        if self._var:
-            txt += ', {} : {}'.format(self._var, list2str(self.out[self._var]))
-        return txt
+        return f"   {self.key['start'].decode()} : {list2str(self.out['start'])}"
+        # txt = '   {} : {}'.format(self.key['start'].decode(), list2str(self.out['start']))
+        # if self._var:
+        #     txt += ', {} : {}'.format(self._var, list2str(self.out[self._var]))
+        # return txt
 
         
     #--------------------------------------------------------------------------------
@@ -789,15 +819,14 @@ class check_blocks:                                                    # check_b
         for b in self.file.blocks():
             if b._key == self.key['start']:
                 self.out['start'].append(b.data()[0])
-                #self.out['startpos'].append(b.startpos)
                 self.out['startpos'].append(b.start())
             if b._key == self.key['end']:
                 self.out['end'] += 1 
                 if self.out['end'] == nblocks and len(self.out['start']) == nblocks:
                     self.file.set_startpos(b.end())
                     return True
-            if self._var and b._key == var2key[self._var]:
-                self.out[self._var].append(b.get_value(self._var))
+            # if self._var and b._key == var2key[self._var]:
+            #     self.out[self._var].append(b.get_value(self._var))
         return False
 
 
