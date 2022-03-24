@@ -453,6 +453,12 @@ class unfmt_file:
 
 
     #--------------------------------------------------------------------------------
+    def file(self):                                                   # unfmt_file
+    #--------------------------------------------------------------------------------
+        return self._filename
+
+
+    #--------------------------------------------------------------------------------
     def is_file(self):                                                   # unfmt_file
     #--------------------------------------------------------------------------------
         return self._filename.is_file()
@@ -608,6 +614,7 @@ class unfmt_file:
         out_file.close()
         return self._filename
     
+
 #====================================================================================
 class UNRST_file:
 #====================================================================================
@@ -620,20 +627,109 @@ class UNRST_file:
                'min'   : ('INTEHEAD', 207, 'IMINTS'),
                'sec'   : ('INTEHEAD', 410, 'ISECND')}
 
-    #-----------------------------------------------------------------------
-    def __init__(self, name):
-    #-----------------------------------------------------------------------
+    #--------------------------------------------------------------------------------
+    def __init__(self, name):                                            # UNRST_file
+    #--------------------------------------------------------------------------------
         self._file = unfmt_file(name)
+        self._check = check_blocks(self._file, start='SEQNUM', end='ENDSOL')
+        
+    #--------------------------------------------------------------------------------
+    def file(self):                                                      # UNRST_file
+    #--------------------------------------------------------------------------------
+        return self._file.file()
 
-    #-----------------------------------------------------------------------
-    def var(self, var_list):
-    #-----------------------------------------------------------------------
+
+    #--------------------------------------------------------------------------------
+    def var(self, var_list):                                             # UNRST_file
+    #--------------------------------------------------------------------------------
         values = []
         for block in self._file.tail_blocks():
             if block.key() == 'INTEHEAD':
                 values = [block.data()[self.var_pos[v][1]] for v in var_list]
                 break
         return values
+
+
+    #--------------------------------------------------------------------------------
+    def is_complete(self, nblocks=1):                                    # UNRST_file
+    #--------------------------------------------------------------------------------
+        return self._check.blocks_complete(nblocks=nblocks)
+
+
+    #--------------------------------------------------------------------------------
+    def log(self):                                                       # UNRST_file
+    #--------------------------------------------------------------------------------
+        return self._check.info()
+
+
+
+#====================================================================================
+class check_blocks:                                                    # check_blocks
+#====================================================================================
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, file, start=None, end=None):      # check_blocks
+    #--------------------------------------------------------------------------------
+        if isinstance(file, unfmt_file):
+            self.file = file
+        else:
+            self.file = unfmt_file(file)
+        self.key = {'start':start.ljust(8).encode(), 'end':end.ljust(8).encode()}
+        self.out = {k:[] for k in ('start', 'end', 'startpos')}
+        self.out['end'] = 0
+        # self.last_block = None
+        DEBUG and print(f'Creating {self}')
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                                 # check_blocks
+    #--------------------------------------------------------------------------------
+        return f'<check_blocks(file={self.file}>'
+
+
+    #--------------------------------------------------------------------------------
+    def __del__(self):                                                 # check_blocks
+    #--------------------------------------------------------------------------------
+        DEBUG and print(f'Deleting {self}')
+
+            
+    #--------------------------------------------------------------------------------
+    def filename(self):                                                # check_blocks
+    #--------------------------------------------------------------------------------
+        return self.file.filename
+
+    # #--------------------------------------------------------------------------------
+    # def start_values(self):                                            # check_blocks
+    # #--------------------------------------------------------------------------------
+    #     return {'start':self.key['start'].decode(), 'values':self.out['start']}
+
+
+    #--------------------------------------------------------------------------------
+    def info(self):                                                    # check_blocks
+    #--------------------------------------------------------------------------------
+        return f"  {self.key['start'].decode()} : {list2str(self.out['start'])}"
+
+        
+    #--------------------------------------------------------------------------------
+    def blocks_complete(self, nblocks=1):                           # check_blocks
+    #--------------------------------------------------------------------------------
+        self.reset_out()
+        for b in self.file.blocks():
+            if b._key == self.key['start']:
+                self.out['start'].append(b.data()[0])
+                self.out['startpos'].append(b.start())
+            if b._key == self.key['end']:
+                self.out['end'] += 1 
+                if self.out['end'] == nblocks and len(self.out['start']) == nblocks:
+                    self.file.set_startpos(b.end())
+                    return True
+        return False
+
+
+    #--------------------------------------------------------------------------------
+    def reset_out(self):                                               # check_blocks
+    #--------------------------------------------------------------------------------
+        self.out = {k:[] for k in self.out.keys()}
+        self.out['end'] = 0
 
 
 #====================================================================================
@@ -750,91 +846,6 @@ class Section:                                                              # Se
             #self.keys.append('F:'+self.end_before+',size:'+str(size[-1]))
         return units
         
-
-    
-#====================================================================================
-class check_blocks:                                                    # check_blocks
-#====================================================================================
-
-    #--------------------------------------------------------------------------------
-    # def __init__(self, filename, start=None, end=None, var=None):      # check_blocks
-    def __init__(self, filename, start=None, end=None):      # check_blocks
-    #--------------------------------------------------------------------------------
-        #self.reader = reader(file)
-        self.file = unfmt_file(filename)
-        #self.key = {'start':encode(start), 'end':encode(end)}
-        self.key = {'start':start.ljust(8).encode(), 'end':end.ljust(8).encode()}
-        # self._var = var
-        # self.out = {k:[] for k in ('start', 'end', 'startpos')+(self._var,)}
-        self.out = {k:[] for k in ('start', 'end', 'startpos')}
-        self.out['end'] = 0
-        #self.datalist = [self.key['start']]
-        #if var:
-        #    self.datalist.append(var2key[var])
-        self.last_block = None
-        DEBUG and print(f'Creating {self}')
-
-    #--------------------------------------------------------------------------------
-    def __str__(self):                                                 # check_blocks
-    #--------------------------------------------------------------------------------
-        return f'<check_blocks(file={self.file}>'
-
-
-    #--------------------------------------------------------------------------------
-    def __del__(self):                                                 # check_blocks
-    #--------------------------------------------------------------------------------
-        DEBUG and print(f'Deleting {self}')
-
-
-    # #--------------------------------------------------------------------------------
-    # def var(self, _var):                                               # check_blocks
-    # #--------------------------------------------------------------------------------
-    #     return self.out[_var][0]
-            
-    #--------------------------------------------------------------------------------
-    def filename(self):                                                # check_blocks
-    #--------------------------------------------------------------------------------
-        return self.file.filename
-
-    #--------------------------------------------------------------------------------
-    def start_values(self):                                            # check_blocks
-    #--------------------------------------------------------------------------------
-        return {'start':self.key['start'].decode(), 'values':self.out['start']}
-
-
-    #--------------------------------------------------------------------------------
-    def info(self):                                                    # check_blocks
-    #--------------------------------------------------------------------------------
-        return f"   {self.key['start'].decode()} : {list2str(self.out['start'])}"
-        # txt = '   {} : {}'.format(self.key['start'].decode(), list2str(self.out['start']))
-        # if self._var:
-        #     txt += ', {} : {}'.format(self._var, list2str(self.out[self._var]))
-        # return txt
-
-        
-    #--------------------------------------------------------------------------------
-    def blocks_complete(self, nblocks=1):                           # check_blocks
-    #--------------------------------------------------------------------------------
-        self.reset_out()
-        for b in self.file.blocks():
-            if b._key == self.key['start']:
-                self.out['start'].append(b.data()[0])
-                self.out['startpos'].append(b.start())
-            if b._key == self.key['end']:
-                self.out['end'] += 1 
-                if self.out['end'] == nblocks and len(self.out['start']) == nblocks:
-                    self.file.set_startpos(b.end())
-                    return True
-            # if self._var and b._key == var2key[self._var]:
-            #     self.out[self._var].append(b.get_value(self._var))
-        return False
-
-
-    #--------------------------------------------------------------------------------
-    def reset_out(self):                                               # check_blocks
-    #--------------------------------------------------------------------------------
-        self.out = {k:[] for k in self.out.keys()}
-        self.out['end'] = 0
 
 
 #====================================================================================
