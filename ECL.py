@@ -60,8 +60,8 @@ datatype = {'INTE' : int32,
             'CHAR' : str,
             'MESS' : str}
 
-var2key = {'nwell':b'INTEHEAD'}
-var2pos = {'nwell':16}
+# var2key = {'nwell':b'INTEHEAD'}
+# var2pos = {'nwell':16}
 
 
 #-----------------------------------------------------------------------
@@ -628,40 +628,184 @@ class UNRST_file:
                'sec'   : ('INTEHEAD', 410, 'ISECND')}
 
     #--------------------------------------------------------------------------------
-    def __init__(self, name):                                            # UNRST_file
+    def __init__(self, name, wait_func=None):                            # UNRST_file
     #--------------------------------------------------------------------------------
-        self._file = unfmt_file(name)
-        self._check = check_blocks(self._file, start='SEQNUM', end='ENDSOL')
-        
+        self._unrst = unfmt_file(name)
+        self.file = self._unrst._filename
+        self.name = str(self.file)
+        self._check = check_blocks(self._unrst, start='SEQNUM', end='ENDSOL')
+        self._wait_func = wait_func
+        # self._log = log
+
+
     #--------------------------------------------------------------------------------
-    def file(self):                                                      # UNRST_file
+    def __str__(self):                                                   # UNRST_file
     #--------------------------------------------------------------------------------
-        return self._file.file()
+        return self.name
+
+    #--------------------------------------------------------------------------------
+    def wait_for_file(self):                                         # UNRST_file
+    #--------------------------------------------------------------------------------
+        self._wait_func( self.file.exists, error='UNRST-file not created')
+
+
+    #--------------------------------------------------------------------------------
+    def is_file(self):                                                   # UNRST_file
+    #--------------------------------------------------------------------------------
+        return self.file.is_file()
 
 
     #--------------------------------------------------------------------------------
     def var(self, var_list):                                             # UNRST_file
     #--------------------------------------------------------------------------------
         values = []
-        for block in self._file.tail_blocks():
+        for block in self._unrst.tail_blocks():
             if block.key() == 'INTEHEAD':
                 values = [block.data()[self.var_pos[v][1]] for v in var_list]
                 break
         return values
 
 
+    # #--------------------------------------------------------------------------------
+    # def is_complete(self, nblocks=1):                                    # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     return self._check.blocks_complete(nblocks=nblocks)
+
     #--------------------------------------------------------------------------------
-    def is_complete(self, nblocks=1):                                    # UNRST_file
+    def wait_for_complete_file(self, nblocks=1, **kwargs):               # UNRST_file
     #--------------------------------------------------------------------------------
-        return self._check.blocks_complete(nblocks=nblocks)
+        self._wait_func( self._check.blocks_complete, nblocks=nblocks, log=self._check.info, **kwargs)
+
+
+    # #--------------------------------------------------------------------------------
+    # def log(self):                                                       # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     return self._check.info()
+
+
+#====================================================================================
+class RFT_file:
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, name, wait_func=None, check_size=False):            # RFT_file
+    #--------------------------------------------------------------------------------
+        self._rft = unfmt_file(name)
+        self.file = self._rft._filename
+        self.name = str(self.file)
+        self._check = check_blocks(self._rft, start='TIME', end='CONNXT')
+        self._wait_func = wait_func
+        self.check_size = check_size        
+        #self.nwell_max = 0
+        self.nwell = 0
+        # self._log = log
+        # self.message = message
+        self._read_blocks = None
+        self._size = None
+        self._prev_size = None
 
 
     #--------------------------------------------------------------------------------
-    def log(self):                                                       # UNRST_file
+    def __str__(self):                                              # RFT_file
     #--------------------------------------------------------------------------------
-        return self._check.info()
+        return self.name
+
+    #--------------------------------------------------------------------------------
+    def wait_for_file(self):                                         # RFT_file
+    #--------------------------------------------------------------------------------
+        self._wait_func( self.file.exists, error='RFT-file not created')
 
 
+    #--------------------------------------------------------------------------------
+    def is_file(self):                                                     # RFT_file
+    #--------------------------------------------------------------------------------
+        return self.file.is_file()
+
+
+    # #--------------------------------------------------------------------------------
+    # def log(self):                                                         # RFT_file
+    # #--------------------------------------------------------------------------------
+    #     return self._check.info()
+
+    #--------------------------------------------------------------------------------
+    def wait_for_complete_file(self, nblocks=1, nwell=None, **kwargs):               # RFT_file
+    #--------------------------------------------------------------------------------
+        msg = ''
+        if self.check_size:
+            self._wait_for_size_match()
+        else:
+            if nwell:
+                self.nwell = nwell
+            msg = self._wait_for_complete_blocks(nblocks=nblocks, **kwargs)
+        if self.check_size and self._size is None:
+            self.init_size_check()
+        return msg
+
+
+    #--------------------------------------------------------------------------------
+    def _wait_for_complete_blocks(self, nblocks=1, **kwargs):       # RFT_file
+    #--------------------------------------------------------------------------------
+        ###
+        ###  cannot always require nblocks=2*nwell in the initial RFT-check. In some situations
+        ###  all wells may not be ready after the TSTEP in the DATA-file. The RFT-check
+        ###  starts to look for 2*nwell blocks. If the check fails, the check is repeated
+        ###  with nblocks-1, and so on until nblocks==nwell.
+        ###
+        msg = ''
+        nwell_max, nwell_min = [self.nwell*n for n in (nblocks, nblocks-1)]
+        for nblocks in range(nwell_max, nwell_min-1, -1):
+            passed = self._wait_func( self._check.blocks_complete, nblocks=nblocks, log=self._check.info, **kwargs )
+            if passed:
+                break
+            if nblocks==nwell_min:
+                if nblocks == 0:
+                    msg = 'WARNING No TIME blocks found in the RFT-file. Are all wells closed?'    
+                    # self.message(msg)
+                    # self._log(msg)
+                else:
+                    msg = f'WARNING! Only {nblocks} TIME blocks found in the RFT-file, expected {nwell_max}'
+                    # self._log(f'WARNING! Only {nblocks} TIME blocks found in the RFT-file')
+        self._read_blocks = nblocks
+        return msg
+
+
+    #--------------------------------------------------------------------------------
+    def init_size_check(self):                                             # RFT_file
+    #--------------------------------------------------------------------------------
+        msg = ''
+        if self._read_blocks is None:
+            raise SystemError('ERROR Read RFT-file before calling init_size_check()')
+        if self._read_blocks != self.nwell_max:
+            # Turn off simple RFT-file size check if some wells are missing in the initial RFT-file 
+            self.size_check = False
+            #self._log('Size check of RFT-file is OFF due to missing wells')
+            msg = 'INFO Size check of RFT-file is OFF due to missing wells'
+        if self.size_check: 
+            # Check size of initial RFT file
+            self._size = int(0.5*self.file.stat().st_size)
+            if 2*self._size != self.file.stat().st_size:
+                # self._log('\nWARNING! Initial size of RFT size not even!\n')
+                msg = 'WARNING Initial size of RFT size not even!'
+        return msg
+
+
+    #--------------------------------------------------------------------------------
+    def _size_check(self):                                          # RFT_file
+    #--------------------------------------------------------------------------------
+        size = self.file.stat().st_size
+        if size - self._prev_size == self._size:
+            self._prev_size = size
+            return True
+        else:
+            return False
+
+    #--------------------------------------------------------------------------------
+    def _wait_for_size_match(self):                                          # RFT_file
+    #--------------------------------------------------------------------------------
+        self._wait_func( self._size_check )
+        
+
+
+    
 
 #====================================================================================
 class check_blocks:                                                    # check_blocks
@@ -677,7 +821,6 @@ class check_blocks:                                                    # check_b
         self.key = {'start':start.ljust(8).encode(), 'end':end.ljust(8).encode()}
         self.out = {k:[] for k in ('start', 'end', 'startpos')}
         self.out['end'] = 0
-        # self.last_block = None
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
