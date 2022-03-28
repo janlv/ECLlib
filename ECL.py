@@ -60,8 +60,6 @@ datatype = {'INTE' : int32,
             'CHAR' : str,
             'MESS' : str}
 
-# var2key = {'nwell':b'INTEHEAD'}
-# var2pos = {'nwell':16}
 
 
 #-----------------------------------------------------------------------
@@ -600,20 +598,71 @@ class unfmt_file:
         return self._filename
 
 #====================================================================================
-class Input_file:
+class DATA_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file):
+    def __init__(self, file, unformatted=True):
     #--------------------------------------------------------------------------------
         self.file = Path(file)
+        self._data = remove_comments(file, end='END')
+        self._unformatted = unformatted
+        self._restart_file = None
+        self._restart_time = None
 
     #--------------------------------------------------------------------------------
     def include_files(self):
     #--------------------------------------------------------------------------------
-        data = remove_comments(self.file, end='END')
+        #data = remove_comments(self.file, end='END')
         regex = compile(r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/")
-        return regex.findall(data)
+        return regex.findall(self._data)
 
+    #-----------------------------------------------------------------------
+    def restart_file_and_step(self):
+    #-----------------------------------------------------------------------
+        '''
+        Get values from RESTART keyword:
+            RESTART filename step \
+
+        Returns: filename, step
+        '''
+        # Remove comments
+        #file = Path(file)
+        #data = remove_comments(file, end='END')
+        regex = compile(r"\bRESTART\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s+([0-9]+)\s*/")
+        name_step = regex.findall(self._data)
+        if name_step:    
+            name, step = [list(t) for t in zip(*name_step)]
+            n = int(step[0])
+            if self._unformatted:
+                ext = '.UNRST'
+            else:
+                ext = f'.S{n:04}'
+            #print(file.parent/(name[0]+ext))
+            restart_file = self.file.parent/(name[0]+ext)
+            if not Path(restart_file).is_file():
+                raise SystemError(f'ERROR Restart file {restart_file} in {self.file.name} is missing')
+            return restart_file, n
+        return '', 0
+
+    #-----------------------------------------------------------------------
+    def restart_time_and_step(self):
+    #-----------------------------------------------------------------------
+        t = 0
+        # Get name of restart file and report number from DATA-file
+        # Report number starts at 1
+        name, n = self.restart_file_and_step()
+        if name and n:
+            if self._unformatted:
+                t,nn = UNRST_file(name).var(['time', 'step'], stop=('step',n))
+                if n > nn[-1]: 
+                    raise SystemError(f'ERROR Restart step {n} exceeds total steps {nn[-1]} in {name.name}, run stopped')
+                if not n in nn: 
+                    raise SystemError(f'ERROR Restart step {n} not found (try {min(nn, key=lambda x:abs(x-n))}) in {name.name}, run stopped')
+                t = t[nn.index(n)]
+            else:
+                t = get_time_step_UNSMRY(file=name)[0]
+        #print(t, n)
+        return t, n
 
 
 
@@ -647,13 +696,15 @@ class Output_file:
 class UNRST_file(Output_file):
 #====================================================================================
     #            var         key      pos   name
-    var_pos = {'nwell' : ('INTEHEAD', 16,  'NWELLS'), 
-               'day'   : ('INTEHEAD', 64,  'IDAY'),
-               'month' : ('INTEHEAD', 65,  'IMON'),
-               'year'  : ('INTEHEAD', 66,  'IYEAR'),
+    var_pos = {'nwell' : ('INTEHEAD', 16 , 'NWELLS'), 
+               'day'   : ('INTEHEAD', 64 , 'IDAY'),
+               'month' : ('INTEHEAD', 65 , 'IMON'),
+               'year'  : ('INTEHEAD', 66 , 'IYEAR'),
                'hour'  : ('INTEHEAD', 206, 'IHOURZ'),
                'min'   : ('INTEHEAD', 207, 'IMINTS'),
-               'sec'   : ('INTEHEAD', 410, 'ISECND')}
+               'sec'   : ('INTEHEAD', 410, 'ISECND'),
+               'time'  : ('DOUBHEAD', 0  , ''),
+               'step'  : ('SEQNUM'  , 0  , '')}
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None):
@@ -662,35 +713,46 @@ class UNRST_file(Output_file):
         self._unrst = unfmt_file(file)
         self._check = check_blocks(self._unrst, start='SEQNUM', end='ENDSOL')
 
+
     #--------------------------------------------------------------------------------
-    def date(self, end=False):                                          # UNRST_file
+    def date(self, N=0):                                          # UNRST_file
     #--------------------------------------------------------------------------------
-        y, m, d = self.var(['year','month','day'], end=end)
+        y, m, d = self.var(['year','month','day'], N=N)
         return datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date()
         #return f'{y}-{m:02d}-{d:02d}'
 
-    # #--------------------------------------------------------------------------------
-    # def start_date(self):                                                  # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     return self.date(tail=False)
-
-    # #--------------------------------------------------------------------------------
-    # def end_date(self):                                                  # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     return self.date(tail=True)
 
     #--------------------------------------------------------------------------------
-    def var(self, var_list, end=False, raise_error=True):               # UNRST_file
+    def var(self, var_list, N=0, stop=(), raise_error=True):       # UNRST_file
     #--------------------------------------------------------------------------------
-        if end:
+        if N < 0:
             blocks = self._unrst.tail_blocks
+            N = -N
         else:
             blocks = self._unrst.blocks
+        var_pos = {k:v for k,v in self.var_pos.items() if k in var_list}
+        keywords = {v[0]:[] for v in var_pos.values()}
+        [keywords[v[0]].append(k) for k,v in var_pos.items()]
+        values = {v:[] for v in var_list}
+        n = 0
+        N *= len(keywords.keys())
+        if stop:
+            N = stop[1]
         for b in blocks():
-            if b.key() == 'INTEHEAD':
-                return [b.data()[self.var_pos[v][1]] for v in var_list]
-        if raise_error:
-            raise SystemError(f'ERROR Unable to read {var_list} from {end and "end" or "start"} of {self.file.name}')
+            # if b.key() == 'INTEHEAD':
+            if b.key() in keywords.keys():
+                for var in keywords[b.key()]:
+                    values[var].append( b.data()[var_pos[var][1]] )
+                n += 1
+            if stop:
+                n = values[stop[0]][-1]               
+            if n == N:
+                break
+                #return [b.data()[self.var_pos[v][1]] for v in var_list]
+        if raise_error and not all(values.values()):
+            raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
+        return values.values()        
+
 
 
     #--------------------------------------------------------------------------------
@@ -699,22 +761,22 @@ class UNRST_file(Output_file):
         self._wait_func( self._check.blocks_complete, nblocks=nblocks, log=self._check.info, **kwargs)
 
 
-    #-----------------------------------------------------------------------
-    def times_and_steps(self, end=False, step=None):
-    #-----------------------------------------------------------------------
-        # DOUBHEAD is time, SEQNUM is step
-        kw = {'DOUBHEAD':[], 'SEQNUM':[]}
-        t, n = kw.values()
-        for block in self._unrst.blocks():
-            if block.key() in kw.keys():
-                kw[block.key()].append(block.data()[0])
-            if n and n[-1] == step and len(t) == len(n):
-                break
-        if not t or not n:
-            return 0, 0
-        if end:
-            return t[-1], n[-1]
-        return t, n
+    # #-----------------------------------------------------------------------
+    # def times_and_steps(self, end=False, step=None):
+    # #-----------------------------------------------------------------------
+    #     # DOUBHEAD is time, SEQNUM is step
+    #     kw = {'DOUBHEAD':[], 'SEQNUM':[]}
+    #     t, n = kw.values()
+    #     for block in self._unrst.blocks():
+    #         if block.key() in kw.keys():
+    #             kw[block.key()].append(block.data()[0])
+    #         if n and n[-1] == step and len(t) == len(n):
+    #             break
+    #     if not t or not n:
+    #         return 0, 0
+    #     if end:
+    #         return t[-1], n[-1]
+    #     return t, n
 
 
 
