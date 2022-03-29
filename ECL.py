@@ -425,7 +425,8 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
         self.fileobj = None
         self._filename = Path(filename)
-        self.endpos = self.startpos = 0
+        #self.endpos = self.startpos = 0
+        self.endpos = 0
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
@@ -451,15 +452,15 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
         return self._filename.is_file()
 
-    #--------------------------------------------------------------------------------
-    def set_startpos(self, pos):                                         # unfmt_file
-    #--------------------------------------------------------------------------------
-        self.startpos = pos
+    # #--------------------------------------------------------------------------------
+    # def set_startpos(self, pos):                                         # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     self.startpos = pos
         
-    #--------------------------------------------------------------------------------
-    def set_endpos(self, pos):                                           # unfmt_file
-    #--------------------------------------------------------------------------------
-        self.endpos = pos    
+    # #--------------------------------------------------------------------------------
+    # def set_endpos(self, pos):                                           # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     self.endpos = pos    
     
     #--------------------------------------------------------------------------------
     def filename(self):                                                  # unfmt_file
@@ -477,14 +478,18 @@ class unfmt_file:
         return str(self._filename.name)
         
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False):                                    # unfmt_file
+    def blocks(self, only_new=False, start=None):                                    # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file() or self.size()<24: # Header is 24 bytes
             return
+        startpos = 0
         if only_new:
             startpos = self.endpos
-        else:
-            startpos = self.startpos
+        if start:
+            startpos = start
+        # else:
+        #     startpos = self.startpos
+        #print(self._filename, startpos)
         with open(self._filename, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 data.seek(startpos, 1)
@@ -553,11 +558,11 @@ class unfmt_file:
         else:
             return False
 
-    #--------------------------------------------------------------------------------
-    def has_new_blocks(self):                                            # unfmt_file
-    #--------------------------------------------------------------------------------
-        if self._filename.stat().st_size > self.startpos:
-            return True            
+    # #--------------------------------------------------------------------------------
+    # def has_new_blocks(self):                                            # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     if self._filename.stat().st_size > self.startpos:
+    #         return True            
 
     #--------------------------------------------------------------------------------
     def exists(self):                                                    # unfmt_file
@@ -601,23 +606,89 @@ class unfmt_file:
 class DATA_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, unformatted=True):
+    def __init__(self, file, unformatted=True, raise_error=True):
     #--------------------------------------------------------------------------------
-        self.file = Path(file)
-        self._data = remove_comments(file, end='END')
+        self.file = Path(file).with_suffix('.DATA')
+        if raise_error and not self.file.is_file():
+            raise SystemError(f'ERROR No DATA-file in folder {self.file.parent}')        
+        self._data = remove_comments(self.file, end='END')
         self._unformatted = unformatted
         self._restart_file = None
         self._restart_time = None
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):
+    #--------------------------------------------------------------------------------
+        return f'{self.file}'
+
+    #--------------------------------------------------------------------------------
+    def is_file(self):
+    #--------------------------------------------------------------------------------
+        return self.file.is_file()
+
+    #--------------------------------------------------------------------------------
+    def exists(self, raise_error=True):
+    #--------------------------------------------------------------------------------
+        if self.file.is_file():
+            return True
+        if raise_error:
+            raise SystemError(f'ERROR DATA-file is missing in folder {self.file.parent}')
+
+
+    #-----------------------------------------------------------------------
+    def tsteps(self, raise_error=False):
+    #-----------------------------------------------------------------------
+        regex = compile(r'\bTSTEP\b\s+([0-9*.\s]+)/')
+        tsteps = [t for m in regex.findall(self._data) for t in m.split()]
+        # Process x*y statements
+        mult = lambda x, y : int(x)*(' '+y) 
+        tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
+        tsteps = [float(t) for ts in tsteps for t in ts.split()]
+        if not tsteps:
+            if raise_error:
+                raise SystemError(f'ERROR TSTEPS keyword not found in {self.file}')
+            else:
+                tsteps = [0]
+        return tsteps
+
+
+    #-----------------------------------------------------------------------
+    def _date_keyword(self, keyword, raise_error=False):
+    #-----------------------------------------------------------------------
+        regex = compile(rf'\b{keyword}\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
+        dates = [' '.join(m.group(1,2,3)) for m in regex.finditer(self._data)]
+        dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
+        if not dates and raise_error:
+            raise SystemError(f'WARNING {keyword} keyword not found in {self._file}')
+        return dates
+
+
+    #-----------------------------------------------------------------------
+    def start(self):
+    #-----------------------------------------------------------------------
+        start = self._date_keyword('START')
+        if start:
+            start = start[0]
+        else:
+            start = datetime.now().date()
+        return start
+
+
+    #-----------------------------------------------------------------------
+    def dates(self):
+    #-----------------------------------------------------------------------
+        return self._date_keyword('DATES')
+
 
     #--------------------------------------------------------------------------------
     def include_files(self):
     #--------------------------------------------------------------------------------
         #data = remove_comments(self.file, end='END')
         regex = compile(r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/")
-        return regex.findall(self._data)
+        return [self.file.with_name(name) for name in regex.findall(self._data)]
 
     #-----------------------------------------------------------------------
-    def restart_file_and_step(self):
+    def restart_file_and_step(self, raise_error=True):
     #-----------------------------------------------------------------------
         '''
         Get values from RESTART keyword:
@@ -639,30 +710,31 @@ class DATA_file:
                 ext = f'.S{n:04}'
             #print(file.parent/(name[0]+ext))
             restart_file = self.file.parent/(name[0]+ext)
-            if not Path(restart_file).is_file():
-                raise SystemError(f'ERROR Restart file {restart_file} in {self.file.name} is missing')
+            if raise_error and not Path(restart_file).is_file():
+                raise SystemError(f'ERROR Restart file {restart_file.name} included in {self.file.name} is missing')
             return restart_file, n
         return '', 0
 
     #-----------------------------------------------------------------------
     def restart_time_and_step(self):
     #-----------------------------------------------------------------------
-        t = 0
+        time = 0
         # Get name of restart file and report number from DATA-file
         # Report number starts at 1
-        name, n = self.restart_file_and_step()
-        if name and n:
+        file, step = self.restart_file_and_step()
+        print(file, step)
+        if file and step:
             if self._unformatted:
-                t,nn = UNRST_file(name).var(['time', 'step'], stop=('step',n))
-                if n > nn[-1]: 
-                    raise SystemError(f'ERROR Restart step {n} exceeds total steps {nn[-1]} in {name.name}, run stopped')
-                if not n in nn: 
-                    raise SystemError(f'ERROR Restart step {n} not found (try {min(nn, key=lambda x:abs(x-n))}) in {name.name}, run stopped')
-                t = t[nn.index(n)]
+                err = f'Error in {self.file.name}\nRestart from step {step} of {file.name} is not possible,'
+                time,n = UNRST_file(file).var(['time', 'step'], stop=('step', step))
+                if step > n[-1]: 
+                    raise SystemError(f'ERROR {err} {n[-1]} is the final step')
+                if not step in n: 
+                    raise SystemError(f'ERROR {err} {step} is not a report step. Try replacing {step} with {min(n, key=lambda x:abs(x-step))} in {file.name}')
+                time = time[n.index(step)]
             else:
-                t = get_time_step_UNSMRY(file=name)[0]
-        #print(t, n)
-        return t, n
+                time = get_time_step_UNSMRY(file=file)[0]
+        return time, step
 
 
 
@@ -688,6 +760,7 @@ class Output_file:
     #--------------------------------------------------------------------------------
     def wait_for_file(self, **kwargs):                                  # Output_file
     #--------------------------------------------------------------------------------
+        #print('Waiting for', self)
         self._wait_func( self.file.exists, error=f'{self.file.name} not created', **kwargs)
 
 
@@ -709,27 +782,29 @@ class UNRST_file(Output_file):
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None):
     #--------------------------------------------------------------------------------
+        file = Path(file).with_suffix('.UNRST')
         super().__init__(file, wait_func)
         self._unrst = unfmt_file(file)
-        self._check = check_blocks(self._unrst, start='SEQNUM', end='ENDSOL')
+        self._start_key = 'SEQNUM'
+        self._end_key = 'ENDSOL'
+        self._check = check_blocks(self._unrst, start=self._start_key, end=self._end_key)
 
 
     #--------------------------------------------------------------------------------
     def date(self, N=0):                                          # UNRST_file
     #--------------------------------------------------------------------------------
         y, m, d = self.var(['year','month','day'], N=N)
-        return datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date()
+        return datetime.strptime(f'{d[-1]} {m[-1]} {y[-1]}', '%d %m %Y').date()
         #return f'{y}-{m:02d}-{d:02d}'
 
 
     #--------------------------------------------------------------------------------
     def var(self, var_list, N=0, stop=(), raise_error=True):       # UNRST_file
     #--------------------------------------------------------------------------------
+        blocks = self._unrst.blocks
         if N < 0:
             blocks = self._unrst.tail_blocks
             N = -N
-        else:
-            blocks = self._unrst.blocks
         var_pos = {k:v for k,v in self.var_pos.items() if k in var_list}
         keywords = {v[0]:[] for v in var_pos.values()}
         [keywords[v[0]].append(k) for k,v in var_pos.items()]
@@ -738,20 +813,20 @@ class UNRST_file(Output_file):
         N *= len(keywords.keys())
         if stop:
             N = stop[1]
+        #print(keywords, values, N)
         for b in blocks():
-            # if b.key() == 'INTEHEAD':
             if b.key() in keywords.keys():
                 for var in keywords[b.key()]:
                     values[var].append( b.data()[var_pos[var][1]] )
                 n += 1
             if stop:
                 n = values[stop[0]][-1]               
-            if n == N:
+            if N and n == N and b.key() == self._end_key:
                 break
                 #return [b.data()[self.var_pos[v][1]] for v in var_list]
         if raise_error and not all(values.values()):
             raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
-        return values.values()        
+        return list(values.values())        
 
 
 
@@ -786,6 +861,7 @@ class RFT_file(Output_file):
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, nwell=0):
     #--------------------------------------------------------------------------------
+        file = Path(file).with_suffix('.RFT')
         super().__init__(file, wait_func)
         self._rft = unfmt_file(file)
         self._check = check_blocks(self._rft, start='TIME', end='CONNXT')
@@ -824,8 +900,11 @@ class check_blocks:                                                    # check_b
         else:
             self.file = unfmt_file(file)
         self.key = {'start':start.ljust(8).encode(), 'end':end.ljust(8).encode()}
-        self.out = {k:[] for k in ('start', 'end', 'startpos')}
-        self.out['end'] = 0
+        # self.out = {k:[] for k in ('start', 'end', 'startpos')}
+        #self.out = {k:[] for k in ('start', 'end')}
+        self.start = []
+        self.end = 0
+        self.startpos = 0
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
@@ -849,30 +928,33 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
     def info(self):                                                    # check_blocks
     #--------------------------------------------------------------------------------
-        return f"  {self.key['start'].decode()} : {list2str(self.out['start'])}"
+        return f"  {self.key['start'].decode()} : {list2str(self.start)}"
 
         
     #--------------------------------------------------------------------------------
     def blocks_complete(self, nblocks=1):                           # check_blocks
     #--------------------------------------------------------------------------------
-        self.reset_out()
-        for b in self.file.blocks():
+        self.start, self.end = [], 0
+        # self.reset()
+        for b in self.file.blocks(start=self.startpos):
             if b._key == self.key['start']:
-                self.out['start'].append(b.data()[0])
-                self.out['startpos'].append(b.start())
+                self.start.append(b.data()[0])
+                # self.out['startpos'].append(b.start())
             if b._key == self.key['end']:
-                self.out['end'] += 1 
-                if self.out['end'] == nblocks and len(self.out['start']) == nblocks:
-                    self.file.set_startpos(b.end())
+                self.end += 1 
+                if self.end == nblocks and len(self.start) == nblocks:
+                    #self.file.set_startpos(b.end())
+                    self.startpos = b.end()
                     return True
         return False
 
 
-    #--------------------------------------------------------------------------------
-    def reset_out(self):                                               # check_blocks
-    #--------------------------------------------------------------------------------
-        self.out = {k:[] for k in self.out.keys()}
-        self.out['end'] = 0
+    # #--------------------------------------------------------------------------------
+    # def reset(self):                                               # check_blocks
+    # #--------------------------------------------------------------------------------
+    #     self.start = self.end = 0
+    #     self.out = {k:[] for k in self.out.keys()}
+    #     self.out['end'] = 0
 
 
 #====================================================================================
