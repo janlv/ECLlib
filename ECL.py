@@ -85,196 +85,6 @@ def get_tsteps_from_schedule_files(root, raise_error=False):
     tsteps.insert(0, days[0])
     return tsteps
 
-# #-----------------------------------------------------------------------
-# def get_tsteps(file, raise_error=False):
-# #-----------------------------------------------------------------------
-#     # Remove comments
-#     if not Path(file).is_file():
-#         return [0]
-#     data = remove_comments(file, end='END')
-#     regex = compile(r'\bTSTEP\b\s+([0-9*.\s]+)/')
-#     tsteps = [t for m in regex.findall(data) for t in m.split()]
-#     # Process x*y statements
-#     mult = lambda x, y : int(x)*(' '+y) 
-#     tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
-#     tsteps = [float(t) for ts in tsteps for t in ts.split()]
-#     if not tsteps:
-#         if raise_error:
-#             raise SystemError(f'ERROR TSTEPS keyword not found in {file}')
-#         else:
-#             tsteps = [0]
-#     return tsteps
-
-# #-----------------------------------------------------------------------
-# def get_included_files(data_file):
-# #-----------------------------------------------------------------------
-#     data = remove_comments(data_file, end='END')
-#     regex = compile(r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/")
-#     return regex.findall(data)
-
-
-# #-----------------------------------------------------------------------
-# def get_restart_file_step(file, unformatted=True):
-# #-----------------------------------------------------------------------
-#     # Remove comments
-#     file = Path(file)
-#     data = remove_comments(file, end='END')
-#     regex = compile(r"\bRESTART\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s+([0-9]+)\s*/")
-#     name_step = regex.findall(data)
-#     if name_step:    
-#         name, step = [list(t) for t in zip(*name_step)]
-#         n = int(step[0])
-#         if unformatted:
-#             ext = '.UNRST'
-#         else:
-#             ext = f'.S{n:04}'
-#         #print(file.parent/(name[0]+ext))
-#         return file.parent/(name[0]+ext), n
-#         #return file.with_name(name[0]+ext), n 
-#     return '', 0
-
-# #-----------------------------------------------------------------------
-# def get_restart_time_step(file, unformatted=True):
-# #-----------------------------------------------------------------------
-#     t = 0
-#     file = Path(file)
-#     # Get name of restart file and report number from DATA-file
-#     # Report number starts at 1
-#     name, n = get_restart_file_step(file, unformatted=unformatted)
-#     if name and n:
-#         name = Path(name)    
-#         if not name.is_file():
-#             raise SystemError(f'ERROR Restart file {name.name} included in {file.name} is missing')
-#         if unformatted:
-#             t,nn = get_time_step_UNRST(file=name, step=n)
-#             if n > nn[-1]: 
-#                 raise SystemError(f'ERROR Restart step {n} exceeds total steps {nn[-1]} in {name.name}, run stopped')
-#             if not n in nn: 
-#                 raise SystemError(f'ERROR Restart step {n} not found (try {min(nn, key=lambda x:abs(x-n))}) in {name.name}, run stopped')
-#             t = t[nn.index(n)]
-#         else:
-#             t = get_time_step_UNSMRY(file=name)[0]
-#     #print(t, n)
-#     return t, n
-
-# #-----------------------------------------------------------------------
-# def get_date_keyword(file, keyword, raise_error=False):
-# #-----------------------------------------------------------------------
-#     # Remove comments
-#     data = remove_comments(file)
-#     regex = compile(rf'\b{keyword}\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
-#     dates = [' '.join(m.group(1,2,3)) for m in regex.finditer(data)]
-#     dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
-#     if not dates and raise_error:
-#         raise SystemError(f'WARNING {keyword} keyword not found in {file}')
-#     return dates
-
-
-# #-----------------------------------------------------------------------
-# def get_start(file):
-# #-----------------------------------------------------------------------
-#     start = get_date_keyword(file, 'START')
-#     if start:
-#         start = start[0]
-#     else:
-#         start = datetime.now().date()
-#     return start
-
-# #-----------------------------------------------------------------------
-# def get_dates(file):
-# #-----------------------------------------------------------------------
-#     return get_date_keyword(file, 'DATES')
-
-# #-----------------------------------------------------------------------
-# def get_time_step_MSG(root=None, file=None, end=True): #, date=False):
-# #-----------------------------------------------------------------------
-#     #print('get_time_step_MSG')
-#     if file is None:
-#         file = root+'.MSG'
-#     with open(file) as f:
-#         lines = f.readlines()
-#     lines = ''.join(lines)
-#     time_reg = compile(r'<\s*\bmessage\b\s+\bdate\b="[0-9/]+"\s+time="([0-9.]+)"\s*>')
-#     step_reg = compile(r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)')
-#     time = time_reg.findall(lines)
-#     if not time:
-#         return 0, 0
-#     step = step_reg.findall(lines)
-#     # Convert to numbers
-#     time = [float(t) for t in time]
-#     step = [int(s) for s in step]
-#     #print(time, step)
-#     if not time or not step:
-#         return 0, 0
-#     if end:
-#         # Return only last entries
-#         return time[-1], step[-1]
-#     else:
-#         return time, step
-
-# #-----------------------------------------------------------------------
-# def get_time_step_UNSMRY(root=None, file=None):
-# #-----------------------------------------------------------------------
-#     '''
-#     Return last time and step from an UNSMRY file
-#     '''
-#     #print('get_time_step_UNSMRY')
-#     if file is None:
-#         file = str(root)+'.UNSMRY'
-#     t, n = [0], [0]
-#     for block in unfmt_file(file).tail_blocks():
-#         if block.key()=='PARAMS':
-#             t.append(block.data()[0])
-#         if block.key()=='MINISTEP':
-#             n.append(block.data()[0])
-#             break
-#     return t[-1],n[-1]
-
-# #-----------------------------------------------------------------------
-# def get_time_step_UNRST(root=None, file=None, end=False, step=None):
-# #-----------------------------------------------------------------------
-#     #print('get_time_step_UNRST', file)
-#     #start = datetime.now()
-#     if file is None:
-#         file = str(root)+'.UNRST'
-#     # DOUBHEAD is time, SEQNUM is step
-#     kw = {'DOUBHEAD':[], 'SEQNUM':[]}
-#     t, n = kw.values()
-#     for block in unfmt_file(file).blocks():
-#         if block.key() in kw.keys():
-#             kw[block.key()].append(block.data()[0])
-#         if n and n[-1] == step and len(t) == len(n):
-#             break
-#     if not t or not n:
-#         return 0, 0
-#     if end:
-#         return t[-1], n[-1]
-#     #print(datetime.now()-start)
-#     return t, n
-
-# #-----------------------------------------------------------------------
-# def get_start_UNRST(root=None, file=None, raise_error=True):
-# #-----------------------------------------------------------------------
-#     if file is None:
-#         file = str(root)+'.UNRST'
-#     for block in unfmt_file(file).blocks():
-#         if block.key() == 'INTEHEAD':
-#             dmy = [str(d) for d in block.data()[64:67]]
-#             return datetime.strptime(' '.join(dmy), '%d %m %Y').date()
-#     if raise_error:
-#         raise SystemError(f'ERROR Unable to read start date from {Path(file).name}')
-
-# #-----------------------------------------------------------------------
-# def get_tail_data_UNRST(keyword=None, root=None, file=None, raise_error=True):
-# #-----------------------------------------------------------------------
-#     if file is None:
-#         file = str(root)+'.UNRST'
-#     for block in unfmt_file(file).tail_blocks():
-#         if block.key() == keyword:
-#             return block.data()
-#     if raise_error:
-#         raise SystemError(f'ERROR Unable to read keyword {keyword} from {Path(file).name}')
-
         
 
 #====================================================================================
@@ -486,9 +296,6 @@ class unfmt_file:
             startpos = self.endpos
         if start:
             startpos = start
-        # else:
-        #     startpos = self.startpos
-        #print(self._filename, startpos)
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 data.seek(startpos, 1)
@@ -595,12 +402,6 @@ class unfmt_file:
                 return False
         else:
             return False
-
-    # #--------------------------------------------------------------------------------
-    # def has_new_blocks(self):                                            # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if self._filename.stat().st_size > self.startpos:
-    #         return True            
 
     #--------------------------------------------------------------------------------
     def exists(self):                                                    # unfmt_file
@@ -800,36 +601,6 @@ class Input_file:
 
 
 
-# #====================================================================================
-# #class Output_file:
-# class File_checks:
-# #====================================================================================
-#     #--------------------------------------------------------------------------------
-#     def __init__(self, file, wait_func=None, start=None, end=None):        # File_checks
-#     #--------------------------------------------------------------------------------
-#         self._wait_func = wait_func
-#         self._file = Path(file)
-#         self._block_check = check_blocks(self._file, start=start, end=end)
-
-#     #--------------------------------------------------------------------------------
-#     def __str__(self):                                                   # File_checks
-#     #--------------------------------------------------------------------------------
-#         return str(self._file)
-
-#     # #--------------------------------------------------------------------------------
-#     # def is_file(self):                                                   # File_checks
-#     # #--------------------------------------------------------------------------------
-#     #     return self.file.is_file()
-
-#     #--------------------------------------------------------------------------------
-#     def wait_for_file(self, **kwargs):                                  # File_checks
-#     #--------------------------------------------------------------------------------
-#         #print('Waiting for', self)
-#         self._wait_func( self._file.exists, error=f'{self._file.name} not created', **kwargs)
-
-
-
-
 #====================================================================================
 class UNRST_file(unfmt_file):
 #====================================================================================
@@ -861,63 +632,6 @@ class UNRST_file(unfmt_file):
         return datetime.strptime(f'{d[-1]} {m[-1]} {y[-1]}', '%d %m %Y').date()
 
 
-    # #--------------------------------------------------------------------------------
-    # # def var(self, var_list, N=0, stop=(), raise_error=True):       # UNRST_file
-    # def var(self, *args, **kwargs):       # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     return self._unrst.var(*args, **kwargs)
-    #     # blocks = self._unrst.blocks
-        # if N < 0:
-        #     blocks = self._unrst.tail_blocks
-        #     N = -N
-        # var_pos = {k:v for k,v in self.var_pos.items() if k in var_list}
-        # keywords = {v[0]:[] for v in var_pos.values()}
-        # [keywords[v[0]].append(k) for k,v in var_pos.items()]
-        # values = {v:[] for v in var_list}
-        # n = 0
-        # N *= len(keywords.keys())
-        # if stop:
-        #     N = stop[1]
-        # #print(keywords, values, N)
-        # for b in blocks():
-        #     if b.key() in keywords.keys():
-        #         for var in keywords[b.key()]:
-        #             values[var].append( b.data()[var_pos[var][1]] )
-        #         n += 1
-        #     if stop:
-        #         n = values[stop[0]][-1]               
-        #     if N and n == N and b.key() == self._end_key:
-        #         break
-        #         #return [b.data()[self.var_pos[v][1]] for v in var_list]
-        # if raise_error and not all(values.values()):
-        #     raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
-        # return list(values.values())        
-
-
-
-    # #--------------------------------------------------------------------------------
-    # def wait_for_complete_file(self, nblocks=1, **kwargs):               # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     self._wait_func( self._check.blocks_complete, nblocks=nblocks, log=self._check.info, **kwargs)
-
-
-    # #-----------------------------------------------------------------------
-    # def times_and_steps(self, end=False, step=None):
-    # #-----------------------------------------------------------------------
-    #     # DOUBHEAD is time, SEQNUM is step
-    #     kw = {'DOUBHEAD':[], 'SEQNUM':[]}
-    #     t, n = kw.values()
-    #     for block in self._unrst.blocks():
-    #         if block.key() in kw.keys():
-    #             kw[block.key()].append(block.data()[0])
-    #         if n and n[-1] == step and len(t) == len(n):
-    #             break
-    #     if not t or not n:
-    #         return 0, 0
-    #     if end:
-    #         return t[-1], n[-1]
-    #     return t, n
-
 
 
 #====================================================================================
@@ -933,27 +647,6 @@ class RFT_file(unfmt_file):
         self.check = check_blocks(self, start=start, end=end, wait_func=wait_func)
 
 
-    # #--------------------------------------------------------------------------------
-    # def wait_for_complete_file(self, nblocks=1, limit=100, **kwargs):      # RFT_file
-    # #--------------------------------------------------------------------------------
-    #     f'''
-    #         Loop until nblocks TIME blocks are found in the RFT-file.
-    #         At restart, a TIME block is written for each open well in the system. 
-    #         The number of wells might not stay fixed during the simulation since
-    #         wells can close. If the TIME block for all wells are not found after 
-    #         {limit} iterations, the number of blocks are gradually reduced by one. 
-    #     '''
-    #     msg = ''
-    #     for n in range(nblocks, 0, -1):
-    #         # passed = self._wait_func( self._check.blocks_complete, nblocks=n, log=self._check.info, limit=limit, **kwargs )
-    #         passed = self.check.file_is_complete(nblocks=n, limit=limit, **kwargs)
-    #         if passed:
-    #             break
-    #     if n < nblocks:
-    #         msg = f'WARNING! Only {n} TIME blocks found in the RFT-file, expected {nblocks}'
-    #     return msg
-
-
 #====================================================================================
 class UNSMRY_file(unfmt_file):
 #====================================================================================
@@ -967,22 +660,6 @@ class UNSMRY_file(unfmt_file):
                   'step' : keypos(key='MINISTEP')}
         super().__init__(Path(file).with_suffix(suffix), start=start, end=end)
         self.add_varmap(varmap)
-
-
-    # #-----------------------------------------------------------------------
-    # def time_step(self):
-    # #-----------------------------------------------------------------------
-    #     '''
-    #     Return last time and step from an UNSMRY file
-    #     '''
-    #     t, n = [0], [0]
-    #     for block in unfmt_file(file).tail_blocks():
-    #         if block.key()=='PARAMS':
-    #             t.append(block.data()[0])
-    #         if block.key()=='MINISTEP':
-    #             n.append(block.data()[0])
-    #             break
-    #     return t[-1],n[-1]
 
 
 #====================================================================================
@@ -1015,14 +692,6 @@ class MSG_file:
         if raise_error and not all(values.values()):
             raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
         return list(values.values())
-        # if N == 0:
-        #     return values
-        # else:
-        #     if N > 0:
-        #         N -= 1
-        #     return [[v[N]] for v in values]
-
-
 
 
 
@@ -1054,12 +723,6 @@ class check_blocks:                                                    # check_b
     def __del__(self):                                                 # check_blocks
     #--------------------------------------------------------------------------------
         DEBUG and print(f'Deleting {self}')
-
-            
-    # #--------------------------------------------------------------------------------
-    # def filename(self):                                                # check_blocks
-    # #--------------------------------------------------------------------------------
-    #     return self.file.filename
 
 
     #--------------------------------------------------------------------------------
