@@ -5,10 +5,12 @@
 from importlib.util import set_loader
 from pathlib import Path
 from re import RegexFlag, findall, compile, DOTALL, search
+#from sys import exc_info
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ
+#from locale import getdefaultlocale
 
 #-----------------------------------------------------------------------
 def file_exists(file, raise_error=False):
@@ -75,7 +77,8 @@ def print_error(func):
 #--------------------------------------------------------------------------------
 def read_file(file, raise_error=True):
 #--------------------------------------------------------------------------------
-    if not Path(file).is_file():
+    file = Path(file)
+    if not file.is_file():
         if raise_error:
             raise SystemError(f'ERROR {file} not found in read_file()')
         else:   
@@ -89,10 +92,13 @@ def read_file(file, raise_error=True):
         #print(e)
         #with open(file, encoding='ISO-8859-1') as f:
         with open(file, encoding='latin-1') as f:
-        #with open(file) as f:
+        #with open(file, encoding=getdefaultlocale()[1]) as f:
             lines = f.readlines()
     except OSError as err:
         raise SystemError(f'Unable to read {file}: {err}')
+    # except:
+    #     e = exc_info()
+    #     print(e)
     return ''.join(lines)
 
 #--------------------------------------------------------------------------------

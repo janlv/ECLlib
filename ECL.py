@@ -67,10 +67,8 @@ datatype = {'INTE' : int32,
 def get_tsteps_from_schedule_files(root, raise_error=False):
 #-----------------------------------------------------------------------
     # Search for DATES in schedule-files and convert to TSTEP
-    # DATA_file = Path(root).with_suffix('.DATA')
     DATA_file = Input_file(f'{root}.DATA')
-    # start = get_start(DATA_file)
-    start = DATA_file.start()
+    start = DATA_file.get('START')
     # Find schedule-files in root folder, ignore suffix case 
     sch_files = [f for f in Path(root).parent.glob('**/*') if f.suffix.lower() == '.sch']
     dates = [start]
@@ -78,7 +76,7 @@ def get_tsteps_from_schedule_files(root, raise_error=False):
         # Check if file is used in the .DATA-file before searching
         # if file_contains(DATA_file, fil.name, end='END') and file_contains(fil, 'DATES'):
         if file_contains(input.file, fil.name, end='END') and file_contains(fil, 'DATES'):
-            dates = Input_file(fil).dates()
+            dates = Input_file(fil).get('DATES')
             break
     days = [(d-start).days for d in dates]
     tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
@@ -242,13 +240,11 @@ class unfmt_file:
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, start='', end=''):                    # unfmt_file
+    def __init__(self, filename):                    # unfmt_file
     #--------------------------------------------------------------------------------
         self.fileobj = None
         self.file = Path(filename)
         self.endpos = 0
-        self.varmap = {'start' : keypos(key=start),
-                       'end'   : keypos(key=end)}
         DEBUG and print(f'Creating {self}')
 
 
@@ -264,10 +260,6 @@ class unfmt_file:
         DEBUG and print(f'Deleting {self}')
 
 
-    #--------------------------------------------------------------------------------
-    def add_varmap(self, varmap):                                     # unfmt_file
-    #--------------------------------------------------------------------------------
-        self.varmap = dict(self.varmap, **varmap)
 
 
     #--------------------------------------------------------------------------------
@@ -357,34 +349,24 @@ class unfmt_file:
     def var(self, var_list, N=0, stop=(), raise_error=True):       # unfmt_file
     #--------------------------------------------------------------------------------
         blocks = self.blocks
-        end = self.varmap['end'].key
         if N < 0:
             # Read data from end of file
             blocks = self.tail_blocks
-            # Use start-keyword as end
-            end = self.varmap['start'].key
             N = -N
-        # var_pos = {k:v for k,v in self.var_pos.items() if k in var_list}
         varmap = {k:v for k,v in self.varmap.items() if k in var_list}
         # Create dict of keywords with varname and position:
         #  {'INTEHEAD':[('day',64), ('month',65), ('year',66)]}
         var_pos = {v.key:[] for v in varmap.values()}
         [var_pos[v.key].append( (k, v.pos) ) for k,v in varmap.items()]        
         values = {v:[] for v in var_list}
-        n = 0
-        N *= len(var_pos.keys())
-        if stop:
-            N = stop[1]
-        #print(var_pos, values, N)
+        size = lambda : (len(v) for v in values.values())
         for b in blocks():
             if b.key() in var_pos.keys():
                 for var, pos in var_pos[b.key()]:
                     values[var].append( b.data()[pos] )
-                #print(values)
-                n += 1
-            if stop:
-                n = values[stop[0]][-1]               
-            if N and n == N and b.key() == end:
+            if N and set(size()) == set([N]): 
+                break
+            if stop and stop[1] == values[stop[0]][-1] and len(set(size())) == 1:
                 break
         if raise_error and not all(values.values()):
             raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
@@ -447,7 +429,7 @@ class unfmt_file:
 class Input_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, unformatted=True, check=True, read=True):
+    def __init__(self, file, check=True, read=True):
     #--------------------------------------------------------------------------------
         self.file = Path(file) #.with_suffix('.DATA')
         if check and read and not self.file.is_file():
@@ -456,10 +438,15 @@ class Input_file:
         self._read = read
         if read:
             self._remove_comments()
-        self._unformatted = unformatted
         self._restart_file = None
         self._restart_time = None
-
+        getter = namedtuple('getter', 'default convert pattern')
+        self._get = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/'),
+                     'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+                     'DATES'   : getter([0],     self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)'), 
+                     'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                     'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/")}
+    
     #--------------------------------------------------------------------------------
     def __str__(self):
     #--------------------------------------------------------------------------------
@@ -495,109 +482,171 @@ class Input_file:
         self._data = remove_comments(self.file, end='END')
 
     #-----------------------------------------------------------------------
-    def tsteps(self, raise_error=False):
+    def _float(self, values, key):
     #-----------------------------------------------------------------------
-        if not self._read:
-            self._remove_comments()
-        regex = compile(r'\bTSTEP\b\s+([0-9*.\s]+)/')
-        tsteps = [t for m in regex.findall(self._data) for t in m.split()]
         # Process x*y statements
         mult = lambda x, y : int(x)*(' '+y) 
-        tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
-        tsteps = [float(t) for ts in tsteps for t in ts.split()]
-        if not tsteps:
-            if raise_error:
-                raise SystemError(f'ERROR TSTEPS keyword not found in {self.file}')
-            else:
-                tsteps = [0]
-        return tsteps
-
+        values = [a if not '*' in a else mult(*a.split('*')) for a in values]
+        values = [float(b) for a in values for b in a.split()] or [0]
+        return values or self._get[key].default
 
     #-----------------------------------------------------------------------
-    def _date_keyword(self, keyword, raise_error=False):
+    def _date(self, values, key):
     #-----------------------------------------------------------------------
-        if not self._read:
-            self._remove_comments()
-        regex = compile(rf'\b{keyword}\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
-        dates = [' '.join(m.group(1,2,3)) for m in regex.finditer(self._data)]
+        dates = [' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3)]
         dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
-        if not dates and raise_error:
-            raise SystemError(f'WARNING {keyword} keyword not found in {self._file}')
-        return dates
-
-
-    #-----------------------------------------------------------------------
-    def start(self):
-    #-----------------------------------------------------------------------
-        start = self._date_keyword('START')
-        if start:
-            start = start[0]
-        else:
-            start = datetime.now().date()
-        return start
-
-
-    #-----------------------------------------------------------------------
-    def dates(self):
-    #-----------------------------------------------------------------------
-        return self._date_keyword('DATES')
+        return dates or self._get[key].default
 
 
     #--------------------------------------------------------------------------------
-    def include_files(self):
+    def _file(self, values, key):
     #--------------------------------------------------------------------------------
-        if not self._read:
-            self._remove_comments()
-        regex = compile(r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/")
-        return [self.file.with_name(name) for name in regex.findall(self._data)]
+        # Remove quotes and backslash
+        values = [val.replace("'",'').replace('\\','/') for val in values]
+        # Convert numbers if they exist
+        for i, val in enumerate(values):
+            try:
+                values[i] = int(val)
+            except ValueError:
+                pass
+        # Paths are relative to the current directory
+        # cwd = Path.cwd()
+        # values = [(self.file.parent/val).resolve().relative_to(cwd) if isinstance(val, str) else val for val in values]
+        values = [(self.file.parent/val).resolve() if isinstance(val, str) else val for val in values]
+        # Add suffix for RESTART keyword
+        if key == 'RESTART' and values:
+            values[0] = values[0].with_suffix('.UNRST')
+        # Check if files are missing
+        missing = [str(val) for val in values if not isinstance(val, int) and not val.is_file()]
+        if missing:
+            raise SystemError(f'ERROR {key}-files requested in {self.file.name} are not found: {", ".join(missing)}')
+        return values or self._get[key].default
+
 
     #-----------------------------------------------------------------------
-    def restart_file_and_step(self, raise_error=True):
+    def get(self, keyword, raise_error=False):
     #-----------------------------------------------------------------------
-        '''
-        Get values from RESTART keyword:
-            RESTART filename step \
-
-        Returns: filename, step
-        '''
         if not self._read:
             self._remove_comments()
-        regex = compile(r"\bRESTART\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s+([0-9]+)\s*/")
-        name_step = regex.findall(self._data)
-        if name_step:    
-            name, step = [list(t) for t in zip(*name_step)]
-            n = int(step[0])
-            if self._unformatted:
-                ext = '.UNRST'
-            else:
-                ext = f'.S{n:04}'
-            #print(file.parent/(name[0]+ext))
-            restart_file = self.file.parent/(name[0]+ext)
-            if raise_error and not Path(restart_file).is_file():
-                raise SystemError(f'ERROR Restart file {restart_file.name} included in {self.file.name} is missing')
-            return restart_file, n
-        return '', 0
+        keyword = keyword.upper()
+        key = self._get[keyword]
+        # match = compile(self._pattern[key]).findall(self._data)
+        match = compile(key.pattern).findall(self._data)
+        # print(match)
+        values = [n for m in match for n in m.split()]
+        # print(values)
+        # values = self._convert[key](values, key)
+        if raise_error and not values:
+            raise SystemError(f'ERROR Keyword {keyword} not found in {self.file}')
+        return key.convert(values, keyword)
+
+
+    # #-----------------------------------------------------------------------
+    # def tsteps(self, raise_error=False):
+    # #-----------------------------------------------------------------------
+    #     if not self._read:
+    #         self._remove_comments()
+    #     regex = compile(r'\bTSTEP\b\s+([0-9*.\s]+)/')
+    #     tsteps = [t for m in regex.findall(self._data) for t in m.split()]
+    #     # Process x*y statements
+    #     mult = lambda x, y : int(x)*(' '+y) 
+    #     tsteps = [t if not '*' in t else mult(*t.split('*')) for t in tsteps]
+    #     tsteps = [float(t) for ts in tsteps for t in ts.split()]
+    #     if not tsteps:
+    #         if raise_error:
+    #             raise SystemError(f'ERROR TSTEPS keyword not found in {self.file}')
+    #         else:
+    #             tsteps = [0]
+    #     return tsteps
+
+
+    # #-----------------------------------------------------------------------
+    # def _date_keyword(self, keyword, raise_error=False):
+    # #-----------------------------------------------------------------------
+    #     if not self._read:
+    #         self._remove_comments()
+    #     regex = compile(rf'\b{keyword}\b\s+(\d+)\s+\'*(\w+)\'*\s+(\d+)')
+    #     dates = [' '.join(m.group(1,2,3)) for m in regex.finditer(self._data)]
+    #     dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
+    #     if not dates and raise_error:
+    #         raise SystemError(f'WARNING {keyword} keyword not found in {self._file}')
+    #     return dates
+
+
+    # #-----------------------------------------------------------------------
+    # def start(self):
+    # #-----------------------------------------------------------------------
+    #     start = self._date_keyword('START')
+    #     if start:
+    #         start = start[0]
+    #     else:
+    #         start = datetime.now().date()
+    #     return start
+
+
+    # #-----------------------------------------------------------------------
+    # def dates(self):
+    # #-----------------------------------------------------------------------
+    #     return self._date_keyword('DATES')
+
+
+    # #--------------------------------------------------------------------------------
+    # def include_files(self):
+    # #--------------------------------------------------------------------------------
+    #     if not self._read:
+    #         self._remove_comments()
+    #     regex = compile(r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/")
+    #     return [self.file.with_name(name) for name in regex.findall(self._data)]
+
+    # #-----------------------------------------------------------------------
+    # def restart_file_and_step(self, raise_error=True):
+    # #-----------------------------------------------------------------------
+    #     '''
+    #     Get values from RESTART keyword:
+    #         RESTART filename step \
+
+    #     Returns: filename, step
+    #     '''
+    #     if not self._read:
+    #         self._remove_comments()
+    #     regex = compile(r"\bRESTART\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s+([0-9]+)\s*/")
+    #     name_step = regex.findall(self._data)
+    #     if name_step:    
+    #         name, step = [list(t) for t in zip(*name_step)]
+    #         n = int(step[0])
+    #         # if self._unformatted:
+    #         #     ext = '.UNRST'
+    #         # else:
+    #         #     ext = f'.S{n:04}'
+    #         #print(file.parent/(name[0]+ext))
+    #         name = name[0].replace('\\','/') + (self._unformatted and '.UNRST' or f'.S{n:04}')
+    #         restart_file = (self.file.parent/name).resolve()
+    #         print(restart_file)
+    #         if raise_error and not Path(restart_file).is_file():
+    #             raise SystemError(f'ERROR Restart file {restart_file.name} included in {self.file.name} is missing')
+    #         return restart_file, n
+    #     return '', 0
 
     #-----------------------------------------------------------------------
     def restart_time_and_step(self):
     #-----------------------------------------------------------------------
-        time = 0
         # Get name of restart file and report number from DATA-file
         # Report number starts at 1
-        file, step = self.restart_file_and_step()
+        # file, step = self.restart_file_and_step()
+        file, step = self.get('RESTART')
         #print(file, step)
-        if file and step:
-            if self._unformatted:
-                err = f'Error in {self.file.name}\nRestart from step {step} of {file.name} is not possible,'
-                time,n = UNRST_file(file).var(['time', 'step'], stop=('step', step))
-                if step > n[-1]: 
-                    raise SystemError(f'ERROR {err} {n[-1]} is the final step')
-                if not step in n: 
-                    raise SystemError(f'ERROR {err} {step} is not a report step. Try replacing {step} with {min(n, key=lambda x:abs(x-step))} in {file.name}')
-                time = time[n.index(step)]
-            else:
-                raise SystemError('ERROR Reading restart time from a formatted restart file is not yet implemented.')
+        if not all((file, step)):
+            return 0, 0
+        err = f'Error in {self.file.name}\nRestart from step {step} of {file.name} is not possible,'
+        time,n = UNRST_file(file).var(['time', 'step'], stop=('step', step))
+        print(time, n)
+        if step > n[-1]: 
+            raise SystemError(f'ERROR {err} {n[-1]} is the final step')
+        if not step in n: 
+            raise SystemError(f'ERROR {err} {step} is not a report step. Try replacing {step} with {min(n, key=lambda x:abs(x-step))} in {file.name}')
+        time = time[n.index(step)]
         return time, step
+
 
 
 
@@ -609,20 +658,17 @@ class UNRST_file(unfmt_file):
     def __init__(self, file, wait_func=None):
     #--------------------------------------------------------------------------------
         suffix = '.UNRST'
-        start = 'SEQNUM'
-        end = 'ENDSOL'
-        varmap = {'step'  : keypos(key='SEQNUM'),
-                  'nwell' : keypos('INTEHEAD', 16 , 'NWELLS'), 
-                  'day'   : keypos('INTEHEAD', 64 , 'IDAY'),
-                  'month' : keypos('INTEHEAD', 65 , 'IMON'),
-                  'year'  : keypos('INTEHEAD', 66 , 'IYEAR'),
-                  'hour'  : keypos('INTEHEAD', 206, 'IHOURZ'),
-                  'min'   : keypos('INTEHEAD', 207, 'IMINTS'),
-                  'sec'   : keypos('INTEHEAD', 410, 'ISECND'),
-                  'time'  : keypos(key='DOUBHEAD')}
-        super().__init__(Path(file).with_suffix(suffix), start=start, end=end)
-        self.add_varmap(varmap)        
-        self.check = check_blocks(self, start=start, end=end, wait_func=wait_func)
+        super().__init__(Path(file).with_suffix(suffix))
+        self.varmap = {'step'  : keypos(key='SEQNUM'),
+                       'nwell' : keypos('INTEHEAD', 16 , 'NWELLS'), 
+                       'day'   : keypos('INTEHEAD', 64 , 'IDAY'),
+                       'month' : keypos('INTEHEAD', 65 , 'IMON'),
+                       'year'  : keypos('INTEHEAD', 66 , 'IYEAR'),
+                       'hour'  : keypos('INTEHEAD', 206, 'IHOURZ'),
+                       'min'   : keypos('INTEHEAD', 207, 'IMINTS'),
+                       'sec'   : keypos('INTEHEAD', 410, 'ISECND'),
+                       'time'  : keypos(key='DOUBHEAD')}
+        self.check = check_blocks(self, start='SEQNUM', end='ENDSOL', wait_func=wait_func)
 
 
     #--------------------------------------------------------------------------------
@@ -641,10 +687,8 @@ class RFT_file(unfmt_file):
     def __init__(self, file, wait_func=None, nwell=0):
     #--------------------------------------------------------------------------------
         suffix = '.RFT'
-        start = 'TIME'
-        end = 'CONNXT'
-        super().__init__(Path(file).with_suffix(suffix), start=start, end=end)
-        self.check = check_blocks(self, start=start, end=end, wait_func=wait_func)
+        super().__init__(Path(file).with_suffix(suffix))
+        self.check = check_blocks(self, start='TIME', end='CONNXT', wait_func=wait_func)
 
 
 #====================================================================================
@@ -654,12 +698,9 @@ class UNSMRY_file(unfmt_file):
     def __init__(self, file):
     #--------------------------------------------------------------------------------
         suffix = '.UNSMRY'
-        start = 'SEQHDR'
-        end = 'PARAMS'
-        varmap = {'time' : keypos(key='PARAMS'), 
-                  'step' : keypos(key='MINISTEP')}
-        super().__init__(Path(file).with_suffix(suffix), start=start, end=end)
-        self.add_varmap(varmap)
+        super().__init__(Path(file).with_suffix(suffix))
+        self.varmap = {'time' : keypos(key='PARAMS'), 
+                       'step' : keypos(key='MINISTEP')}
 
 
 #====================================================================================
@@ -688,11 +729,15 @@ class MSG_file:
         values = {}
         for var in var_list:
             match = compile(self._pattern[var]).findall(lines)
-            values[var] = [self._convert(m) for m in match]
+            values[var] = [self._convert[var](m) for m in match]
         if raise_error and not all(values.values()):
             raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
-        return list(values.values())
-
+        if N == 0:
+            return list(values.values())
+        else:
+            if N > 0:
+                N -= 1
+            return [[v[N]] if v else [] for v in values.values()]
 
 
 #====================================================================================
