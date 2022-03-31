@@ -1,7 +1,8 @@
 
 # -*- coding: utf-8 -*-
 
-DEBUG = False
+DEBUG = False 
+ENDIANNESS = '>'  # Big-endian
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,8 +31,22 @@ from .utils import file_contains, list2str, float_or_str, remove_comments
 # Maximum number of data records in one block.
 # For REAL this means that 4*1000 bytes is the max size 
 #max_length = 1000   
+@dataclass
+class Dtyp:
+    name   : str
+    unpack : str
+    size   : int
+    max    : int
+    pytype  : type
 
-endian = '>' # big-endian
+DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
+         b'REAL' : Dtyp('REAL', 'f', 4, 1000, float32),
+         b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
+         b'DOUB' : Dtyp('DOUB', 'd', 8, 1000, float64),
+         b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
+         b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
+
+DTYPE_LIST = [k.name for k in DTYPE.keys()]
 
 unpack_char = {b'INTE' : 'i',
                b'REAL' : 'f',
@@ -102,6 +117,7 @@ class unfmt_block:
         self._key = key
         self._length = length
         self._type = type
+        self._dtype = DTYPE[type]
         self._mmap = data
         self._file = file
         self._startpos = start
@@ -130,7 +146,8 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def bytes(self):                                      # unfmt_block
     #--------------------------------------------------------------------------------
-        return self._type and self._length*datasize[self._type] or 0
+        #return self._type and self._length*datasize[self._type] or 0
+        return self._type and self._length*self._dtype.size or 0
 
 
     #--------------------------------------------------------------------------------
@@ -158,8 +175,10 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
         s = f'{self._key.decode()}'
         if details:
-            s += f' block of {self._length*datasize[self._type]} bytes' 
-            s += f' holding {self._length*(self._type==b"CHAR" and 8 or 1)} {self._type.decode()}'
+            # s += f' block of {self._length*datasize[self._type]} bytes' 
+            s += f' block of {self._length*self._dtype.size} bytes' 
+            # s += f' holding {self._length*(self._type==b"CHAR" and 8 or 1)} {self._type.decode()}'
+            s += f' holding {self._length*(self._dtype.name=="CHAR" and 8 or 1)} {self._dtype.name}'
             s += f' at [{self._startpos}, {self._end}]'
         return s
 
@@ -175,17 +194,19 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def read_size_at(self, pos):                                        # unfmt_block
     #--------------------------------------------------------------------------------
-        size = unpack(endian+'i',self._mmap[pos:pos+4])[0]
+        size = unpack(ENDIANNESS+'i',self._mmap[pos:pos+4])[0]
         if self._type == b'CHAR':
             n = size
         else:
-            n = int(size/datasize[self._type])
+            # n = int(size/datasize[self._type])
+            n = int(size/self._dtype.size)
         return size, n 
 
     #--------------------------------------------------------------------------------
     def pack_format(self, n):                                           # unfmt_block
     #--------------------------------------------------------------------------------
-        return endian+f'{n}{unpack_char[self._type]}'
+        #return ENDIANNESS+f'{n}{unpack_char[self._type]}'
+        return ENDIANNESS+f'{n}{self._dtype.unpack}'
 
     #--------------------------------------------------------------------------------
     def replace(self, func, key=None):                                  # unfmt_block
@@ -296,11 +317,12 @@ class unfmt_file:
                     # Header
                     try:
                         data.seek(4, 1)
-                        key, length, type = unpack(endian+'8si4s', data.read(16))
+                        key, length, type = unpack(ENDIANNESS+'8si4s', data.read(16))
                         data.seek(4, 1)
                         # Value array
                         data_start = data.tell()
-                        bytes = length*datasize[type] + 8*int(ceil(length/max_length[type]))
+                        # bytes = length*datasize[type] + 8*int(ceil(length/max_length[type]))
+                        bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
                         data.seek(bytes, 1)
                     except (ValueError, struct_error): # as e:
                         # Catch 'seek out of range' error
@@ -326,11 +348,11 @@ class unfmt_file:
                     while data.tell() > 0:
                         try:
                             data.seek(-4, 1)
-                            size = unpack(endian+'i',data.read(4))[0]
+                            size = unpack(ENDIANNESS+'i',data.read(4))[0]
                             data.seek(-4-size, 1)
                             if self.is_header(data, size, data.tell()):
                                 start = data.tell()-4
-                                key, length, type = unpack(endian+'8si4s', data.read(16))
+                                key, length, type = unpack(ENDIANNESS+'8si4s', data.read(16))
                                 data.seek(4, 1)
                                 break
                             else:
@@ -378,7 +400,8 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
         if size==16:
             try:
-                datasize[data[pos+12:pos+16]]
+                # datasize[data[pos+12:pos+16]]
+                DTYPE[data[pos+12:pos+16]]
                 return True
             except KeyError as e:
                 return False
@@ -855,6 +878,7 @@ class fmt_block:                                                         # fmt_b
         self.keyword = keyword
         self.length = length
         self.datatype = datatype
+        self._dtype = DTYPE[datatype.encode()]
         self.data = data
         #self.max_length = max_length
 
@@ -875,15 +899,18 @@ class fmt_block:                                                         # fmt_b
         length = self.length
         bytes_ = bytearray()
         # header
-        bytes_ += pack(endian + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
+        bytes_ += pack(ENDIANNESS + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
         # data is split in multiple records if length > 1000 
         data = self.data
-        typesize = datasize[dtype]
+        #typesize = datasize[dtype]
         while data.size > 0:
             #length = min(len(data), self.max_length)
-            length = min(len(data), max_length[dtype])
-            size = typesize*length
-            bytes_ += pack(endian + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
+            # length = min(len(data), max_length[dtype])
+            length = min(len(data), self._dtype.max)
+            #size = typesize*length
+            size = self._dtype.size*length
+            # bytes_ += pack(ENDIANNESS + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
+            bytes_ += pack(ENDIANNESS + 'i{}{}i'.format(length, self._dtype.unpack), size, *data[:length], size)
             data = data[length:]
         return bytes_
                 
@@ -958,7 +985,8 @@ class fmt_file:                                                            # fmt
         if skip:
             data = None
         else:
-            data = zeros(length, dtype=datatype[dtype])
+            # data = zeros(length, dtype=datatype[dtype])
+            data = zeros(length, dtype=DTYPE[dtype.encode()].pytype)
         n = 0
         while n < length:
             line = next(self.fh)
@@ -1020,7 +1048,8 @@ class fmt_file:                                                            # fmt
     def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # fmt_file
     #----------------------------------------------------------------------------
         n = 0
-        pos = {k:0 for k in datasize.keys()}
+        # pos = {k:0 for k in datasize.keys()}
+        pos = {k:0 for k in DTYPE.keys()}
         size = {'blocks':0, 'bytes':0}
         num = {'chunks':0, 'blocks':0}
         Blocks = namedtuple('Blocks',['format', 'type', 'head', 'tail', 'slice', 'stride','size','num'])
@@ -1054,18 +1083,22 @@ class fmt_file:                                                            # fmt
                 #print(key)
             head_data = [16, key.ljust(8).encode(), length, dtype, 16]
             # split block data in chunks if max_length
-            max_l = max_length[dtype]
+            # max_l = max_length[dtype]
+            max_l = DTYPE[dtype].max
             #L = [min(max_length, length-n*max_length) for n in range(int(length/max_length)+1)]
             L = [min(max_l, length-n*max_l) for n in range(int(length/max_l)+1)]
             L = [l for l in L if l>0]  # Remove possible 0's at the end
-            blocks.format.append( head_format+''.join(['i'+str(l)+unpack_char[dtype]+'i' for l in L]) )
+            # blocks.format.append( head_format+''.join(['i'+str(l)+unpack_char[dtype]+'i' for l in L]) )
+            blocks.format.append( head_format+''.join(['i'+str(l)+DTYPE[dtype].unpack+'i' for l in L]) )
             for i,l in enumerate(L):
                 blocks.type.append( dtype )
-                head = [l*datasize[dtype],]
+                # head = [l*datasize[dtype],]
+                head = [l*DTYPE[dtype].size,]
                 if i==0:
                     head = head_data + head  
                 blocks.head.append( head )
-                blocks.tail.append( l*datasize[dtype] )
+                # blocks.tail.append( l*datasize[dtype] )
+                blocks.tail.append( l*DTYPE[dtype].size )
                 blocks.slice.append( [pos[dtype]+sum(L[:i]), pos[dtype]+sum(L[:i])+l] )
             pos[dtype] += length
 
@@ -1074,8 +1107,10 @@ class fmt_file:                                                            # fmt
     def get_data_pos(self, filemap, size):                             # fmt_file
     #----------------------------------------------------------------------------
         data = filemap[:size].split()
-        dtypes = [("'"+k+"'").encode() for k in datatype.keys()]
-        data_pos = {k:[] for k in datasize.keys()}
+        # dtypes = [("'"+k+"'").encode() for k in datatype.keys()]
+        dtypes = [("'"+k+"'").encode() for k in DTYPE_LIST]
+        # data_pos = {k:[] for k in datasize.keys()}
+        data_pos = {k:[] for k in DTYPE.keys()}
         for i in range(len(data)):
             if data[i] in dtypes:
                 dty = data[i][1:-1] # remove quotes
@@ -1129,7 +1164,7 @@ class fmt_file:                                                            # fmt
                         a = b
                         buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
                         data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                        out.write(pack(endian+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                        out.write(pack(ENDIANNESS+nblocks*unit_format, *[x for y in data_chunks for x in y]))
                         n += nblocks
                         progress(n)
                         cancel()
@@ -1141,7 +1176,8 @@ class fmt_file:                                                            # fmt
         buffer = {}
         # Loop over all datatypes (INTE, REAL, DOUB, etc.)
         for dtyp in blocks.stride.keys():
-            dtype=datatype[dtyp.decode()]
+            # dtype=datatype[dtyp.decode()]
+            dtype = DTYPE[dtyp].pytype
             buf = []
             for i,j in data_pos[dtyp]:
                 for nb in range(nblocks):
