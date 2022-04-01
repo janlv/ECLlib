@@ -30,11 +30,11 @@ from .utils import file_contains, list2str, float_or_str, remove_comments
 
 @dataclass
 class Dtyp:
-    name   : str
-    unpack : str
-    size   : int
+    name   : str   # ECL type name
+    unpack : str   # Char used by struct.unpack/pack to read/write binary data
+    size   : int   # Bytesize 
     max    : int   # Maximum number of data records in one block
-    pytype  : type
+    nptype : type  # Type used in numpy arrays 
 
 DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'REAL' : Dtyp('REAL', 'f', 4, 1000, float32),
@@ -45,55 +45,27 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
 
-# unpack_char = {b'INTE' : 'i',
-#                b'REAL' : 'f',
-#                b'LOGI' : 'i',
-#                b'DOUB' : 'd',
-#                b'CHAR' : 's',
-#                b'MESS' : ' '}
 
-# datasize = {b'INTE' : 4,
-#             b'REAL' : 4,
-#             b'LOGI' : 4,
-#             b'DOUB' : 8,
-#             b'CHAR' : 8,
-#             b'MESS' : 1}
-
-# max_length = {b'INTE' : 1000,
-#               b'REAL' : 1000,
-#               b'LOGI' : 1000,
-#               b'DOUB' : 1000,
-#               b'CHAR' : 105,
-#               b'MESS' : 1}
-
-# datatype = {'INTE' : int32,
-#             'REAL' : float32,
-#             'LOGI' : np_bool,
-#             'DOUB' : float64,
-#             'CHAR' : str,
-#             'MESS' : str}
-
-
-
-#-----------------------------------------------------------------------
-def get_tsteps_from_schedule_files(root, raise_error=False):
-#-----------------------------------------------------------------------
-    # Search for DATES in schedule-files and convert to TSTEP
-    DATA_file = Input_file(f'{root}.DATA')
-    start = DATA_file.get('START')
-    # Find schedule-files in root folder, ignore suffix case 
-    sch_files = [f for f in Path(root).parent.glob('**/*') if f.suffix.lower() == '.sch']
-    dates = [start]
-    for fil in sch_files:
-        # Check if file is used in the .DATA-file before searching
-        # if file_contains(DATA_file, fil.name, end='END') and file_contains(fil, 'DATES'):
-        if file_contains(input.file, fil.name, end='END') and file_contains(fil, 'DATES'):
-            dates = Input_file(fil).get('DATES')
-            break
-    days = [(d-start).days for d in dates]
-    tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
-    tsteps.insert(0, days[0])
-    return tsteps
+# #-----------------------------------------------------------------------
+# def get_tsteps_from_schedule_files(root, raise_error=False):
+# #-----------------------------------------------------------------------
+#     print('get_tsteps_from_schedule_files')
+#     # Search for DATES in schedule-files and convert to TSTEP
+#     DATA_file = Input_file(f'{root}.DATA')
+#     start = DATA_file.get('START')
+#     # Find schedule-files in root folder, ignore suffix case 
+#     sch_files = [f for f in Path(root).parent.glob('**/*') if f.suffix.lower() == '.sch']
+#     dates = [start]
+#     for fil in sch_files:
+#         # Check if file is used in the .DATA-file before searching
+#         # if file_contains(DATA_file, fil.name, end='END') and file_contains(fil, 'DATES'):
+#         if file_contains(input.file, fil.name, end='END') and file_contains(fil, 'DATES'):
+#             dates = Input_file(fil).get('DATES')
+#             break
+#     days = [(d-start).days for d in dates]
+#     tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
+#     tsteps.insert(0, days[0])
+#     return tsteps
 
         
 
@@ -143,7 +115,6 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def bytes(self):                                      # unfmt_block
     #--------------------------------------------------------------------------------
-        #return self._type and self._length*datasize[self._type] or 0
         return self._type and self._length*self._dtype.size or 0
 
 
@@ -195,15 +166,9 @@ class unfmt_block:
         if self._type == b'CHAR':
             n = size
         else:
-            # n = int(size/datasize[self._type])
             n = int(size/self._dtype.size)
         return size, n 
 
-    # #--------------------------------------------------------------------------------
-    # def pack_format(self, n):                                           # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     #return ENDIANNESS+f'{n}{unpack_char[self._type]}'
-    #     return ENDIANNESS+f'{n}{self._dtype.unpack}'
 
     #--------------------------------------------------------------------------------
     def replace(self, func, key=None):                                  # unfmt_block
@@ -347,7 +312,10 @@ class unfmt_file:
                             data.seek(-4, 1)
                             size = unpack(ENDIAN+'i',data.read(4))[0]
                             data.seek(-4-size, 1)
-                            if self.is_header(data, size, data.tell()):
+                            # if self.is_header(data, size, data.tell()):
+                            pos = data.tell()
+                            # Check if this is a header
+                            if size == 16 and data[pos+12:pos+16] in DTYPE.keys():
                                 start = data.tell()-4
                                 key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
                                 data.seek(4, 1)
@@ -361,7 +329,6 @@ class unfmt_file:
                     data.seek(start, 0)
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=end, 
                                     data=data, data_start=data_start)
-                #self.endpos = data.tell()
 
 
     #--------------------------------------------------------------------------------
@@ -392,18 +359,18 @@ class unfmt_file:
         return list(values.values())        
 
 
-    #--------------------------------------------------------------------------------
-    def is_header(self, data, size, pos):                                # unfmt_file
-    #--------------------------------------------------------------------------------
-        if size==16:
-            try:
-                # datasize[data[pos+12:pos+16]]
-                DTYPE[data[pos+12:pos+16]]
-                return True
-            except KeyError as e:
-                return False
-        else:
-            return False
+    # #--------------------------------------------------------------------------------
+    # def is_header(self, data, size, pos):                                # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     if size==16:
+    #         try:
+    #             # datasize[data[pos+12:pos+16]]
+    #             DTYPE[data[pos+12:pos+16]]
+    #             return True
+    #         except KeyError as e:
+    #             return False
+    #     else:
+    #         return False
 
     #--------------------------------------------------------------------------------
     def exists(self):                                                    # unfmt_file
@@ -453,7 +420,7 @@ class Input_file:
     #--------------------------------------------------------------------------------
         self.file = Path(file)
         if check and read and not self.file.is_file():
-            raise SystemError(f'ERROR No input-file {self.file.name} in folder {self.file.parent}')        
+            raise SystemError(f'ERROR Eclipse input-file {self.file.name} is missing in folder {self.file.parent}')        
         self._data = None
         self._read = read
         if read:
@@ -472,21 +439,29 @@ class Input_file:
     #--------------------------------------------------------------------------------
         return f'{self.file}'
 
-    # #--------------------------------------------------------------------------------    
-    # def __enter__(self):
-    # #--------------------------------------------------------------------------------            
-    #     self.fd = open(self.file, 'r')
-    #     return self.fd
 
-    # #--------------------------------------------------------------------------------    
-    # def __exit__(self, exc_type, exc_value, traceback):
-    # #--------------------------------------------------------------------------------    
-    #     self.fd.close()
+    #--------------------------------------------------------------------------------
+    def include_file(self, suffix):
+    #--------------------------------------------------------------------------------
+        ''' Return first included file with given suffix (case-insensitive) or None '''
+        return next((f for f in self.get('INCLUDE') if suffix in str(f).lower()), None)
+
+
+    #--------------------------------------------------------------------------------
+    def date2tstep(self, dates):
+    #--------------------------------------------------------------------------------
+        start = self.get('START')[0]
+        days = [(d-start).days for d in dates]
+        tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
+        tsteps.insert(0, days[0])
+        return tsteps
+
 
     #--------------------------------------------------------------------------------
     def is_file(self):
     #--------------------------------------------------------------------------------
         return self.file.is_file()
+
 
     #--------------------------------------------------------------------------------
     def exists(self, raise_error=True):
@@ -496,13 +471,14 @@ class Input_file:
         if raise_error:
             raise SystemError(f'ERROR DATA-file is missing in folder {self.file.parent}')
 
+
     #--------------------------------------------------------------------------------
     def _remove_comments(self):
     #--------------------------------------------------------------------------------
         self._data = remove_comments(self.file, end='END')
 
     #-----------------------------------------------------------------------
-    def _float(self, values, key):
+    def _float(self, values, key, raise_error=False):
     #-----------------------------------------------------------------------
         # Process x*y statements
         mult = lambda x, y : int(x)*(' '+y) 
@@ -511,7 +487,7 @@ class Input_file:
         return values or self._get[key].default
 
     #-----------------------------------------------------------------------
-    def _date(self, values, key):
+    def _date(self, values, key, raise_error=False):
     #-----------------------------------------------------------------------
         dates = [' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3)]
         dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
@@ -519,7 +495,7 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def _file(self, values, key):
+    def _file(self, values, key, raise_error=True):
     #--------------------------------------------------------------------------------
         # Remove quotes and backslash
         values = [val.replace("'",'').replace('\\','/') for val in values]
@@ -535,7 +511,7 @@ class Input_file:
             values[0] = values[0].with_suffix('.UNRST')
         # Check if files are missing
         missing = [str(val) for val in values if not isinstance(val, int) and not val.is_file()]
-        if missing:
+        if missing and raise_error:
             raise SystemError(f'ERROR {key}-files requested in {self.file.name} are not found: {", ".join(missing)}')
         return values or self._get[key].default
 
@@ -547,15 +523,11 @@ class Input_file:
             self._remove_comments()
         keyword = keyword.upper()
         key = self._get[keyword]
-        # match = compile(self._pattern[key]).findall(self._data)
         match = compile(key.pattern).findall(self._data)
-        # print(match)
         values = [n for m in match for n in m.split()]
-        # print(values)
-        # values = self._convert[key](values, key)
         if raise_error and not values:
             raise SystemError(f'ERROR Keyword {keyword} not found in {self.file}')
-        return key.convert(values, keyword)
+        return key.convert(values, keyword, raise_error=raise_error)
 
 
 
@@ -650,7 +622,7 @@ class MSG_file:
         return self.file.stat().st_size
 
     #-----------------------------------------------------------------------
-    def var(self, var_list, N=0, raise_error=True):
+    def get(self, var_list, N=0, raise_error=True):
     #-----------------------------------------------------------------------
         with open(self.file) as f:
             lines = f.readlines()
@@ -874,7 +846,7 @@ class fmt_block:                                                         # fmt_b
     #--------------------------------------------------------------------------------
         self.keyword = keyword
         self.length = length
-        self.datatype = datatype
+        #self.datatype = datatype
         self._dtype = DTYPE[datatype.encode()]
         self.data = data
         #self.max_length = max_length
@@ -892,22 +864,16 @@ class fmt_block:                                                         # fmt_b
     #--------------------------------------------------------------------------------
     def unformatted(self):                                                # fmt_block
     #--------------------------------------------------------------------------------
-        dtype = self.datatype.encode()
+        #dtype = self.datatype.encode()
         length = self.length
         bytes_ = bytearray()
         # header
-        bytes_ += pack(ENDIAN + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
+        bytes_ += pack(ENDIAN + 'i8si4si', 16, self.keyword.encode(), length, self._dtype.name.encode(), 16)
         # data is split in multiple records if length > 1000 
         data = self.data
-        #typesize = datasize[dtype]
         while data.size > 0:
-            #length = min(len(data), self.max_length)
-            # length = min(len(data), max_length[dtype])
             length = min(len(data), self._dtype.max)
-            #size = typesize*length
             size = self._dtype.size*length
-            # bytes_ += pack(ENDIANNESS + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
-            # bytes_ += pack(ENDIAN + 'i{}{}i'.format(length, self._dtype.unpack), size, *data[:length], size)
             bytes_ += pack(f'{ENDIAN}i{length}{self._dtype.unpack}i', size, *data[:length], size)
             data = data[length:]
         return bytes_
@@ -918,7 +884,7 @@ class fmt_block:                                                         # fmt_b
         data = ''
         if len(self.data) > 0:
             data = 'data[0,-1] = ['+str(self.data[0])+', '+str(self.data[-1])+']'
-        print(self.keyword, self.length, self.datatype, data)
+        print(self.keyword, self.length, self._dtype.name, data)
 
         
 #====================================================================================
@@ -984,7 +950,7 @@ class fmt_file:                                                            # fmt
             data = None
         else:
             # data = zeros(length, dtype=datatype[dtype])
-            data = zeros(length, dtype=DTYPE[dtype.encode()].pytype)
+            data = zeros(length, dtype=DTYPE[dtype.encode()].nptype)
         n = 0
         while n < length:
             line = next(self.fh)
@@ -1173,7 +1139,7 @@ class fmt_file:                                                            # fmt
         # Loop over all datatypes (INTE, REAL, DOUB, etc.)
         for dtyp in blocks.stride.keys():
             # dtype=datatype[dtyp.decode()]
-            dtype = DTYPE[dtyp].pytype
+            dtype = DTYPE[dtyp].nptype
             buf = []
             for i,j in data_pos[dtyp]:
                 for nb in range(nblocks):
