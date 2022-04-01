@@ -257,14 +257,14 @@ def silentdelete(fname, echo=False):
                 file.is_file() and file.unlink()
             except (PermissionError, FileNotFoundError) as e:
                 if echo:
-                    print('Unable to delete {}: {}'.format(f, e))
+                    print(f'Unable to delete {f}: {e}')
                 else:
                     pass
             else:
                 if echo:
-                    print('Deleted {}'.format(f))
+                    print(f'Deleted {f}')
     else:
-        raise SystemError('silentdelete: Unknown format {} passed'.format(type(fname)))
+        raise SystemError(f'silentdelete: Unknown format {type(fname)} passed')
 
 
 #--------------------------------------------------------------------------------
@@ -329,7 +329,8 @@ def loop_until(func, *args, limit=None, pause=None, loop_func=None, **kwargs):
 #------------------------------------------------
 def list2str(alist, start='', end='', sep=''):
 #------------------------------------------------
-    return start + '%s'%', '.join(sep+'{}'.format(i)+sep for i in alist) + end
+    #return start + '%s'%', '.join(f'{sep}{i}{sep}' for i in alist) + end
+    return f"{start}{', '.join(f'{sep}{i}{sep}' for i in alist)}{end}"
 
 #------------------------------------------------
 def list2text(alist):
@@ -352,7 +353,7 @@ def safeopen(filename, mode):
         filehandle = open(filename, mode)
         return filehandle
     except OSError as err:
-        raise SystemError('Unable to open file {} in mode {}: {}'.format(filename, mode, err.errno))
+        raise SystemError(f'Unable to open file {filename} in mode {mode}: {err.errno}')
         
 #--------------------------------------------------------------------------------
 def warn_empty_file(file, comment=''):
@@ -361,7 +362,7 @@ def warn_empty_file(file, comment=''):
         for line in f:
             if not line.startswith(comment) and not line.isspace():
                 return
-    print('WARNING! {} is empty'.format(file))
+    print(f'WARNING! {file} is empty')
 
 #--------------------------------------------------------------------------------
 def matches(file=None, pattern=None, length=0, multiline=False, pos=None):
@@ -453,7 +454,8 @@ class Progress:
     #--------------------------------------------------------------------------------
         nn = max(n-self.min, 0)
         percent = 100*nn/(self.N-self.min)
-        return 'Progress {: 4d} / {:4d} = {:.0f} %   ETA: {}'.format(int(n), int(self.N), percent, self.eta) 
+        # return 'Progress {: 4d} / {:4d} = {:.0f} %   ETA: {}'.format(int(n), int(self.N), percent, self.eta) 
+        return f'Progress {n: 4d} / {self.N:4d} = {percent:.0f} %   ETA: {self.eta}' 
 
     #--------------------------------------------------------------------------------
     def format_bar(self, n):
@@ -575,10 +577,10 @@ class Timer:
     def __init__(self, filename=None):
     #--------------------------------------------------------------------------------    
         self.counter = 0
-        self.timefile = Path('{}_timer.dat'.format(filename))
+        self.timefile = Path(f'{filename}_timer.dat')
         self.timefile.write_text('# step \t seconds\n')
         self.starttime = time()
-        self.info = 'Execution time is recorded in {}'.format(self.timefile.name)
+        self.info = f'Execution time saved in {self.timefile.name}'
 
 
     #--------------------------------------------------------------------------------    
@@ -592,7 +594,7 @@ class Timer:
     def stop(self):
     #--------------------------------------------------------------------------------    
         with self.timefile.open('a') as f:
-            f.write('{:d}\t{:.3e}\n'.format(self.counter, time()-self.starttime))
+            f.write(f'{self.counter:d}\t{time()-self.starttime:.3e}\n')
 
 #====================================================================================
 class timer_thread:

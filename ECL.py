@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 DEBUG = False 
-ENDIANNESS = '>'  # Big-endian
+ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,15 +28,12 @@ from .utils import file_contains, list2str, float_or_str, remove_comments
 #
 #
 
-# Maximum number of data records in one block.
-# For REAL this means that 4*1000 bytes is the max size 
-#max_length = 1000   
 @dataclass
 class Dtyp:
     name   : str
     unpack : str
     size   : int
-    max    : int
+    max    : int   # Maximum number of data records in one block
     pytype  : type
 
 DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
@@ -46,35 +43,35 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
          b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
 
-DTYPE_LIST = [k.name for k in DTYPE.keys()]
+DTYPE_LIST = [v.name for v in DTYPE.values()]
 
-unpack_char = {b'INTE' : 'i',
-               b'REAL' : 'f',
-               b'LOGI' : 'i',
-               b'DOUB' : 'd',
-               b'CHAR' : 's',
-               b'MESS' : ' '}
+# unpack_char = {b'INTE' : 'i',
+#                b'REAL' : 'f',
+#                b'LOGI' : 'i',
+#                b'DOUB' : 'd',
+#                b'CHAR' : 's',
+#                b'MESS' : ' '}
 
-datasize = {b'INTE' : 4,
-            b'REAL' : 4,
-            b'LOGI' : 4,
-            b'DOUB' : 8,
-            b'CHAR' : 8,
-            b'MESS' : 1}
+# datasize = {b'INTE' : 4,
+#             b'REAL' : 4,
+#             b'LOGI' : 4,
+#             b'DOUB' : 8,
+#             b'CHAR' : 8,
+#             b'MESS' : 1}
 
-max_length = {b'INTE' : 1000,
-              b'REAL' : 1000,
-              b'LOGI' : 1000,
-              b'DOUB' : 1000,
-              b'CHAR' : 105,
-              b'MESS' : 1}
+# max_length = {b'INTE' : 1000,
+#               b'REAL' : 1000,
+#               b'LOGI' : 1000,
+#               b'DOUB' : 1000,
+#               b'CHAR' : 105,
+#               b'MESS' : 1}
 
-datatype = {'INTE' : int32,
-            'REAL' : float32,
-            'LOGI' : np_bool,
-            'DOUB' : float64,
-            'CHAR' : str,
-            'MESS' : str}
+# datatype = {'INTE' : int32,
+#             'REAL' : float32,
+#             'LOGI' : np_bool,
+#             'DOUB' : float64,
+#             'CHAR' : str,
+#             'MESS' : str}
 
 
 
@@ -194,7 +191,7 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def read_size_at(self, pos):                                        # unfmt_block
     #--------------------------------------------------------------------------------
-        size = unpack(ENDIANNESS+'i',self._mmap[pos:pos+4])[0]
+        size = unpack(ENDIAN+'i',self._mmap[pos:pos+4])[0]
         if self._type == b'CHAR':
             n = size
         else:
@@ -202,11 +199,11 @@ class unfmt_block:
             n = int(size/self._dtype.size)
         return size, n 
 
-    #--------------------------------------------------------------------------------
-    def pack_format(self, n):                                           # unfmt_block
-    #--------------------------------------------------------------------------------
-        #return ENDIANNESS+f'{n}{unpack_char[self._type]}'
-        return ENDIANNESS+f'{n}{self._dtype.unpack}'
+    # #--------------------------------------------------------------------------------
+    # def pack_format(self, n):                                           # unfmt_block
+    # #--------------------------------------------------------------------------------
+    #     #return ENDIANNESS+f'{n}{unpack_char[self._type]}'
+    #     return ENDIANNESS+f'{n}{self._dtype.unpack}'
 
     #--------------------------------------------------------------------------------
     def replace(self, func, key=None):                                  # unfmt_block
@@ -223,7 +220,7 @@ class unfmt_block:
                 while N < len(newdata):
                     size, n = self.read_size_at(pos)
                     pos += 4
-                    mmap_write[pos:pos+size] = pack(self.pack_format(n), *newdata[N:N+n])
+                    mmap_write[pos:pos+size] = pack(ENDIAN+f'{n}{self._dtype.unpack}', *newdata[N:N+n])
                     pos += size + 4
                     N += n
                 mmap_write.flush()
@@ -237,7 +234,7 @@ class unfmt_block:
             size, n = self.read_size_at(a)
             a += 4
             try:
-                value.extend(unpack(self.pack_format(n),self._mmap[a:a+size]))
+                value.extend(unpack(ENDIAN+f'{n}{self._dtype.unpack}', self._mmap[a:a+size]))
             except struct_error as e:
                 if raise_error:
                     raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
@@ -317,7 +314,7 @@ class unfmt_file:
                     # Header
                     try:
                         data.seek(4, 1)
-                        key, length, type = unpack(ENDIANNESS+'8si4s', data.read(16))
+                        key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
                         data.seek(4, 1)
                         # Value array
                         data_start = data.tell()
@@ -348,11 +345,11 @@ class unfmt_file:
                     while data.tell() > 0:
                         try:
                             data.seek(-4, 1)
-                            size = unpack(ENDIANNESS+'i',data.read(4))[0]
+                            size = unpack(ENDIAN+'i',data.read(4))[0]
                             data.seek(-4-size, 1)
                             if self.is_header(data, size, data.tell()):
                                 start = data.tell()-4
-                                key, length, type = unpack(ENDIANNESS+'8si4s', data.read(16))
+                                key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
                                 data.seek(4, 1)
                                 break
                             else:
@@ -899,7 +896,7 @@ class fmt_block:                                                         # fmt_b
         length = self.length
         bytes_ = bytearray()
         # header
-        bytes_ += pack(ENDIANNESS + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
+        bytes_ += pack(ENDIAN + 'i8si4si', 16, self.keyword.encode(), length, dtype, 16)
         # data is split in multiple records if length > 1000 
         data = self.data
         #typesize = datasize[dtype]
@@ -910,7 +907,8 @@ class fmt_block:                                                         # fmt_b
             #size = typesize*length
             size = self._dtype.size*length
             # bytes_ += pack(ENDIANNESS + 'i{}{}i'.format(length, unpack_char[dtype]), size, *data[:length], size)
-            bytes_ += pack(ENDIANNESS + 'i{}{}i'.format(length, self._dtype.unpack), size, *data[:length], size)
+            # bytes_ += pack(ENDIAN + 'i{}{}i'.format(length, self._dtype.unpack), size, *data[:length], size)
+            bytes_ += pack(f'{ENDIAN}i{length}{self._dtype.unpack}i', size, *data[:length], size)
             data = data[length:]
         return bytes_
                 
@@ -962,7 +960,7 @@ class fmt_file:                                                            # fmt
                     data = self.read_data(length, dtype)
                 except StopIteration:
                     if warn_missing:
-                        print("\n  WARNING: Missing data in '{}' block, file {} not complete!".format(keyword,self.name.name))
+                        print(f"\n  WARNING: Missing data in '{keyword}' block, file {self.name.name} not complete!")
                     return
                 except TypeError:
                     return
@@ -1008,9 +1006,7 @@ class fmt_file:                                                            # fmt
                 rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # fmt_file
     #--------------------------------------------------------------------------------
         if rename_key and len(rename_key)<2:
-            raise SystemError('ERROR in convert: Format of rename_keyword options is ' +
-                              "('old name', 'new name'), but "+
-                              '{} were given'.format(rename_key))
+            raise SystemError(f"ERROR in convert: Format of rename_keyword options is ('old name', 'new name'), but {rename_key} were given")
         stem = self.name.stem.upper()
         fname = str(self.name.parent/stem)+'.'+ext
         out_file = open(fname, 'wb')
@@ -1041,7 +1037,7 @@ class fmt_file:                                                            # fmt
             bytes_ += block.unformatted()
         out_file.close()
         if echo:
-            print('{} converted to {}'.format(self.name.name,Path(fname)))
+            print(f'{self.name.name} converted to {Path(fname)}')
         return Path(fname)
 
     #----------------------------------------------------------------------------
@@ -1164,7 +1160,7 @@ class fmt_file:                                                            # fmt
                         a = b
                         buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
                         data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                        out.write(pack(ENDIANNESS+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                        out.write(pack(ENDIAN+nblocks*unit_format, *[x for y in data_chunks for x in y]))
                         n += nblocks
                         progress(n)
                         cancel()
