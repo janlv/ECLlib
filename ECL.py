@@ -95,25 +95,25 @@ class unfmt_block:
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
-    def __str__(self):                                      # unfmt_block
+    def __str__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
         return f'<unfmt_block(key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._end:8d}>'
 
 
     #--------------------------------------------------------------------------------
-    def __del__(self):                                      # unfmt_block
+    def __del__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
         DEBUG and print(f'Deleting {self}')
 
 
     #--------------------------------------------------------------------------------
-    def length(self):                                      # unfmt_block
+    def length(self):                                                   # unfmt_block
     #--------------------------------------------------------------------------------
         return self._length*(self._type==b"CHAR" and 8 or 1)
 
 
     #--------------------------------------------------------------------------------
-    def bytes(self):                                      # unfmt_block
+    def bytes(self):                                                    # unfmt_block
     #--------------------------------------------------------------------------------
         return self._type and self._length*self._dtype.size or 0
 
@@ -124,7 +124,7 @@ class unfmt_block:
         return self._key.decode().strip()
 
     #--------------------------------------------------------------------------------
-    def type(self):                                                      # unfmt_block
+    def type(self):                                                     # unfmt_block
     #--------------------------------------------------------------------------------
         return self._type.decode()
         
@@ -190,6 +190,7 @@ class unfmt_block:
                     N += n
                 mmap_write.flush()
 
+
     #--------------------------------------------------------------------------------
     def data(self, raise_error=False):                                  # unfmt_block
     #--------------------------------------------------------------------------------
@@ -223,7 +224,7 @@ class unfmt_file:
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, filename):                    # unfmt_file
+    def __init__(self, filename):                                        # unfmt_file
     #--------------------------------------------------------------------------------
         self.fileobj = None
         self.file = Path(filename)
@@ -255,14 +256,16 @@ class unfmt_file:
     def size(self):                                                      # unfmt_file
     #--------------------------------------------------------------------------------
         return self.file.stat().st_size
-        
+
+
     #--------------------------------------------------------------------------------
     def name(self):                                                      # unfmt_file
     #--------------------------------------------------------------------------------
         return self.file.name
-        
+
+
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False, start=None):                                    # unfmt_file
+    def blocks(self, only_new=False, start=None):                        # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file() or self.size()<24: # Header is 24 bytes
             return
@@ -283,7 +286,6 @@ class unfmt_file:
                         data.seek(4, 1)
                         # Value array
                         data_start = data.tell()
-                        # bytes = length*datasize[type] + 8*int(ceil(length/max_length[type]))
                         bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
                         data.seek(bytes, 1)
                     except (ValueError, struct_error): # as e:
@@ -293,6 +295,7 @@ class unfmt_file:
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
                                       data=data, data_start=data_start, file=self.file)
                 self.endpos = data.tell()
+
 
     #--------------------------------------------------------------------------------
     def tail_blocks(self):                                               # unfmt_file
@@ -359,25 +362,14 @@ class unfmt_file:
         return list(values.values())        
 
 
-    # #--------------------------------------------------------------------------------
-    # def is_header(self, data, size, pos):                                # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if size==16:
-    #         try:
-    #             # datasize[data[pos+12:pos+16]]
-    #             DTYPE[data[pos+12:pos+16]]
-    #             return True
-    #         except KeyError as e:
-    #             return False
-    #     else:
-    #         return False
-
     #--------------------------------------------------------------------------------
     def exists(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
         #print('Checking for ' + self._filename)
         if self.file.is_file():
             return True
+        return False
+
 
     #--------------------------------------------------------------------------------
     def create(self, *args, progress=lambda x:None, cancel=lambda:None): # unfmt_file
@@ -433,6 +425,7 @@ class Input_file:
                      'DATES'   : getter([0],     self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)'), 
                      'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                      'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/")}
+
     
     #--------------------------------------------------------------------------------
     def __str__(self):
