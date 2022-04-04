@@ -426,7 +426,7 @@ class Input_file:
                      'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                      'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/")}
 
-    
+
     #--------------------------------------------------------------------------------
     def __str__(self):
     #--------------------------------------------------------------------------------
@@ -523,23 +523,6 @@ class Input_file:
         return key.convert(values, keyword, raise_error=raise_error)
 
 
-
-    #-----------------------------------------------------------------------
-    def restart_time_and_step(self):
-    #-----------------------------------------------------------------------
-        # Get name of restart file and report number from DATA-file
-        # Report number starts at 1
-        file, step = self.get('RESTART')
-        if not all((file, step)):
-            return 0, 0
-        err = f'Error in {self.file.name}\nRestart from step {step} of {file.name} is not possible,'
-        time,n = UNRST_file(file).get(['time', 'step'], stop=('step', step))
-        if step > n[-1]: 
-            raise SystemError(f'ERROR {err} {n[-1]} is the final step')
-        if not step in n: 
-            raise SystemError(f'ERROR {err} {step} is not a report step. Try replacing {step} with {min(n, key=lambda x:abs(x-step))} in {file.name}')
-        time = time[n.index(step)]
-        return time, step
 
 
 
