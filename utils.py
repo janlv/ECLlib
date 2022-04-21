@@ -164,6 +164,23 @@ def is_file_ignore_suffix_case(file):
     return False
 
 #--------------------------------------------------------------------------------
+def replace_line(fname, find=None, replace=None):
+#--------------------------------------------------------------------------------
+    if not Path(fname).is_file():
+        return False
+    with open(fname, 'r') as file:
+        lines = file.readlines()
+    pos = [i for i,line in enumerate(lines) if find in line]
+    if pos:
+        lines[pos[0]] = replace
+    else:
+        lines.append(replace)
+    with open(fname, 'w') as file:
+        file.write(''.join(lines))
+    return True
+
+
+#--------------------------------------------------------------------------------
 def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=True):
 #--------------------------------------------------------------------------------
     #print(f'file_contains({fname}, {text})')
@@ -339,12 +356,19 @@ def list2text(alist):
     return ' and'.join(text.rsplit(',',1))
 
 #------------------------------------------------
-def tail_file(fname, nchars=300):
+def tail_file(fname, nchars=0, nlines=0):
 #------------------------------------------------
     if Path(fname).is_file():
-        with open(fname, 'rb') as f:
-            f.seek(-nchars, 2)
-            return f.read(nchars).decode()
+        if nlines:
+            with open(fname) as f:
+                lines = f.readlines()                  
+                return ''.join(lines[-nlines:])
+        else:
+            with open(fname, 'rb') as f:
+                f.seek(-nchars, 2)
+                return f.read(nchars).decode()
+    return ''
+
 
 #------------------------------------------------
 def safeopen(filename, mode):
