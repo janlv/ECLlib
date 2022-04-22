@@ -408,7 +408,7 @@ class unfmt_file:
 class Input_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=True, read=True):
+    def __init__(self, file, check=True, read=True):                     # Input_file
     #--------------------------------------------------------------------------------
         self.file = Path(file)
         if check and read and not self.file.is_file():
@@ -428,20 +428,20 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def __str__(self):
+    def __str__(self):                                                   # Input_file
     #--------------------------------------------------------------------------------
         return f'{self.file}'
 
 
     #--------------------------------------------------------------------------------
-    def include_file(self, suffix):
+    def include_file(self, suffix):                                      # Input_file
     #--------------------------------------------------------------------------------
         ''' Return first included file with given suffix (case-insensitive) or None '''
         return next((f for f in self.get('INCLUDE') if suffix in str(f).lower()), None)
 
 
     #--------------------------------------------------------------------------------
-    def date2tstep(self, dates):
+    def date2tstep(self, dates):                                         # Input_file
     #--------------------------------------------------------------------------------
         start = self.get('START')[0]
         days = [(d-start).days for d in dates]
@@ -451,13 +451,13 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def is_file(self):
+    def is_file(self):                                                   # Input_file
     #--------------------------------------------------------------------------------
         return self.file.is_file()
 
 
     #--------------------------------------------------------------------------------
-    def exists(self, raise_error=True):
+    def exists(self, raise_error=True):                                  # Input_file
     #--------------------------------------------------------------------------------
         if self.file.is_file():
             return True
@@ -466,30 +466,35 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def _remove_comments(self):
+    def _remove_comments(self):                                          # Input_file
     #--------------------------------------------------------------------------------
         self._data = remove_comments(self.file, end='END')
 
-    #-----------------------------------------------------------------------
-    def _float(self, values, key, raise_error=False):
-    #-----------------------------------------------------------------------
+
+    #--------------------------------------------------------------------------------
+    def _float(self, values, key, raise_error=False):                     # Input_file
+    #--------------------------------------------------------------------------------
         # Process x*y statements
         mult = lambda x, y : int(x)*(' '+y) 
         values = [a if not '*' in a else mult(*a.split('*')) for a in values]
         values = [float(b) for a in values for b in a.split()] or [0]
         return values or self._get[key].default
 
-    #-----------------------------------------------------------------------
-    def _date(self, values, key, raise_error=False):
-    #-----------------------------------------------------------------------
+
+    #--------------------------------------------------------------------------------
+    def _date(self, values, key, raise_error=False):                     # Input_file
+    #--------------------------------------------------------------------------------
         dates = [' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3)]
         dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
         return dates or self._get[key].default
 
 
     #--------------------------------------------------------------------------------
-    def _file(self, values, key, raise_error=True):
+    def _file(self, values, key, raise_error=True):                      # Input_file
     #--------------------------------------------------------------------------------
+        '''
+        Return full path of file
+        '''
         # Remove quotes and backslash
         values = [val.replace("'",'').replace('\\','/') for val in values]
         # Convert numbers if they exist
@@ -509,9 +514,9 @@ class Input_file:
         return values or self._get[key].default
 
 
-    #-----------------------------------------------------------------------
-    def get(self, keyword, raise_error=False):
-    #-----------------------------------------------------------------------
+    #--------------------------------------------------------------------------------
+    def get(self, keyword, raise_error=False):                           # Input_file
+    #--------------------------------------------------------------------------------
         if not self._read:
             self._remove_comments()
         keyword = keyword.upper()
