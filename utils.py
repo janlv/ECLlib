@@ -13,6 +13,11 @@ from mmap import mmap, ACCESS_READ
 #from locale import getdefaultlocale
 
 #-----------------------------------------------------------------------
+def strip_zero(numbers):
+#-----------------------------------------------------------------------
+    return [f'{num:.3f}'.rstrip('0').rstrip('.') for num in numbers]
+
+#-----------------------------------------------------------------------
 def file_exists(file, raise_error=False):
 #-----------------------------------------------------------------------
     if Path(file).is_file():
@@ -488,9 +493,13 @@ class Progress:
         hash = int(self.bar_length*nn/(self.N-self.min))
         rest = self.bar_length - hash
         count = f'{int(n)}'
+        t, T = strip_zero((n, self.N))
         if self.min > 0:
-            count = f'({int(self.min)} + {int(nn)})'
-        return f'{count} / {int(self.N)}  [{hash*"#"}{rest*"-"}]  {self.eta}'
+            #count = f'({int(self.min)} + {int(nn)})'
+            a, b = strip_zero((self.min, nn))
+            t = f'({a} + {b})'
+        #return f'{count} / {int(self.N)}  [{hash*"#"}{rest*"-"}]  {self.eta}'
+        return f'{t} / {T}  [{hash*"#"}{rest*"-"}]  {self.eta}'
 
     #--------------------------------------------------------------------------------
     def set_N(self, N):
