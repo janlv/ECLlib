@@ -46,27 +46,29 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
 DTYPE_LIST = [v.name for v in DTYPE.values()]
 
 
-# #-----------------------------------------------------------------------
-# def get_tsteps_from_schedule_files(root, raise_error=False):
-# #-----------------------------------------------------------------------
-#     print('get_tsteps_from_schedule_files')
-#     # Search for DATES in schedule-files and convert to TSTEP
-#     DATA_file = Input_file(f'{root}.DATA')
-#     start = DATA_file.get('START')
-#     # Find schedule-files in root folder, ignore suffix case 
-#     sch_files = [f for f in Path(root).parent.glob('**/*') if f.suffix.lower() == '.sch']
-#     dates = [start]
-#     for fil in sch_files:
-#         # Check if file is used in the .DATA-file before searching
-#         # if file_contains(DATA_file, fil.name, end='END') and file_contains(fil, 'DATES'):
-#         if file_contains(input.file, fil.name, end='END') and file_contains(fil, 'DATES'):
-#             dates = Input_file(fil).get('DATES')
-#             break
-#     days = [(d-start).days for d in dates]
-#     tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
-#     tsteps.insert(0, days[0])
-#     return tsteps
 
+#====================================================================================
+class keywords:
+#====================================================================================
+    # Sections
+    sections = ['RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE']
+    # Global keywords
+    globals = ['COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
+                'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN']
+    # Common keywords
+    common = ['TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
+              'FMTOUT','UNIFOUT','UNIFIN','OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS','REGDIMS','TRACERS',
+              'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO','BOX','PERMX','PERMY','PERMZ','TOPS',
+              'INIT','RPTGRID','PVCDO','PVTW','DENSITY','PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP',
+              'TRDIFPAR','TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
+              'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT','FWCT','FWIR',
+              'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR','WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1',
+              'WTIRA1','WTITA1','WTICA1','CTPRA1','CTIRA1','FOIP','ROIP','FPR','TCPU','TCPUTS','WNEWTON','ZIPEFF','STEPTYPE',
+              'NEWTON','NLINEARP','NLINEARS','MSUMLINS','MSUMNEWT','MSUMPROB','WTPRPAR','WTPRIDE','WTPCPAR','WTPCIDE','RUNSUM',
+              'SEPARATE','WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD','WCONHIST','WTEMP','RPTSCHED',
+              'RPTRST','TUNING','READDATA', 'ROCKTABH','GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP',
+              'GRIDOPTS','VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS','MINPV',
+              'COPY','MULTIPLY']
         
 
 #====================================================================================
@@ -483,20 +485,6 @@ class Input_file:
         new_files = [Input_file(file).get('INCLUDE') for file in files] 
         self._include_files_recursive(flat_list([f for f in new_files if f != ['']]))
 
-    # #--------------------------------------------------------------------------------
-    # def schedule_file(self) -> Path:                                      # Input_file
-    # #--------------------------------------------------------------------------------
-    #     ### Search inlcuded files for TSTEP or DATES
-    #     sch_file = []
-    #     for file in self.get('INCLUDE'):
-    #         if file_contains(file, text=['TSTEP','DATES']):
-    #             sch_file.append(file)
-    #     if len(sch_file) > 1:
-    #         raise SystemError(f'WARNING More than one Schedule-file found in {self.file.name}: {sch_file}')
-    #     if sch_file:
-    #         return sch_file[0]
-    #     return None 
-
 
     #--------------------------------------------------------------------------------
     def tsteps(self):                                                    # Input_file
@@ -505,7 +493,7 @@ class Input_file:
         start = self.get('START')
         #print(tstep)
         #print(start)
-        if start:
+        if start and start[0]:
             dates = self.get('DATES')
             tstep = tstep + self.date2tstep(dates, start=start[0]+timedelta(days=sum(tstep)))
         0 in tstep and tstep.pop(tstep.index(0))
