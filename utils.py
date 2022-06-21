@@ -194,11 +194,16 @@ def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=T
             raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
         else:
             return False
-    if text:
-        regex = rf'\b{text}\b'
+    if isinstance(text, str):
+        text = [text]
+    regex = [rf'\b{t}\b' for t in text]
     lines = remove_comments(fname, comment=comment, end=end)
-    if search(regex, lines): 
+    if any((search(r, lines) for r in regex)):
         return True
+    # for reg in regex:
+    #     #regex = rf'\b{text}\b'
+    #     if search(reg, lines): 
+    #         return True
     return False
 
 #--------------------------------------------------------------------------------

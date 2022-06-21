@@ -11,10 +11,10 @@ from mmap import ACCESS_WRITE, mmap, ACCESS_READ
 from re import finditer, compile
 from copy import deepcopy
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import file_contains, list2str, float_or_str, remove_comments
+from .utils import flat_list, list2str, float_or_str, remove_comments
 
 #
 #
@@ -406,23 +406,34 @@ class unfmt_file:
 class Input_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=True, read=True):                     # Input_file
+    def __init__(self, file, check=True, read=True, include=False):      # Input_file
     #--------------------------------------------------------------------------------
-        self.file = Path(file)
-        if check and read and not self.file.is_file():
-            raise SystemError(f'ERROR Eclipse input-file {self.file.name} is missing in folder {self.file.parent}')        
+        file = Path(file)  
+        if not file.suffix:
+            ### .DATA is the default suffix
+            file = file.with_suffix('.DATA')
+        if check and read and not file.is_file():
+            raise SystemError(f'ERROR Eclipse input-file {file.name} is missing in folder {file.parent}')        
+        self.file = file
         self._data = None
-        self._read = read
+        self._read = read or include
         if read:
-            self._remove_comments()
+            self._data = self.remove_comments()
         self._restart_file = None
         self._restart_time = None
+        self._include_files = []
         getter = namedtuple('getter', 'default convert pattern')
         self._get = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/'),
                      'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
                      'DATES'   : getter([0],     self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)'), 
                      'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                     'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/")}
+                     'GDFILE'  : getter([''],    self._file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                     'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
+                     'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
+                     #'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b([A-Z\s]+)|(.*)\bSCHEDULE\b")}
+        if include:
+            while 'INCLUDE' in self._data:
+                self._data = self.add_include_files()
 
 
     #--------------------------------------------------------------------------------
@@ -430,6 +441,10 @@ class Input_file:
     #--------------------------------------------------------------------------------
         return f'{self.file}'
 
+    #--------------------------------------------------------------------------------
+    def lines(self):                                                     # Input_file
+    #--------------------------------------------------------------------------------
+        return (line for line in self._data.split('\n') if line)
 
     #--------------------------------------------------------------------------------
     def include_file(self, suffix):                                      # Input_file
@@ -439,9 +454,71 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def date2tstep(self, dates):                                         # Input_file
+    def include_files(self):
     #--------------------------------------------------------------------------------
-        start = self.get('START')[0]
+        '''
+        Return full path to files included in the Eclipse .DATA-file
+        '''
+        if self._include_files:
+            ### Return previous result
+            return self._include_files
+        ### Do recursive search
+        self._include_files_recursive([self.file])
+        self._include_files = flat_list(self._include_files)
+        ### Remove DATA-file
+        self._include_files.pop(0)
+        ### Add possible GDFILE
+        gdfile = self.get('GDFILE')
+        if gdfile != ['']:
+            self._include_files.extend(gdfile)
+        return self._include_files
+
+
+    #--------------------------------------------------------------------------------
+    def _include_files_recursive(self, files):
+    #--------------------------------------------------------------------------------
+        if not files:
+            return
+        self._include_files.append(files)
+        new_files = [Input_file(file).get('INCLUDE') for file in files] 
+        self._include_files_recursive(flat_list([f for f in new_files if f != ['']]))
+
+    # #--------------------------------------------------------------------------------
+    # def schedule_file(self) -> Path:                                      # Input_file
+    # #--------------------------------------------------------------------------------
+    #     ### Search inlcuded files for TSTEP or DATES
+    #     sch_file = []
+    #     for file in self.get('INCLUDE'):
+    #         if file_contains(file, text=['TSTEP','DATES']):
+    #             sch_file.append(file)
+    #     if len(sch_file) > 1:
+    #         raise SystemError(f'WARNING More than one Schedule-file found in {self.file.name}: {sch_file}')
+    #     if sch_file:
+    #         return sch_file[0]
+    #     return None 
+
+
+    #--------------------------------------------------------------------------------
+    def tsteps(self):                                                    # Input_file
+    #--------------------------------------------------------------------------------
+        tstep = self.get('TSTEP')
+        start = self.get('START')
+        #print(tstep)
+        #print(start)
+        if start:
+            dates = self.get('DATES')
+            tstep = tstep + self.date2tstep(dates, start=start[0]+timedelta(days=sum(tstep)))
+        0 in tstep and tstep.pop(tstep.index(0))
+        return tstep
+
+
+    #--------------------------------------------------------------------------------
+    def date2tstep(self, dates, start=None):                             # Input_file
+    #--------------------------------------------------------------------------------
+        if dates == [0]:
+            return [0]
+        if start is None:
+            start = self.get('START')[0]
         days = [(d-start).days for d in dates]
         tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
         tsteps.insert(0, days[0])
@@ -464,10 +541,15 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def _remove_comments(self):                                          # Input_file
+    def remove_comments(self):                                          # Input_file
     #--------------------------------------------------------------------------------
-        self._data = remove_comments(self.file, end='END')
+        return remove_comments(self.file, comment='--', end='END')
 
+
+    #--------------------------------------------------------------------------------
+    def _pass(self, values, key, raise_error=False):                     # Input_file
+    #--------------------------------------------------------------------------------
+        return values
 
     #--------------------------------------------------------------------------------
     def _float(self, values, key, raise_error=False):                     # Input_file
@@ -513,20 +595,42 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def get(self, keyword, raise_error=False):                           # Input_file
+    def get(self, keyword, raise_error=False, pos=False):                # Input_file
     #--------------------------------------------------------------------------------
         if not self._read:
-            self._remove_comments()
+            self._data = self.remove_comments()
         keyword = keyword.upper()
+        if not keyword in self._get.keys():
+            raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
         key = self._get[keyword]
-        match = compile(key.pattern).findall(self._data)
-        values = [n for m in match for n in m.split()]
+        matches = compile(key.pattern).finditer(self._data)
+        matches = list(matches)
+        #print(keyword, matches)
+        if pos:
+            return [(m.group(1), m.span()) for m in matches]
+        values = [n for m in matches for n in m.group(1).split()]
         if raise_error and not values:
             raise SystemError(f'ERROR Keyword {keyword} not found in {self.file}')
         return key.convert(values, keyword, raise_error=raise_error)
 
 
-
+    #--------------------------------------------------------------------------------
+    def add_include_files(self):                                             # Input_file
+    #--------------------------------------------------------------------------------
+        matches = self.get('INCLUDE', pos=True)
+        data = ''.join(self._data)
+        out = []
+        n = 0
+        for file,(a,b) in matches:
+            out.append(data[n:a])
+            inc_file = self.file.parent/file
+            if not inc_file.is_file():
+                raise SystemError(f'ERROR Eclipse include file {inc_file.name} is missing, simulation stopped...')
+            lines = remove_comments(inc_file, comment='--', end='END')
+            out.append(''.join(lines))
+            n = b
+        out.append(data[n:])
+        return ''.join(out)
 
 
 
