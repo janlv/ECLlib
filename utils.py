@@ -134,6 +134,8 @@ def remove_comments(file, comment='--', end=None, raise_error=True, newline=True
         #with open(file, encoding='ISO-8859-1') as f:
         with open(file, encoding='latin-1') as f:
             lines = f.readlines()
+    except FileNotFoundError:
+        return ''
     lf = ''
     if newline:
         lf = '\n'
