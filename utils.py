@@ -7,6 +7,7 @@ from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
+from numpy import array, sum as npsum
 
 
 #-----------------------------------------------------------------------
@@ -353,11 +354,15 @@ def loop_until(func, *args, limit=None, pause=None, loop_func=None, **kwargs):
         loop_func()
 
 
+
 #------------------------------------------------
-def list2str(alist, start='', end='', sep=''):
+def list2str(alist, start='', end='', sep='', count=False):
 #------------------------------------------------
     #return start + '%s'%', '.join(f'{sep}{i}{sep}' for i in alist) + end
-    return f"{start}{', '.join(f'{sep}{i}{sep}' for i in alist)}{end}"
+    if count:
+        return ', '.join([f'{v} (n={npsum(array(alist)==v)})' for v in set(alist)])
+    else:
+        return f"{start}{', '.join(f'{sep}{i}{sep}' for i in alist)}{end}"
 
 #------------------------------------------------
 def list2text(alist):

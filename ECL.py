@@ -798,9 +798,9 @@ class check_blocks:                                                    # check_b
         return self._start
 
     #--------------------------------------------------------------------------------
-    def info(self, data=None):                                         # check_blocks
+    def info(self, data=None, count=False):                               # check_blocks
     #--------------------------------------------------------------------------------
-        return f"  {self._key['start'].decode()} : {list2str(data and data or self._start)}"
+        return f"  {self._key['start'].decode()} : {list2str(data and data or self._start, count=count)}"
 
         
     #--------------------------------------------------------------------------------
@@ -864,7 +864,7 @@ class check_blocks:                                                    # check_b
                 n -= 1
                 msg.append(f'WARNING Trying to read n - 1 = {n} blocks')
         data.extend(self._start)
-        msg.append(self.info(data=data) + f' (N={len(data)})')
+        msg.append(self.info(data=data, count=True))
         if not data:
             msg.append(f'WARNING No blocks read in {self._unfmt.file.name}')
         return msg
