@@ -814,17 +814,18 @@ class check_blocks:                                                    # check_b
                 # self.out['startpos'].append(b.start())
             if b._key == self._key['end']:
                 self._end += 1 
-                if self._end == nblocks and len(self._start) == nblocks:
-                    #self.file.set_startpos(b.end())
-                    self._startpos = self._endpos = b.end()
-                    return True
-        self._endpos = b and b.end() or 0
+                if self._end == len(self._start):
+                    ### Some complete blocks read
+                    self._endpos = b.end()
+                    if self._end == nblocks:
+                        ### Given number (nblocks) complete blocks read
+                        self._startpos = b.end()
+                        return True
         return False
 
     #--------------------------------------------------------------------------------
     def at_end(self):
     #--------------------------------------------------------------------------------
-        #return self._startpos == self._unfmt.size() and len(self._start) == self._end
         return self._endpos == self._unfmt.size() and len(self._start) == self._end
 
     #--------------------------------------------------------------------------------
