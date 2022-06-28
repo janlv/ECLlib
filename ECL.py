@@ -843,6 +843,8 @@ class check_blocks:                                                    # check_b
         f'''
             Loop for {iter} iterations until {nblocks} start/end-blocks are found or end-of-file reached.
         '''
+        if nblocks == 0:
+            return []
         msg = []
         data = []
         n = nblocks
