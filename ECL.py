@@ -14,7 +14,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flat_list, list2str, float_or_str, remove_comments
+from .utils import flat_list, list2str, float_or_str, matches, remove_comments
 
 #
 #
@@ -265,10 +265,10 @@ class unfmt_file:
 
 
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False, start=None):                        # unfmt_file
+    def blocks(self, only_new=False, start=None):      # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file() or self.size()<24: # Header is 24 bytes
-            return
+            return False
         startpos = 0
         if only_new:
             startpos = self.endpos
@@ -459,7 +459,8 @@ class Input_file:
     def include_files(self):
     #--------------------------------------------------------------------------------
         '''
-        Return full path to files included in the Eclipse .DATA-file
+        Search recursively for include files in the .DATA-file
+        Return list of full paths
         '''
         if self._include_files:
             ### Return previous result
@@ -520,12 +521,13 @@ class Input_file:
 
 
     #--------------------------------------------------------------------------------
-    def exists(self, raise_error=True):                                  # Input_file
+    def exists(self, raise_error=False):                                  # Input_file
     #--------------------------------------------------------------------------------
         if self.file.is_file():
             return True
         if raise_error:
-            raise SystemError(f'ERROR DATA-file is missing in folder {self.file.parent}')
+            raise SystemError(f'ERROR {self.file.name} is missing in folder {self.file.parent}')
+        return False
 
 
     #--------------------------------------------------------------------------------
@@ -585,6 +587,8 @@ class Input_file:
     #--------------------------------------------------------------------------------
     def get(self, keyword, raise_error=False, pos=False):                # Input_file
     #--------------------------------------------------------------------------------
+        if not self.file.is_file():
+            return self._get[keyword].default
         if not self._read:
             self._data = self.remove_comments()
         keyword = keyword.upper()
@@ -592,7 +596,7 @@ class Input_file:
             raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
         key = self._get[keyword]
         matches = compile(key.pattern).finditer(self._data)
-        matches = list(matches)
+        #matches = list(matches)
         #print(keyword, matches)
         if pos:
             return [(m.group(1), m.span()) for m in matches]
@@ -627,7 +631,7 @@ class UNRST_file(unfmt_file):
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None):
+    def __init__(self, file, wait_func=None, **kwargs):
     #--------------------------------------------------------------------------------
         suffix = '.UNRST'
         super().__init__(Path(file).with_suffix(suffix))
@@ -640,7 +644,7 @@ class UNRST_file(unfmt_file):
                        'min'   : keypos('INTEHEAD', 207, 'IMINTS'),
                        'sec'   : keypos('INTEHEAD', 410, 'ISECND'),
                        'time'  : keypos(key='DOUBHEAD')}
-        self.check = check_blocks(self, start='SEQNUM', end='ENDSOL', wait_func=wait_func)
+        self.check = check_blocks(self, start='SEQNUM', end='ENDSOL', wait_func=wait_func, **kwargs)
 
 
     #--------------------------------------------------------------------------------
@@ -656,11 +660,20 @@ class UNRST_file(unfmt_file):
 class RFT_file(unfmt_file):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, nwell=0):
+    def __init__(self, file, wait_func=None, **kwargs):
     #--------------------------------------------------------------------------------
         suffix = '.RFT'
         super().__init__(Path(file).with_suffix(suffix))
-        self.check = check_blocks(self, start='TIME', end='CONNXT', wait_func=wait_func)
+        self.check = check_blocks(self, start='TIME', end='CONNXT', wait_func=wait_func, **kwargs)
+
+    #--------------------------------------------------------------------------------
+    def not_in_sync(self, time, prec=0.1):
+    #--------------------------------------------------------------------------------
+        data = self.check.data()
+        if data and any(abs(nparray(data)-time) > prec):
+            return True
+        return False
+        
 
 
 #====================================================================================
@@ -713,11 +726,45 @@ class MSG_file:
 
 
 #====================================================================================
+class PRT_file:
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, file):
+    #--------------------------------------------------------------------------------
+        self.file = Path(file).with_suffix('.PRT')
+        self._pattern = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
+                        'step' : r'\bSTEP\b\s+([0-9]+)'}
+        self._convert = {'time' : float,
+                         'step' : int}
+
+    #-----------------------------------------------------------------------
+    def size(self):
+    #-----------------------------------------------------------------------
+        return self.file.stat().st_size
+
+    #-----------------------------------------------------------------------
+    def get(self, var_list, N=0, raise_error=True):
+    #-----------------------------------------------------------------------
+        values = {}
+        for var in var_list:
+            match = matches(file=self.file, pattern=self._pattern[var])
+            values[var] = [self._convert[var](m.group(1)) for m in match]
+        if raise_error and not all(values.values()):
+            raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
+        if N == 0:
+            return list(values.values())
+        else:
+            if N > 0:
+                N -= 1
+            return [[v[N]] if v else [] for v in values.values()]
+
+
+#====================================================================================
 class check_blocks:                                                    # check_blocks
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, start=None, end=None, wait_func=None):      # check_blocks
+    def __init__(self, file, start=None, end=None, wait_func=None, check_size=True, timer=False):   # check_blocks
     #--------------------------------------------------------------------------------
         if isinstance(file, unfmt_file):
             self._unfmt = file
@@ -727,7 +774,10 @@ class check_blocks:                                                    # check_b
         self._start = []
         self._end = 0
         self._startpos = 0
+        self._endpos = 0
         self._wait_func = wait_func
+        self._check_size = check_size
+        self._timer = timer
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
@@ -743,15 +793,21 @@ class check_blocks:                                                    # check_b
 
 
     #--------------------------------------------------------------------------------
-    def info(self):                                                    # check_blocks
+    def data(self):
     #--------------------------------------------------------------------------------
-        return f"  {self._key['start'].decode()} : {list2str(self._start)}"
+        return self._start
+
+    #--------------------------------------------------------------------------------
+    def info(self, data=None):                                         # check_blocks
+    #--------------------------------------------------------------------------------
+        return f"  {self._key['start'].decode()} : {list2str(data and data or self._start)}"
 
         
     #--------------------------------------------------------------------------------
     def _blocks_complete(self, nblocks=1):                           # check_blocks
     #--------------------------------------------------------------------------------
         self._start, self._end = [], 0
+        b = None
         for b in self._unfmt.blocks(start=self._startpos):
             if b._key == self._key['start']:
                 self._start.append(b.data()[0])
@@ -760,33 +816,67 @@ class check_blocks:                                                    # check_b
                 self._end += 1 
                 if self._end == nblocks and len(self._start) == nblocks:
                     #self.file.set_startpos(b.end())
-                    self._startpos = b.end()
+                    self._startpos = self._endpos = b.end()
                     return True
+        self._endpos = b and b.end() or 0
         return False
 
+    #--------------------------------------------------------------------------------
+    def at_end(self):
+    #--------------------------------------------------------------------------------
+        #return self._startpos == self._unfmt.size() and len(self._start) == self._end
+        return self._endpos == self._unfmt.size() and len(self._start) == self._end
 
     #--------------------------------------------------------------------------------
-    def data_saved_maxmin(self, max=1, min=1, iter=100, **kwargs):      # check_blocks
+    def check_size(self):
+    #--------------------------------------------------------------------------------
+        msg = ''
+        if self._startpos != self._unfmt.size():
+            msg = f'WARNING {self._unfmt.file.name} not at end after check, offset is {self._unfmt.size()-self._startpos}'
+        return msg
+
+
+    #--------------------------------------------------------------------------------
+    def data_saved_maxmin(self, nblocks=1, iter=100, **kwargs):      # check_blocks
     #--------------------------------------------------------------------------------
         f'''
-            Loop for {iter} iterations until {max} start/end-blocks are found.
-            If {max} start/end-blocks are not found within the iteration limit, 
-            look for {max}-1 start/end-blocks and so on until {min} blocks. 
+            Loop for {iter} iterations until {nblocks} start/end-blocks are found or end-of-file reached.
         '''
-        msg = ''
-        for n in range(max, min-1, -1):
-            passed = self._wait_func( self._blocks_complete, nblocks=n, log=self.info, limit=iter, **kwargs )
-            if passed:
+        msg = []
+        data = []
+        n = nblocks
+        v = 2
+        while n > 0:
+            passed = self._wait_func( self._blocks_complete, nblocks=n, limit=iter, timer=self._timer, v=v, **kwargs )
+            #msg.append(f'start, end: {self._start, self._end}, at_end: {self.at_end()}, passed: {passed}')
+            if self.at_end():
+                ### blocks <= max_blocks
+                self._startpos = self._endpos
                 break
-        if n < max:
-            msg = f'WARNING! Only {n} start/stop-blocks found in {self._unfmt.file.name}, expected {max}'
+            elif passed:
+                ### Not at end, but check passed: Read one more block!
+                n = 1
+                data.extend(self._start)
+                v = 4
+            else:
+                ### Not at end, not passed
+                n -= 1
+                msg.append(f'WARNING Trying to read n - 1 = {n} blocks')
+        data.extend(self._start)
+        msg.append(self.info(data=data) + f' (N={len(data)})')
+        if not data:
+            msg.append(f'WARNING No blocks read in {self._unfmt.file.name}')
         return msg
 
 
     #--------------------------------------------------------------------------------
     def data_saved(self, nblocks=1, **kwargs):               # check_blocks
     #--------------------------------------------------------------------------------
-        return self._wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, **kwargs)
+        
+        msg = ''
+        self._wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
+        msg += self._check_size and self.check_size() or ''
+        return msg
 
 
 

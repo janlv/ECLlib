@@ -1,16 +1,13 @@
 
 # -*- coding: utf-8 -*-
 
-#import os
-from importlib.util import set_loader
 from pathlib import Path
 from re import RegexFlag, findall, compile, DOTALL, search
-#from sys import exc_info
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime
-from mmap import mmap, ACCESS_READ
-#from locale import getdefaultlocale
+from mmap import mmap, ACCESS_READ, ACCESS_WRITE
+
 
 #-----------------------------------------------------------------------
 def strip_zero(numbers):
@@ -122,7 +119,7 @@ def write_file(file, text):
 
 
 #--------------------------------------------------------------------------------
-def remove_comments(file, comment='--', end=None, raise_error=True):
+def remove_comments(file, comment='--', end=None, raise_error=True, newline=True):
 #--------------------------------------------------------------------------------
     if not Path(file).is_file():
         if raise_error:
@@ -136,11 +133,14 @@ def remove_comments(file, comment='--', end=None, raise_error=True):
         #with open(file, encoding='ISO-8859-1') as f:
         with open(file, encoding='latin-1') as f:
             lines = f.readlines()
-    lines = ''.join([l.split(comment)[0]+'\n' if comment in l else l for l in lines])
+    lf = ''
+    if newline:
+        lf = '\n'
+    lines = ''.join([l.split(comment)[0]+lf if comment in l else l for l in lines])
     if end:
         pos = [m.end() for m in compile(rf'\b{end}\b').finditer(lines)]
         if pos:
-            lines = lines[:pos[0]]+'\n'
+            lines = lines[:pos[0]]+lf
     return lines
 
 #--------------------------------------------------------------------------------
@@ -411,7 +411,6 @@ def matches(file=None, pattern=None, length=0, multiline=False, pos=None):
                 data = data[pos:]
             for match in regexp.finditer(data):
                 yield match
-        
 
 #--------------------------------------------------------------------------------
 def number_of_blocks(file=None, blockstart=None):
