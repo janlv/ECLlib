@@ -408,14 +408,14 @@ class unfmt_file:
 class Input_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=True, read=False, reread=False, include=False):      # Input_file
+    def __init__(self, file, check=False, read=False, reread=False, include=False):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         file = Path(file)  
         if not file.suffix:
             ### .DATA is the default suffix
             file = file.with_suffix('.DATA')
-        if check and read and not file.is_file():
+        if check and not file.is_file():
             raise SystemError(f'ERROR Eclipse input-file {file.name} is missing in folder {file.parent}')        
         self.file = file
         self._data = None
