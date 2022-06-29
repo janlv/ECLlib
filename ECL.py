@@ -408,8 +408,9 @@ class unfmt_file:
 class Input_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=True, read=True, include=False):      # Input_file
+    def __init__(self, file, check=True, read=False, reread=False, include=False):      # Input_file
     #--------------------------------------------------------------------------------
+        #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         file = Path(file)  
         if not file.suffix:
             ### .DATA is the default suffix
@@ -418,8 +419,9 @@ class Input_file:
             raise SystemError(f'ERROR Eclipse input-file {file.name} is missing in folder {file.parent}')        
         self.file = file
         self._data = None
-        self._read = read or include
-        if read:
+        self._reread = reread
+        #self._read = read or include
+        if read or include:
             self._data = self.remove_comments()
         self._restart_file = None
         self._restart_time = None
@@ -446,6 +448,10 @@ class Input_file:
     #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
     #--------------------------------------------------------------------------------
+        if not self._data or self._reread:
+            if not self.file.is_file(): 
+                return ()
+            self._data = self.remove_comments()
         return (line for line in self._data.split('\n') if line)
 
     #--------------------------------------------------------------------------------
@@ -485,7 +491,6 @@ class Input_file:
         self._include_files.append(files)
         new_files = [Input_file(file).get('INCLUDE') for file in files] 
         self._include_files_recursive(flat_list([f for f in new_files if f != ['']]))
-
 
     #--------------------------------------------------------------------------------
     def tsteps(self):                                                    # Input_file
@@ -533,8 +538,7 @@ class Input_file:
     #--------------------------------------------------------------------------------
     def remove_comments(self):                                          # Input_file
     #--------------------------------------------------------------------------------
-        return remove_comments(self.file, comment='--', end='END')
-
+            return remove_comments(file=self.file, comment='--', end='END')
 
     #--------------------------------------------------------------------------------
     def _pass(self, values, key, raise_error=False):                     # Input_file
@@ -587,20 +591,25 @@ class Input_file:
     #--------------------------------------------------------------------------------
     def get(self, keyword, raise_error=False, pos=False):                # Input_file
     #--------------------------------------------------------------------------------
-        if not self.file.is_file():
-            return self._get[keyword].default
-        if not self._read:
-            self._data = self.remove_comments()
+        #print(f'get {keyword} from {self.file.name}')
         keyword = keyword.upper()
         if not keyword in self._get.keys():
             raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
+        default = self._get[keyword].default
+        if not self._data or self._reread:
+            if not self.file.is_file(): 
+                return default
+            # elif not next(matches(file=self.file, pattern=rf'\n?\s*\b{keyword}\b'), False):
+            #     #print(f"No '{keyword}' in {self.file.name}" )
+            #     return default
+            self._data = self.remove_comments()
         key = self._get[keyword]
-        matches = compile(key.pattern).finditer(self._data)
+        match_list = compile(key.pattern).finditer(self._data)
         #matches = list(matches)
         #print(keyword, matches)
         if pos:
-            return [(m.group(1), m.span()) for m in matches]
-        values = [n for m in matches for n in m.group(1).split()]
+            return [(m.group(1), m.span()) for m in match_list]
+        values = [n for m in match_list for n in m.group(1).split()]
         if raise_error and not values:
             raise SystemError(f'ERROR Keyword {keyword} not found in {self.file}')
         return key.convert(values, keyword, raise_error=raise_error)

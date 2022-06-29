@@ -35,7 +35,7 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     flags = 0
     if ignore_case:
         flags = RegexFlag.IGNORECASE
-    data = remove_comments(file, comment=comment, raise_error=raise_error)
+    data = remove_comments(file=file, comment=comment, raise_error=raise_error)
     if data == []:
         return []
     #print(data)
@@ -120,22 +120,23 @@ def write_file(file, text):
 
 
 #--------------------------------------------------------------------------------
-def remove_comments(file, comment='--', end=None, raise_error=True, newline=True):
+def remove_comments(file=None, lines=None, comment='--', end=None, raise_error=True, newline=True):
 #--------------------------------------------------------------------------------
-    if not Path(file).is_file():
-        if raise_error:
-            raise SystemError(f'ERROR {file} not found in remove_comments()')    
-        else:
-            return []
-    try:
-        with open(file) as f:
-            lines = f.readlines()
-    except UnicodeDecodeError:
-        #with open(file, encoding='ISO-8859-1') as f:
-        with open(file, encoding='latin-1') as f:
-            lines = f.readlines()
-    except FileNotFoundError:
-        return ''
+    if file:
+        if not Path(file).is_file():
+            if raise_error:
+                raise SystemError(f'ERROR {file} not found in remove_comments()')    
+            else:
+                return []
+        try:
+            with open(file) as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            #with open(file, encoding='ISO-8859-1') as f:
+            with open(file, encoding='latin-1') as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            return ''
     lf = ''
     if newline:
         lf = '\n'
@@ -200,7 +201,7 @@ def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=T
     if isinstance(text, str):
         text = [text]
     regex = [rf'\b{t}\b' for t in text]
-    lines = remove_comments(fname, comment=comment, end=end)
+    lines = remove_comments(file=fname, comment=comment, end=end)
     if any((search(r, lines) for r in regex)):
         return True
     # for reg in regex:
@@ -418,6 +419,7 @@ def matches(file=None, pattern=None, length=0, multiline=False, pos=None):
                 data = data[pos:]
             for match in regexp.finditer(data):
                 yield match
+
 
 #--------------------------------------------------------------------------------
 def number_of_blocks(file=None, blockstart=None):
