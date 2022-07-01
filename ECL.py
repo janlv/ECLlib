@@ -599,12 +599,12 @@ class Input_file:
         if not self._data or self._reread:
             if not self.file.is_file(): 
                 return default
-            # elif not next(matches(file=self.file, pattern=rf'\n?\s*\b{keyword}\b'), False):
-            #     #print(f"No '{keyword}' in {self.file.name}" )
-            #     return default
             self._data = self.remove_comments()
+        # if not keyword in self._data:
+        #     return default
         key = self._get[keyword]
         match_list = compile(key.pattern).finditer(self._data)
+        #match_list = matches(file=self.file, check='INCLUDE', pattern=r"(?<!--)\s*\bINCLUDE\b *(?:--.*)*\s+(?:--.*\s+)*'*([a-zA-Z0-9_./\\-]+)'*")
         #matches = list(matches)
         #print(keyword, matches)
         if pos:
@@ -1088,6 +1088,11 @@ class fmt_file:                                                            # fmt
             return False
         
     #--------------------------------------------------------------------------------
+    def size(self):                                                        # fmt_file
+    #--------------------------------------------------------------------------------
+        return self.name.stat().st_size
+
+    #--------------------------------------------------------------------------------
     def blocks(self, warn_missing=False):                                  # fmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file():
@@ -1273,6 +1278,8 @@ class fmt_file:                                                            # fmt
                 rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # fmt_file 
     #--------------------------------------------------------------------------------
         outfile = self.name.with_suffix(ext)
+        # if self.size() < 1:
+        #     return None
         with open(self.name) as f:
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
                 # prepare 

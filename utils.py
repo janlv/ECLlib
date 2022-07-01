@@ -407,7 +407,7 @@ def warn_empty_file(file, comment=''):
     print(f'WARNING! {file} is empty')
 
 #--------------------------------------------------------------------------------
-def matches(file=None, pattern=None, length=0, multiline=False, pos=None):
+def matches(file=None, pattern=None, length=0, multiline=False, pos=None, check=None):
 #--------------------------------------------------------------------------------
     flags = 0
     if multiline:
@@ -417,6 +417,8 @@ def matches(file=None, pattern=None, length=0, multiline=False, pos=None):
         with mmap(f.fileno(), length=length, access=ACCESS_READ) as data:
             if pos:
                 data = data[pos:]
+            if check and not check in data:
+                data = b''
             for match in regexp.finditer(data):
                 yield match
 
