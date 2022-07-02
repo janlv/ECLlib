@@ -9,6 +9,12 @@ from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from numpy import array, sum as npsum
 
+#-----------------------------------------------------------------------
+def pad_zero(lists):
+#-----------------------------------------------------------------------
+    N = max([len(a) for a in lists])
+    return [a+(N-len(a))*['0'] for a in lists]
+
 
 #-----------------------------------------------------------------------
 def strip_zero(numbers):
