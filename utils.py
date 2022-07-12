@@ -8,6 +8,26 @@ from time import sleep, time
 from datetime import timedelta, datetime
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from numpy import array, sum as npsum
+from psutil import Process, NoSuchProcess, wait_procs
+from signal import SIGTERM
+
+#-----------------------------------------------------------------------
+def kill_process(pid, signal=SIGTERM, children=False, timeout=5, on_terminate=None):
+#-----------------------------------------------------------------------
+    procs = []
+    parent = Process(pid)
+    if children:
+        procs.extend(parent.children(recursive=True))
+    procs.append(parent)
+    for p in procs:
+        try:
+            p.send_signal(signal)
+        except NoSuchProcess:
+            pass
+    gone, alive = wait_procs(procs, timeout=timeout, callback=on_terminate)
+    for p in alive:
+        p.kill()        
+    return gone + alive
 
 #-----------------------------------------------------------------------
 def pad_zero(lists):
