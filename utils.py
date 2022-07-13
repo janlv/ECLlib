@@ -149,12 +149,12 @@ def write_file(file, text):
 def remove_comments(file=None, lines=None, comment='--', end=None, raise_error=True, newline=True):
 #--------------------------------------------------------------------------------
     if file:
-        if not Path(file).is_file():
-            if raise_error:
-                raise SystemError(f'ERROR {file} not found in remove_comments()')    
-            else:
-                return []
         try:
+            if not Path(file).is_file():
+                if raise_error:
+                    raise SystemError(f'ERROR {file} not found in remove_comments()')    
+                else:
+                    return []
             with open(file) as f:
                 lines = f.readlines()
         except UnicodeDecodeError:
@@ -162,7 +162,7 @@ def remove_comments(file=None, lines=None, comment='--', end=None, raise_error=T
             with open(file, encoding='latin-1') as f:
                 lines = f.readlines()
         except (FileNotFoundError, PermissionError):
-            return ''
+            return []
     lf = ''
     if newline:
         lf = '\n'
