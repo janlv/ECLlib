@@ -17,10 +17,24 @@ def remove_leading_nondigits(txt):
     return sub(r'^[a-zA-Z-+._]*', '', txt)  
 
 #-----------------------------------------------------------------------
+def try_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, func=None, **kwargs):
+#-----------------------------------------------------------------------
+    for i in range(limit):
+        #print(f'{func.__qualname__}({args},{kwargs}): {i}')
+        try:
+            result = func(*args, **kwargs)
+            break
+        except error as e:
+            sleep(pause)
+    if i==limit-1 and raise_error:
+        raise SystemError(f'Unable to complete {func.__qualname__} within {limit} tries during {limit*pause} seconds: {e}')
+    return result
+
+#-----------------------------------------------------------------------
 def kill_process(pid, signal=SIGTERM, children=False, timeout=5, on_terminate=None):
 #-----------------------------------------------------------------------
     procs = []
-    parent = Process(pid)
+    parent = try_loop(pid, func=Process, limit=10, pause=0.05, error=NoSuchProcess)
     if children:
         procs.extend(parent.children(recursive=True))
     procs.append(parent)
