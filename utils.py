@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from pathlib import Path
-from re import RegexFlag, findall, compile, DOTALL, search
+from re import RegexFlag, findall, compile, DOTALL, search, sub
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime
@@ -10,6 +10,11 @@ from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
+
+#-----------------------------------------------------------------------
+def remove_leading_nondigits(txt):
+#-----------------------------------------------------------------------
+    return sub(r'^[a-zA-Z-+._]*', '', txt)  
 
 #-----------------------------------------------------------------------
 def kill_process(pid, signal=SIGTERM, children=False, timeout=5, on_terminate=None):
