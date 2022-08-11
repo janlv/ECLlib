@@ -72,6 +72,15 @@ def file_exists(file, raise_error=False):
             return False
 
 #-----------------------------------------------------------------------
+def file_not_empty(file):
+#-----------------------------------------------------------------------
+    file = Path(file)
+    if file.is_file() and file.stat().st_size > 0:
+        return True
+    return False
+
+
+#-----------------------------------------------------------------------
 def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
 #-----------------------------------------------------------------------
     #print(f'get_keyword({file}, {keyword}, end={end})')
@@ -454,6 +463,8 @@ def warn_empty_file(file, comment=''):
 #--------------------------------------------------------------------------------
 def matches(file=None, pattern=None, length=0, multiline=False, pos=None, check=None):
 #--------------------------------------------------------------------------------
+    if not Path(file).is_file() or Path(file).stat().st_size < 1:
+        return []
     flags = 0
     if multiline:
         flags = DOTALL
