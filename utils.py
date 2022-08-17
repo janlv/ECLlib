@@ -519,6 +519,8 @@ class Progress:
             except ValueError: n = 1
             self.bar_length = n
         self.indent = indent*' '
+        self.eta = 0
+        self.length = 0
 
     #--------------------------------------------------------------------------------
     def set_min(self, min):
@@ -578,13 +580,16 @@ class Progress:
         self.N = N
 
     #--------------------------------------------------------------------------------
-    def print(self, n, text=None, trail_space=3):
+    def print(self, n, text=None):
     #--------------------------------------------------------------------------------
         #print(n, self.min)
         if n>self.min and int(n)%self.update==0:
             #self.calc_estimated_arrival(n)
             self.remaining_time(n)
-            print(f'\r{text or ""}'+self.indent+self.format(n)+trail_space*' ', end='', flush=True)
+            line = self.format(n)
+            trail_space = max(1, self.length - len(line))
+            self.length = len(line)
+            print(f'\r{text or ""}' + self.indent + line + trail_space*' ', end='', flush=True)
             #print(f'\r{text or ""}{self.indent}{self.format(n)}{trail_space*" "}', end='', flush=True)
 
     #--------------------------------------------------------------------------------
