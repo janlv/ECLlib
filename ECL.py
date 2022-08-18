@@ -461,36 +461,62 @@ class Input_file:
         return next((f for f in self.get('INCLUDE') if suffix in str(f).lower()), None)
 
 
+    # #--------------------------------------------------------------------------------
+    # def include_files(self):                                             # Input_file
+    # #--------------------------------------------------------------------------------
+    #     '''
+    #     Search recursively for include files in the .DATA-file
+    #     Return list of full paths
+    #     '''
+    #     A = datetime.now()
+    #     if self._include_files:
+    #         ### Return previous result
+    #         return self._include_files
+    #     ### Do recursive search
+    #     self._include_files_recursive([self.file])
+    #     self._include_files = flat_list(self._include_files)
+    #     ### Remove DATA-file
+    #     self._include_files.pop(0)
+    #     ### Add possible GDFILE
+    #     gdfile = self.get('GDFILE')
+    #     if gdfile != ['']:
+    #         self._include_files.extend(gdfile)
+    #     print(datetime.now()-A)
+    #     return self._include_files
+
+
+    # #--------------------------------------------------------------------------------
+    # def _include_files_recursive(self, files):                           # Input_file
+    # #--------------------------------------------------------------------------------
+    #     if not files:
+    #         return
+    #     self._include_files.append(files)
+    #     new_files = [Input_file(file).get('INCLUDE') for file in files] 
+    #     self._include_files_recursive(flat_list([f for f in new_files if f != ['']]))
+
     #--------------------------------------------------------------------------------
-    def include_files(self):
+    def include_files(self):                                             # Input_file
     #--------------------------------------------------------------------------------
         '''
         Search recursively for include files in the .DATA-file
         Return list of full paths
         '''
-        if self._include_files:
-            ### Return previous result
-            return self._include_files
-        ### Do recursive search
-        self._include_files_recursive([self.file])
-        self._include_files = flat_list(self._include_files)
-        ### Remove DATA-file
-        self._include_files.pop(0)
-        ### Add possible GDFILE
-        gdfile = self.get('GDFILE')
-        if gdfile != ['']:
-            self._include_files.extend(gdfile)
-        return self._include_files
+        for file in self._include_files_recursive(self.file):
+            yield file
+        for file in (f for f in self.get('GDFILE') if f != ''):
+            yield file
 
 
     #--------------------------------------------------------------------------------
-    def _include_files_recursive(self, files):
+    def _include_files_recursive(self, file):                           # Input_file
     #--------------------------------------------------------------------------------
-        if not files:
-            return
-        self._include_files.append(files)
-        new_files = [Input_file(file).get('INCLUDE') for file in files] 
-        self._include_files_recursive(flat_list([f for f in new_files if f != ['']]))
+        new_files = (f for f in Input_file(file).get('INCLUDE') if f != '')
+        for new_file in new_files:
+            #print('yield new_file', new_file)
+            yield new_file
+            for inc in self._include_files_recursive(new_file):
+                #print('yield inc',inc)
+                yield inc
 
     #--------------------------------------------------------------------------------
     def tsteps(self):                                                    # Input_file

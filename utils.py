@@ -571,7 +571,6 @@ class Progress:
             #count = f'({int(self.min)} + {int(nn)})'
             a, b = strip_zero((self.min, nn))
             t = f'({a} + {b})'
-        #return f'{count} / {int(self.N)}  [{hash*"#"}{rest*"-"}]  {self.eta}'
         return f'{t} / {T}  [{hash*"#"}{rest*"-"}]  {self.eta}'
 
     #--------------------------------------------------------------------------------
@@ -590,7 +589,6 @@ class Progress:
             trail_space = max(1, self.length - len(line))
             self.length = len(line)
             print(f'\r{text or ""}' + self.indent + line + trail_space*' ', end='', flush=True)
-            #print(f'\r{text or ""}{self.indent}{self.format(n)}{trail_space*" "}', end='', flush=True)
 
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
