@@ -617,7 +617,7 @@ class Input_file:
     #--------------------------------------------------------------------------------
     def get(self, keyword, raise_error=False, pos=False):                # Input_file
     #--------------------------------------------------------------------------------
-        #print(f'get {keyword} from {self.file.name}')
+        # print(f'get {keyword} from {self.file.name}')
         keyword = keyword.upper()
         if not keyword in self._get.keys():
             raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
@@ -625,9 +625,10 @@ class Input_file:
         if not self._data or self._reread:
             if not self.file.is_file(): 
                 return default
-            self._data = self.remove_comments()
-        # if not keyword in self._data:
-        #     return default
+            if not keyword in ''.join(open(self.file).readlines()):
+                return default
+            else:
+                self._data = self.remove_comments()
         key = self._get[keyword]
         match_list = compile(key.pattern).finditer(self._data)
         #match_list = matches(file=self.file, check='INCLUDE', pattern=r"(?<!--)\s*\bINCLUDE\b *(?:--.*)*\s+(?:--.*\s+)*'*([a-zA-Z0-9_./\\-]+)'*")
