@@ -423,9 +423,9 @@ class Input_file:
         #self._read = read or include
         if read or include:
             self._data = self.remove_comments()
-        self._restart_file = None
-        self._restart_time = None
-        self._include_files = []
+        #self._restart_file = None
+        #self._restart_time = None
+        #self._include_files = []
         getter = namedtuple('getter', 'default convert pattern')
         self._get = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/'),
                      'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
@@ -444,6 +444,17 @@ class Input_file:
     def __str__(self):                                                   # Input_file
     #--------------------------------------------------------------------------------
         return f'{self.file}'
+
+
+    #--------------------------------------------------------------------------------
+    def __add__(self, other):                                            # Input_file
+    #--------------------------------------------------------------------------------
+        for obj in (self, other):
+            if not obj._data:
+                obj._data = obj.remove_comments()
+        self._data += other._data
+        return self
+
 
     #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
@@ -519,12 +530,15 @@ class Input_file:
                 yield inc
 
     #--------------------------------------------------------------------------------
-    def tsteps(self):                                                    # Input_file
+    def tsteps(self, start=None):                                        # Input_file
     #--------------------------------------------------------------------------------
+        '''
+        Return timesteps, if DATES are present they are converted to timesteps
+        '''
+        start = start or self.get('START')
         tstep = self.get('TSTEP')
-        start = self.get('START')
-        #print(tstep)
-        #print(start)
+        # print(tstep)
+        # print(start)
         if start and start[0]:
             dates = self.get('DATES')
             tstep = tstep + self.date2tstep(dates, start=start[0]+timedelta(days=sum(tstep)))
@@ -619,13 +633,18 @@ class Input_file:
     #--------------------------------------------------------------------------------
         # print(f'get {keyword} from {self.file.name}')
         keyword = keyword.upper()
+        error_msg = f'ERROR Keyword {keyword} not found in {self.file}'
         if not keyword in self._get.keys():
             raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
         default = self._get[keyword].default
         if not self._data or self._reread:
             if not self.file.is_file(): 
+                if raise_error:
+                    raise SystemError(f'{self.file} is missing!')
                 return default
             if not keyword in ''.join(open(self.file).readlines()):
+                if raise_error:
+                    raise SystemError(error_msg)
                 return default
             else:
                 self._data = self.remove_comments()
@@ -638,7 +657,7 @@ class Input_file:
             return [(m.group(1), m.span()) for m in match_list]
         values = [n for m in match_list for n in m.group(1).split()]
         if raise_error and not values:
-            raise SystemError(f'ERROR Keyword {keyword} not found in {self.file}')
+            raise SystemError(error_msg)
         return key.convert(values, keyword, raise_error=raise_error)
 
 
