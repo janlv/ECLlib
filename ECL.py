@@ -642,7 +642,7 @@ class Input_file:
                 if raise_error:
                     raise SystemError(f'{self.file} is missing!')
                 return default
-            if not keyword in ''.join(open(self.file).readlines()):
+            if not keyword in ''.join(open(self.file, encoding='utf-8').readlines()):
                 if raise_error:
                     raise SystemError(error_msg)
                 return default

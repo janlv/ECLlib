@@ -142,7 +142,7 @@ def read_file(file, raise_error=True):
             return ''    
     lines = ''
     try:
-        with open(file) as f:
+        with open(file, encoding='utf-8') as f:
         #with open(file, encoding='ascii', errors='surrogateescape') as f:
             lines = f.readlines()
     except UnicodeDecodeError as e:
