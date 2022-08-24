@@ -478,6 +478,15 @@ def matches(file=None, pattern=None, length=0, multiline=False, pos=None, check=
             for match in regexp.finditer(data):
                 yield match
 
+#--------------------------------------------------------------------------------
+def bytes_string(size, d=0):
+#--------------------------------------------------------------------------------
+    i = 0
+    unit = {0:'', 1:'K', 2:'M', 3:'G', 4:'T'}
+    while size > 1024:
+        i += 1
+        size /= 1024
+    return f'{size:.{d}f} {unit[i]}'
 
 #--------------------------------------------------------------------------------
 def number_of_blocks(file=None, blockstart=None):
