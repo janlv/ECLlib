@@ -1303,6 +1303,18 @@ class fmt_file:                                                            # fmt
                 data_pos[dty].append([i+1, i+1+int(data[i-1])])
         return data_pos, len(data)
 
+    # #----------------------------------------------------------------------------
+    # def get_data_pos_v2(self, filemap, size):                             # fmt_file
+    # #----------------------------------------------------------------------------
+    #     dtypes = [("'"+k+"'").encode() for k in DTYPE_LIST]
+    #     data_pos = {k:[] for k in DTYPE.keys()}
+    #     data_match = (m for m in finditer(b'\S+', filemap[:size]) if m.group(0) in dtypes)
+    #     for m in data_match:
+    #         print(m)
+            
+    #         data_pos[m.group(0)[1:-1]].append(m.span()[1]+1)
+    #     return data_pos
+
     #----------------------------------------------------------------------------
     def prepare_helper_arrays(self, blocks, nblocks):                  # fmt_file
     #----------------------------------------------------------------------------
@@ -1332,6 +1344,7 @@ class fmt_file:                                                            # fmt
                 blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
                 unit_format = ''.join(blocks.format) 
                 data_pos, pos_stride = self.get_data_pos(filemap, blocks.size['blocks'])
+                #self.get_data_pos_v2(filemap, blocks.size['blocks'])                
                 N = int(len(filemap)/blocks.size['blocks'])
                 progress(-N)
                 heads, slices, tails, types = self.prepare_helper_arrays(blocks, nblocks)
@@ -1349,10 +1362,12 @@ class fmt_file:                                                            # fmt
                             nblocks = int((b-a)/blocks.size['blocks'])
                             finished = True
                         data = filemap[a:b].split()
+                        #data = (m.group(0) for m in finditer(b'\S+', filemap[a:b])) # generator version of split
                         a = b
                         buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
                         data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                        out.write(pack(ENDIAN+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                        #out.write(pack(ENDIAN+nblocks*unit_format, *[x for y in data_chunks for x in y]))
+                        out.write(pack(ENDIAN+nblocks*unit_format, *(x for y in data_chunks for x in y)))
                         n += nblocks
                         progress(n)
                         cancel()
@@ -1366,6 +1381,7 @@ class fmt_file:                                                            # fmt
         for dtyp in blocks.stride.keys():
             # dtype=datatype[dtyp.decode()]
             dtype = DTYPE[dtyp].nptype
+            #buf = [data[i+nb*pos_stride:j+nb*pos_stride] for i,j in data_pos[dtyp] for nb in range(nblocks)]
             buf = []
             for i,j in data_pos[dtyp]:
                 for nb in range(nblocks):
@@ -1374,6 +1390,7 @@ class fmt_file:                                                            # fmt
             try: 
                 buffer[dtyp] = nparray([x for y in buf for x in y], dtype=dtype)
             except ValueError:
+                #buffer[dtyp] = nparray([x[:15]+b'E'+x[17:] for y in buf for x in y], dtype=dtype)
                 buffer[dtyp] = nparray([x.decode().replace('D','E') for y in buf for x in y], dtype=dtype)
         return buffer
 
