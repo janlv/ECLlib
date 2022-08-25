@@ -331,25 +331,25 @@ def assert_python_version(major=None, minor=None):
     return True
 
 #------------------------------------------------
-def silentdelete(fname, echo=False):
+def silentdelete(*fname, echo=False):
 #------------------------------------------------
-    if isinstance(fname, (str,Path)):
-        fname = [str(fname)]
-    if isinstance(fname, (list, tuple)): # or isinstance(fname, tuple):
-        for f in fname:
-            file = Path(f)
-            try:
-                file.is_file() and file.unlink()
-            except (PermissionError, FileNotFoundError) as e:
-                if echo:
-                    print(f'Unable to delete {f}: {e}')
-                else:
-                    pass
+    # if isinstance(fname, (str,Path)):
+    #     fname = [str(fname)]
+    # if isinstance(fname, (list, tuple)): # or isinstance(fname, tuple):
+    for f in fname:
+        file = Path(f)
+        try:
+            file.is_file() and file.unlink()
+        except (PermissionError, FileNotFoundError) as e:
+            if echo:
+                print(f'Unable to delete {f}: {e}')
             else:
-                if echo:
-                    print(f'Deleted {f}')
-    else:
-        raise SystemError(f'silentdelete: Unknown format {type(fname)} passed')
+                pass
+        else:
+            if echo:
+                print(f'Deleted {f}')
+    # else:
+    #     raise SystemError(f'silentdelete: Unknown format {type(fname)} passed')
 
 
 #--------------------------------------------------------------------------------
