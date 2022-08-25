@@ -469,41 +469,6 @@ class unfmt_file:
         return self.file
 
 
-    # #--------------------------------------------------------------------------------
-    # def create(self, *args, progress=lambda x:None, cancel=lambda:None): # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     sections = args
-    #     ### Skip sections at the end if the number of sections are different
-    #     sizes = [sec.size(with_skip=True) for sec in sections]
-    #     print(sizes)
-    #     min_size = min(sizes)
-    #     for sec, diff in zip(sections, [s - min_size for s in sizes]):
-    #         if diff > 0:
-    #             end = sec.size()-1
-    #             sec.skip_sections(*tuple(range(end-diff, end))) 
-    #     print([sec.size(with_skip=True) for sec in sections])
-    #     ### Open files
-    #     progress(-(min_size+1))
-    #     out_file = open(self.file, 'wb')
-    #     for sec in sections:
-    #         sec.open_file()
-    #     ### Write sections to out_file
-    #     OK = True
-    #     n = 0
-    #     while OK: 
-    #         for sec in sections:
-    #             OK = sec.write_next_unit(out_file)
-    #         n += 1
-    #         progress(n)
-    #         cancel()
-    #     ### Close files
-    #     for sec in sections:
-    #         sec.close_file()
-    #     out_file.close()
-    #     return self.file
-
-
-
 
 #====================================================================================
 class Input_file:
@@ -521,12 +486,8 @@ class Input_file:
         self.file = file
         self._data = None
         self._reread = reread
-        #self._read = read or include
         if read or include:
             self._data = self.remove_comments()
-        #self._restart_file = None
-        #self._restart_time = None
-        #self._include_files = []
         getter = namedtuple('getter', 'default convert pattern')
         self._get = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/'),
                      'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
@@ -573,39 +534,6 @@ class Input_file:
         return next((f for f in self.get('INCLUDE') if suffix in str(f).lower()), None)
 
 
-    # #--------------------------------------------------------------------------------
-    # def include_files(self):                                             # Input_file
-    # #--------------------------------------------------------------------------------
-    #     '''
-    #     Search recursively for include files in the .DATA-file
-    #     Return list of full paths
-    #     '''
-    #     A = datetime.now()
-    #     if self._include_files:
-    #         ### Return previous result
-    #         return self._include_files
-    #     ### Do recursive search
-    #     self._include_files_recursive([self.file])
-    #     self._include_files = flat_list(self._include_files)
-    #     ### Remove DATA-file
-    #     self._include_files.pop(0)
-    #     ### Add possible GDFILE
-    #     gdfile = self.get('GDFILE')
-    #     if gdfile != ['']:
-    #         self._include_files.extend(gdfile)
-    #     print(datetime.now()-A)
-    #     return self._include_files
-
-
-    # #--------------------------------------------------------------------------------
-    # def _include_files_recursive(self, files):                           # Input_file
-    # #--------------------------------------------------------------------------------
-    #     if not files:
-    #         return
-    #     self._include_files.append(files)
-    #     new_files = [Input_file(file).get('INCLUDE') for file in files] 
-    #     self._include_files_recursive(flat_list([f for f in new_files if f != ['']]))
-
     #--------------------------------------------------------------------------------
     def include_files(self):                                             # Input_file
     #--------------------------------------------------------------------------------
@@ -624,10 +552,8 @@ class Input_file:
     #--------------------------------------------------------------------------------
         new_files = (f for f in Input_file(file).get('INCLUDE') if f != '')
         for new_file in new_files:
-            #print('yield new_file', new_file)
             yield new_file
             for inc in self._include_files_recursive(new_file):
-                #print('yield inc',inc)
                 yield inc
 
     #--------------------------------------------------------------------------------
@@ -638,8 +564,6 @@ class Input_file:
         '''
         start = start or self.get('START')
         tstep = self.get('TSTEP')
-        # print(tstep)
-        # print(start)
         if start and start[0]:
             dates = self.get('DATES')
             tstep = tstep + self.date2tstep(dates, start=start[0]+timedelta(days=sum(tstep)))
@@ -806,14 +730,12 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def dates(self, N=0):                                          # UNRST_file
     #--------------------------------------------------------------------------------
-        #y, m, d = self.get(['year','month','day'], N=N)
         year, month, day = self.get('year','month','day', N=N)
         dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date() for d,m,y in zip(day, month, year))
         if abs(N) == 1:
             return list(dates)[-1]
         else:
             return dates
-        #return datetime.strptime(f'{d[-1]} {m[-1]} {y[-1]}', '%d %m %Y').date()
 
     #--------------------------------------------------------------------------------
     def date(self, block, step):                                         # UNRST_file
@@ -827,7 +749,6 @@ class UNRST_file(unfmt_file):
     def step(self, block, step):                                         # UNRST_file
     #--------------------------------------------------------------------------------
         if block.key() == 'SEQNUM':
-            #print(self.file.name, step, block.data()[0])
             return block.data()[0]
         return step
 
@@ -1061,156 +982,6 @@ class check_blocks:                                                    # check_b
         self._wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
         msg += self._check_size and self.check_size() or ''
         return msg
-
-
-
-# #====================================================================================
-# class Section:                                                              # Section
-# #====================================================================================
-#     #--------------------------------------------------------------------------------
-#     def __init__(self, filename, init_key='SEQNUM', start_before=None, start_after=None,
-#                  end_before=None, end_after=None, skip_sections=(), remove_blocks=None):
-#     #--------------------------------------------------------------------------------
-#         self._filename = Path(filename)
-#         self._fh = None # filehandle
-#         self._size = None
-#         self._n = 0
-#         self.init_key = init_key
-#         self.start_before = start_before
-#         self.start_after = start_after
-#         self.end_before = end_before
-#         self.end_after = end_after
-#         if remove_blocks and not isinstance(remove_blocks, tuple):
-#             remove_blocks = (remove_blocks,)
-#         self.remove_blocks = remove_blocks
-#         self._skip_sections = ()
-#         self.skip_sections(*skip_sections)
-#         self._units = self.startpos_and_size()
-#         # if skip_sections:
-#         #     if not isinstance(skip_sections, (tuple, list)):
-#         #         skip_sections = (skip_sections,)
-#         # self.skip_sections = skip_sections
-            
-#             # for sec in skip_sections:
-#             #     #print('sec:'+str(sec))
-#             #     self._units.pop(sec)
-            
-#     #--------------------------------------------------------------------------------
-#     def open_file(self):                                                    # Section
-#     #--------------------------------------------------------------------------------
-#         self._fh = open(self._filename, 'rb')
-        
-#     #--------------------------------------------------------------------------------
-#     def close_file(self):                                                   # Section
-#     #--------------------------------------------------------------------------------
-#         self._fh.close()
-        
-#     #--------------------------------------------------------------------------------
-#     def filename(self):                                                     # Section
-#     #--------------------------------------------------------------------------------
-#         return self._filename
-        
-
-#     #--------------------------------------------------------------------------------
-#     def skip_sections(self, *args):                                     # Section
-#     #--------------------------------------------------------------------------------
-#         if args:
-#             self._skip_sections = self._skip_sections + args
-#         return len(self._skip_sections)
-
-#     #--------------------------------------------------------------------------------
-#     def size(self, with_skip=False):                                                         # Section
-#     #--------------------------------------------------------------------------------
-#         if not self._size:
-#             self._size = unfmt_file(self._filename).count('SEQNUM')
-#         skip = 0
-#         if with_skip:
-#             skip = len(self._skip_sections)
-#         return self._size - skip 
-#         #return len(self._units)
-        
-#     # #--------------------------------------------------------------------------------
-#     # def pop_unit(self, nr):                                                 # Section
-#     # #--------------------------------------------------------------------------------
-#     #     return self._units.pop(nr)
-        
-#     # #--------------------------------------------------------------------------------
-#     # def write_next_unit(self, out_file):                                    # Section
-#     # #--------------------------------------------------------------------------------
-#     #     if len(self._units)==0:
-#     #         return False
-#     #     unit = self._units.pop(0)
-#     #     for pos, size in zip(unit[::2],unit[1::2]):
-#     #         self._fh.seek(pos)
-#     #         out_file.write( self._fh.read(size) )
-#     #     return True
-    
-#     # #--------------------------------------------------------------------------------
-#     # def print(self):                                                        # Section
-#     # #--------------------------------------------------------------------------------
-#     #     for unit in self._units:
-#     #         print(unit)
-
-#     #--------------------------------------------------------------------------------
-#     def write_next_unit(self, out_file):                                    # Section
-#     #--------------------------------------------------------------------------------
-#         pos, size = next(self._units, (None, None))
-#         if pos is None:
-#             return False
-#         if self._n not in self._skip_sections:
-#             #print(f'{self._filename.name}: pos: {pos}, size:{size}')
-#             self._fh.seek(pos)
-#             out_file.write( self._fh.read(size) )
-#         # else:
-#         #     print(f'{self._filename.name}: Skip {self._n}')
-#         self._n += 1
-#         return True
-
-
-#     #--------------------------------------------------------------------------------
-#     def startpos_and_size(self):                                            # Section
-#     #--------------------------------------------------------------------------------
-#         # A unit is a list of consecutive absolute filepositions and relative
-#         # byte chuncks corresponding to the length of the blocks to be kept.
-#         # A unit list always starts with a pos and ends with a size
-#         if not self._filename.is_file():
-#             raise FileNotFoundError(str(self._filename) + ' not found in Section')
-#         #units = []
-#         inside = False
-#         for block in unfmt_file(self._filename).blocks():
-#             key = block.key()
-#             if inside and key==self.end_before:
-#                 inside = False
-#                 # size
-#                 unit.append(block.start()-unit[-1])
-#                 yield unit
-#             if inside and key==self.end_after:
-#                 inside = False
-#                 # size
-#                 unit.append(block.end()-unit[-1])
-#                 yield unit
-#             if not inside and key==self.start_before:
-#                 inside = True
-#                 # pos
-#                 unit = [block.start(),]
-#                 #units.append(unit)
-#                 #yield unit
-#             if not inside and key==self.start_after:
-#                 inside = True
-#                 # pos
-#                 unit = [block.end(),]
-#                 #units.append(unit)
-#                 #yield unit
-#             if inside and self.remove_blocks and key in self.remove_blocks:
-#                 # size
-#                 unit.append(block.start()-unit[-1])
-#                 # pos
-#                 unit.append(block.end())
-#         if self.end_before==self.init_key:
-#             unit.append(self._filename.stat().st_size-unit[-1])
-#         #print(units)
-#         #return units
-#         return unit
 
 
 
