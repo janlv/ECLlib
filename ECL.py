@@ -711,7 +711,7 @@ class UNRST_file(unfmt_file):
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, **kwargs):
+    def __init__(self, file, wait_func=None, end='ENDSOL', **kwargs):
     #--------------------------------------------------------------------------------
         suffix = '.UNRST'
         super().__init__(Path(file).with_suffix(suffix))
@@ -724,7 +724,7 @@ class UNRST_file(unfmt_file):
                        'min'   : keypos('INTEHEAD', 207, 'IMINTS'),
                        'sec'   : keypos('INTEHEAD', 410, 'ISECND'),
                        'time'  : keypos(key='DOUBHEAD')}
-        self.check = check_blocks(self, start='SEQNUM', end='ENDSOL', wait_func=wait_func, **kwargs)
+        self.check = check_blocks(self, start='SEQNUM', end=end, wait_func=wait_func, **kwargs)
 
 
     #--------------------------------------------------------------------------------
@@ -979,11 +979,12 @@ class check_blocks:                                                    # check_b
 
 
     #--------------------------------------------------------------------------------
-    def data_saved(self, nblocks=1, **kwargs):               # check_blocks
-    #--------------------------------------------------------------------------------
-        
+    def data_saved(self, nblocks=1, wait_func=None, **kwargs):               # check_blocks
+    #--------------------------------------------------------------------------------        
         msg = ''
-        self._wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
+        wait_func = self._wait_func or wait_func
+        OK = wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
+        msg += not OK and f'WARNING Check of {self._unfmt.file.name} failed!' or ''
         msg += self._check_size and self.check_size() or ''
         return msg
 
