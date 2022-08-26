@@ -229,6 +229,7 @@ class unfmt_file:
     def __init__(self, filename):                                        # unfmt_file
     #--------------------------------------------------------------------------------
         self.fileobj = None
+        # self.mmap = None
         self.file = Path(filename)
         self.endpos = 0
         DEBUG and print(f'Creating {self}')
@@ -250,11 +251,22 @@ class unfmt_file:
     def open(self):                                                   # unfmt_file
     #--------------------------------------------------------------------------------
         self.fileobj = open(self.file, 'rb')
+        return self.fileobj
+        # self.mmap = mmap(self.fileobj.fileno(), length=0, access=ACCESS_READ)
+        # return self.mmap
 
+    #--------------------------------------------------------------------------------
+    def seek(self, pos):                                                 # unfmt_file
+    #--------------------------------------------------------------------------------
+        self.fileobj.seek(pos)
+        return self.fileobj
+        # self.mmap.seek(pos)
+        # return self.mmap
 
     #--------------------------------------------------------------------------------
     def close(self):                                                   # unfmt_file
     #--------------------------------------------------------------------------------
+        # self.mmap.close()
         self.fileobj.close()
 
 
@@ -265,6 +277,12 @@ class unfmt_file:
 
         
     #--------------------------------------------------------------------------------
+    def exists(self):                                                    # unfmt_file
+    #--------------------------------------------------------------------------------
+        return self.file.exists()
+
+
+    #--------------------------------------------------------------------------------
     def size(self):                                                      # unfmt_file
     #--------------------------------------------------------------------------------
         return self.file.stat().st_size
@@ -274,12 +292,6 @@ class unfmt_file:
     def name(self):                                                      # unfmt_file
     #--------------------------------------------------------------------------------
         return self.file.name
-
-    #--------------------------------------------------------------------------------
-    def seek(self, pos):                                                 # unfmt_file
-    #--------------------------------------------------------------------------------
-        self.fileobj.seek(pos)
-        return self.fileobj
 
 
     #--------------------------------------------------------------------------------
@@ -352,16 +364,6 @@ class unfmt_file:
                                     data=data, data_start=data_start)
 
 
-    # #--------------------------------------------------------------------------------
-    # def length(self, init_key=None):                                           # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     n = 0
-    #     for block in self.blocks():
-    #         if block.key() == init_key:
-    #             n += 1
-    #     print(self.file, N)
-    #     return n
-
     #--------------------------------------------------------------------------------
     def get(self, *var_list, N=0, stop=(), raise_error=True):       # unfmt_file
     #--------------------------------------------------------------------------------
@@ -390,13 +392,6 @@ class unfmt_file:
         return list(values.values())        
 
 
-    #--------------------------------------------------------------------------------
-    def exists(self):                                                    # unfmt_file
-    #--------------------------------------------------------------------------------
-        #print('Checking for ' + self._filename)
-        if self.file.is_file():
-            return True
-        return False
 
     #--------------------------------------------------------------------------------
     def sections(self, begin=0, step_data=None, init_key=None, start_before=None, start_after=None, 
@@ -447,26 +442,36 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
     def create(self, sections=None, files=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
     #--------------------------------------------------------------------------------
-        ### Open files
-        out_file = open(self.file, 'wb')
+        ### Open input files
         for file in files:
             file.open()
-        ### Write sections to out_file
-        for step_pos_size in zip(*sections):
-            steps = []
-            for (step, pos, size), file in zip(step_pos_size, files):
-                #print(file.name(), step, pos, size)
-                out_file.write(file.seek(pos).read(size))
-                steps.append(step)
-            if len(set(steps)) > 1:
-                raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
-            progress(steps[0])
-            cancel()
-        ### Close files
-        out_file.close()
-        for file in files:
-            file.close()
-        return self.file
+        return_value = False
+        try:
+            with open(self.file, 'wb') as out_file:
+                ### Get next postions from the sections generators
+                for step_pos_size in zip(*sections):
+                    steps = []
+                    for (step, pos, size), file in zip(step_pos_size, files):
+                        #print(file.name(), step, pos, size)
+                        out_file.write(file.seek(pos).read(size))
+                        #data += file.seek(pos).read(size)
+                        # out_file.write(file.mmap[pos:pos+size])
+                        steps.append(step)
+                    if len(set(steps)) > 1:
+                        raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
+                    # if len(data) > 100*1024*1024:
+                    #     out_file.write(data)
+                    #     data = bytes()    
+                    progress(steps[0])
+                    cancel()
+                return_value = self.file
+        except:
+            raise
+        finally:
+            ### Close input files
+            for file in files:
+                file.close()
+        return return_value
 
 
 
@@ -1018,6 +1023,7 @@ class fmt_block:                                                         # fmt_b
         length = self.length
         bytes_ = bytearray()
         # header
+        # Consider bytes_.append() here?
         bytes_ += pack(ENDIAN + 'i8si4si', 16, self.keyword.encode(), length, self._dtype.name.encode(), 16)
         # data is split in multiple records if length > 1000 
         data = self.data
