@@ -394,8 +394,8 @@ class unfmt_file:
 
 
     #--------------------------------------------------------------------------------
-    def sections(self, begin=0, step_data=None, init_key=None, start_before=None, start_after=None, 
-                 end_before=None, end_after=None, remove_blocks=()):    # unfmt_file
+    def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None, 
+                 start_after=None, end_before=None, end_after=None):    # unfmt_file
     #--------------------------------------------------------------------------------
         # A unit is a list of consecutive absolute filepositions and relative
         # byte chuncks corresponding to the length of the blocks to be kept.
@@ -406,7 +406,7 @@ class unfmt_file:
         step = None
         for block in self.blocks():
             key = block.key()
-            step = step_data(block, step)
+            step = check_sync(block, step)
             if inside and key==end_before:
                 inside = False
                 # size
@@ -429,11 +429,11 @@ class unfmt_file:
                 inside = True
                 # pos
                 unit = [step, block.end(),]
-            if inside and key in remove_blocks:
-                # size
-                unit.append(block.start()-unit[-1])
-                # pos
-                unit.append(block.end())
+            # if inside and key in remove_blocks:
+            #     # size
+            #     unit.append(block.start()-unit[-1])
+            #     # pos
+            #     unit.append(block.end())
         if end_before==init_key:
             unit.append(self.size()-unit[-1])
         yield unit
@@ -454,14 +454,9 @@ class unfmt_file:
                     for (step, pos, size), file in zip(step_pos_size, files):
                         #print(file.name(), step, pos, size)
                         out_file.write(file.seek(pos).read(size))
-                        #data += file.seek(pos).read(size)
-                        # out_file.write(file.mmap[pos:pos+size])
                         steps.append(step)
                     if len(set(steps)) > 1:
                         raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
-                    # if len(data) > 100*1024*1024:
-                    #     out_file.write(data)
-                    #     data = bytes()    
                     progress(steps[0])
                     cancel()
                 return_value = self.file
@@ -753,6 +748,10 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def step(self, block, step):                                         # UNRST_file
     #--------------------------------------------------------------------------------
+        '''
+        Used in sections to get step of current section
+        '''
+        
         if block.key() == 'SEQNUM':
             return block.data()[0]
         return step
@@ -760,7 +759,7 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def sections(self, **kwargs):                                       # UNRST_file
     #--------------------------------------------------------------------------------
-        return super().sections(init_key='SEQNUM', step_data=self.step, **kwargs)
+        return super().sections(init_key='SEQNUM', check_sync=self.step, **kwargs)
 
 
 #====================================================================================
