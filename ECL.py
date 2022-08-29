@@ -228,8 +228,7 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
     def __init__(self, filename):                                        # unfmt_file
     #--------------------------------------------------------------------------------
-        self.fileobj = None
-        # self.mmap = None
+        # self.fileobj = None
         self.file = Path(filename)
         self.endpos = 0
         DEBUG and print(f'Creating {self}')
@@ -247,27 +246,22 @@ class unfmt_file:
         DEBUG and print(f'Deleting {self}')
 
 
-    #--------------------------------------------------------------------------------
-    def open(self):                                                   # unfmt_file
-    #--------------------------------------------------------------------------------
-        self.fileobj = open(self.file, 'rb')
-        return self.fileobj
-        # self.mmap = mmap(self.fileobj.fileno(), length=0, access=ACCESS_READ)
-        # return self.mmap
+    # #--------------------------------------------------------------------------------
+    # def open(self):                                                   # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     self.fileobj = open(self.file, 'rb')
+    #     return self.fileobj
 
-    #--------------------------------------------------------------------------------
-    def seek(self, pos):                                                 # unfmt_file
-    #--------------------------------------------------------------------------------
-        self.fileobj.seek(pos)
-        return self.fileobj
-        # self.mmap.seek(pos)
-        # return self.mmap
+    # #--------------------------------------------------------------------------------
+    # def seek(self, pos):                                                 # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     self.fileobj.seek(pos)
+    #     return self.fileobj
 
-    #--------------------------------------------------------------------------------
-    def close(self):                                                   # unfmt_file
-    #--------------------------------------------------------------------------------
-        # self.mmap.close()
-        self.fileobj.close()
+    # #--------------------------------------------------------------------------------
+    # def close(self):                                                   # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     self.fileobj.close()
 
 
     #--------------------------------------------------------------------------------
@@ -393,13 +387,45 @@ class unfmt_file:
 
 
 
+    # #--------------------------------------------------------------------------------
+    # def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None, 
+    #              start_after=None, end_before=None, end_after=None):    # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     if not self.exists():
+    #         raise SystemError(f'ERROR File {self.file} not found') 
+    #     inside = False
+    #     step = None
+    #     with open(self.file, 'rb') as file:
+    #         for block in self.blocks():
+    #             key = block.key()
+    #             step = check_sync(block, step)
+    #             if inside and key==end_before:
+    #                 inside = False
+    #                 yield (n, file.read(block.start()-pos))
+    #             if inside and key==end_after:
+    #                 inside = False
+    #                 yield (n, file.read(block.end()-pos))
+    #             if not inside and key==start_before:
+    #                 if step < begin:
+    #                     continue
+    #                 inside = True
+    #                 pos = block.start()
+    #                 file.seek(pos)
+    #                 n = step
+    #             if not inside and key==start_after:
+    #                 if step < begin:
+    #                     continue
+    #                 inside = True
+    #                 pos = block.end()
+    #                 file.seek(pos)
+    #                 n = step
+    #         if inside and end_before==init_key:
+    #             yield (n, file.read(self.size()-pos))
+
     #--------------------------------------------------------------------------------
     def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None, 
                  start_after=None, end_before=None, end_after=None):    # unfmt_file
     #--------------------------------------------------------------------------------
-        # A unit is a list of consecutive absolute filepositions and relative
-        # byte chuncks corresponding to the length of the blocks to be kept.
-        # A unit list always starts with a pos and ends with a size
         if not self.exists():
             raise SystemError(f'ERROR File {self.file} not found') 
         inside = False
@@ -408,66 +434,37 @@ class unfmt_file:
             for block in self.blocks():
                 key = block.key()
                 step = check_sync(block, step)
-                if inside and key==end_before:
+                if inside and key in (end_before, end_after):
                     inside = False
-                    # size
-                    # unit.append(block.start()-unit[-1])
-                    # yield unit
-                    size = block.start()-pos
-                    file.seek(pos)
-                    yield (step, file.read(size))
-                if inside and key==end_after:
-                    inside = False
-                    # size
-                    #unit.append(block.end()-unit[-1])
-                    # yield unit
-                    size = block.end()-pos
-                    file.seek(pos)
-                    yield (step, file.read(size))
-                if not inside and key==start_before:
+                    if key == end_before:
+                        end_pos = block.start()
+                    else:
+                        end_pos = block.end()
+                    yield (n, file.read(end_pos-start_pos))
+                if not inside and key in (start_before, start_after):
                     if step < begin:
                         continue
                     inside = True
-                    pos = block.start()
-                    # pos
-                    #unit = [step, block.start(),]
-                if not inside and key==start_after:
-                    if step < begin:
-                        continue
-                    inside = True
-                    pos = block.end()
-                    # pos
-                    # unit = [step, block.end(),]
-                # if inside and key in remove_blocks:
-                #     # size
-                #     unit.append(block.start()-unit[-1])
-                #     # pos
-                #     unit.append(block.end())
-            if end_before==init_key:
-                # unit.append(self.size()-unit[-1])
-                size = self.size()-pos
-            file.seek(pos)
-            yield (step, file.read(size))
-            # yield unit
+                    n = step
+                    if key == start_before:
+                        start_pos = block.start()
+                    else:
+                        start_pos = block.end()
+                    file.seek(start_pos)
+            if inside and end_before==init_key:
+                yield (n, file.read(self.size()-start_pos))
+
 
 
     #--------------------------------------------------------------------------------
-    # def create(self, sections=None, files=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
     def create(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
     #--------------------------------------------------------------------------------
-        # ### Open input files
-        # for file in files:
-        #     file.open()
         return_value = False
-        # try:
         with open(self.file, 'wb') as out_file:
             ### Get next postions from the sections generators
             for step_data in zip(*sections):
                 steps = []
-                # for (step, pos, size), file in zip(step_data, files):
                 for step, data in step_data:
-                    #print(file.name(), step, pos, size)
-                    # out_file.write(file.seek(pos).read(size))
                     out_file.write(data)
                     steps.append(step)
                 if len(set(steps)) > 1:
@@ -476,13 +473,6 @@ class unfmt_file:
                 cancel()
             return_value = self.file
         return return_value
-        # except:
-        #     raise
-        # finally:
-        #     ### Close input files
-        #     for file in files:
-        #         file.close()
-        # return return_value
 
 
 
