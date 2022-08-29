@@ -471,6 +471,8 @@ class unfmt_file:
                     raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
                 progress(steps[0])
                 cancel()
+            ### Make sure the section generator is exited properly and the file closed (because of the zip)
+            [sec.close() for sec in sections]
             return_value = self.file
         return return_value
 
