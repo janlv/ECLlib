@@ -404,69 +404,85 @@ class unfmt_file:
             raise SystemError(f'ERROR File {self.file} not found') 
         inside = False
         step = None
-        for block in self.blocks():
-            key = block.key()
-            step = check_sync(block, step)
-            if inside and key==end_before:
-                inside = False
-                # size
-                unit.append(block.start()-unit[-1])
-                yield unit
-            if inside and key==end_after:
-                inside = False
-                # size
-                unit.append(block.end()-unit[-1])
-                yield unit
-            if not inside and key==start_before:
-                if step < begin:
-                    continue
-                inside = True
-                # pos
-                unit = [step, block.start(),]
-            if not inside and key==start_after:
-                if step < begin:
-                    continue
-                inside = True
-                # pos
-                unit = [step, block.end(),]
-            # if inside and key in remove_blocks:
-            #     # size
-            #     unit.append(block.start()-unit[-1])
-            #     # pos
-            #     unit.append(block.end())
-        if end_before==init_key:
-            unit.append(self.size()-unit[-1])
-        yield unit
+        with open(self.file, 'rb') as file:
+            for block in self.blocks():
+                key = block.key()
+                step = check_sync(block, step)
+                if inside and key==end_before:
+                    inside = False
+                    # size
+                    # unit.append(block.start()-unit[-1])
+                    # yield unit
+                    size = block.start()-pos
+                    file.seek(pos)
+                    yield (step, file.read(size))
+                if inside and key==end_after:
+                    inside = False
+                    # size
+                    #unit.append(block.end()-unit[-1])
+                    # yield unit
+                    size = block.end()-pos
+                    file.seek(pos)
+                    yield (step, file.read(size))
+                if not inside and key==start_before:
+                    if step < begin:
+                        continue
+                    inside = True
+                    pos = block.start()
+                    # pos
+                    #unit = [step, block.start(),]
+                if not inside and key==start_after:
+                    if step < begin:
+                        continue
+                    inside = True
+                    pos = block.end()
+                    # pos
+                    # unit = [step, block.end(),]
+                # if inside and key in remove_blocks:
+                #     # size
+                #     unit.append(block.start()-unit[-1])
+                #     # pos
+                #     unit.append(block.end())
+            if end_before==init_key:
+                # unit.append(self.size()-unit[-1])
+                size = self.size()-pos
+            file.seek(pos)
+            yield (step, file.read(size))
+            # yield unit
 
 
     #--------------------------------------------------------------------------------
-    def create(self, sections=None, files=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
+    # def create(self, sections=None, files=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
+    def create(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
     #--------------------------------------------------------------------------------
-        ### Open input files
-        for file in files:
-            file.open()
+        # ### Open input files
+        # for file in files:
+        #     file.open()
         return_value = False
-        try:
-            with open(self.file, 'wb') as out_file:
-                ### Get next postions from the sections generators
-                for step_pos_size in zip(*sections):
-                    steps = []
-                    for (step, pos, size), file in zip(step_pos_size, files):
-                        #print(file.name(), step, pos, size)
-                        out_file.write(file.seek(pos).read(size))
-                        steps.append(step)
-                    if len(set(steps)) > 1:
-                        raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
-                    progress(steps[0])
-                    cancel()
-                return_value = self.file
-        except:
-            raise
-        finally:
-            ### Close input files
-            for file in files:
-                file.close()
+        # try:
+        with open(self.file, 'wb') as out_file:
+            ### Get next postions from the sections generators
+            for step_data in zip(*sections):
+                steps = []
+                # for (step, pos, size), file in zip(step_data, files):
+                for step, data in step_data:
+                    #print(file.name(), step, pos, size)
+                    # out_file.write(file.seek(pos).read(size))
+                    out_file.write(data)
+                    steps.append(step)
+                if len(set(steps)) > 1:
+                    raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
+                progress(steps[0])
+                cancel()
+            return_value = self.file
         return return_value
+        # except:
+        #     raise
+        # finally:
+        #     ### Close input files
+        #     for file in files:
+        #         file.close()
+        # return return_value
 
 
 
