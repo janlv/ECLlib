@@ -10,6 +10,22 @@ from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
+from contextlib import contextmanager
+
+@contextmanager
+#-----------------------------------------------------------------------
+def safezip(*gen):
+#-----------------------------------------------------------------------
+    '''
+    Zip generators and close them if the zip exits. Zip exits when the first generator is exhausted.
+    The __exit__() function for the non-exhausted generators will not be called. 
+    This routine closes the generators explicitly.
+    '''
+    try:
+        yield zip(*gen)
+    finally:
+        [g.close() for g in gen]
+
 
 #-----------------------------------------------------------------------
 def remove_leading_nondigits(txt):

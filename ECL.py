@@ -14,7 +14,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flat_list, list2str, float_or_str, matches, remove_comments
+from .utils import flat_list, safezip, list2str, float_or_str, matches, remove_comments
 
 #
 #
@@ -455,14 +455,13 @@ class unfmt_file:
                 yield (n, file.read(self.size()-start_pos))
 
 
-
     #--------------------------------------------------------------------------------
     def create(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
     #--------------------------------------------------------------------------------
         return_value = False
-        with open(self.file, 'wb') as out_file:
-            ### Get next postions from the sections generators
-            for step_data in zip(*sections):
+        with open(self.file, 'wb') as out_file, safezip(*sections) as zipper:
+            ### Get data from the section generators
+            for step_data in zipper:
                 steps = []
                 for step, data in step_data:
                     out_file.write(data)
@@ -471,8 +470,6 @@ class unfmt_file:
                     raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
                 progress(steps[0])
                 cancel()
-            ### Make sure the section generator is exited properly and the file closed (because of the zip)
-            [sec.close() for sec in sections]
             return_value = self.file
         return return_value
 
