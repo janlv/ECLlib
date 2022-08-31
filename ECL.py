@@ -382,9 +382,8 @@ class unfmt_file:
             if stop and stop[1] == values[stop[0]][-1] and len(set(size())) == 1:
                 break
         if raise_error and not all(values.values()):
-            raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
+            raise SystemError('ERROR Unable to read ' + list2str(var_pos.keys(), sep="'") + f' from {self.file.name}')
         return list(values.values())        
-
 
 
     # #--------------------------------------------------------------------------------
