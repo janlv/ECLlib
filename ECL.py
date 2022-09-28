@@ -671,7 +671,7 @@ class Input_file:
                 if raise_error:
                     raise SystemError(f'{self.file} is missing!')
                 return default
-            if not keyword in ''.join(open(self.file, encoding='utf-8').readlines()):
+            if not keyword.encode() in open(self.file, 'rb').read():
                 if raise_error:
                     raise SystemError(error_msg)
                 return default
