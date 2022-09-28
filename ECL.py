@@ -74,7 +74,7 @@ class keywords:
 #====================================================================================
 class unfmt_block:
     #
-    # Block of formatted Eclipse data
+    # Block of unformatted Eclipse data
     #
 #====================================================================================
     #  | h e a d e r  |   d a t a     |
