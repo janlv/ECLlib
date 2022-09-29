@@ -816,7 +816,7 @@ class MSG_file:
         return self.file.stat().st_size
 
     #-----------------------------------------------------------------------
-    def get(self, var_list, N=0, raise_error=True):
+    def get(self, *var_list, N=0, raise_error=True):
     #-----------------------------------------------------------------------
         with open(self.file) as f:
             lines = f.readlines()
@@ -853,7 +853,7 @@ class PRT_file:
         return self.file.stat().st_size
 
     #-----------------------------------------------------------------------
-    def get(self, var_list, N=0, raise_error=True):
+    def get(self, *var_list, N=0, raise_error=True):
     #-----------------------------------------------------------------------
         values = {}
         for var in var_list:
