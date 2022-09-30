@@ -226,10 +226,10 @@ class unfmt_file:
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, filename):                                        # unfmt_file
+    def __init__(self, filename, suffix):                                # unfmt_file
     #--------------------------------------------------------------------------------
         # self.fileobj = None
-        self.file = Path(filename)
+        self.file = Path(filename).with_suffix(suffix)
         self.endpos = 0
         DEBUG and print(f'Creating {self}')
 
@@ -385,41 +385,6 @@ class unfmt_file:
             raise SystemError('ERROR Unable to read ' + list2str(var_pos.keys(), sep="'") + f' from {self.file.name}')
         return list(values.values())        
 
-
-    # #--------------------------------------------------------------------------------
-    # def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None, 
-    #              start_after=None, end_before=None, end_after=None):    # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if not self.exists():
-    #         raise SystemError(f'ERROR File {self.file} not found') 
-    #     inside = False
-    #     step = None
-    #     with open(self.file, 'rb') as file:
-    #         for block in self.blocks():
-    #             key = block.key()
-    #             step = check_sync(block, step)
-    #             if inside and key==end_before:
-    #                 inside = False
-    #                 yield (n, file.read(block.start()-pos))
-    #             if inside and key==end_after:
-    #                 inside = False
-    #                 yield (n, file.read(block.end()-pos))
-    #             if not inside and key==start_before:
-    #                 if step < begin:
-    #                     continue
-    #                 inside = True
-    #                 pos = block.start()
-    #                 file.seek(pos)
-    #                 n = step
-    #             if not inside and key==start_after:
-    #                 if step < begin:
-    #                     continue
-    #                 inside = True
-    #                 pos = block.end()
-    #                 file.seek(pos)
-    #                 n = step
-    #         if inside and end_before==init_key:
-    #             yield (n, file.read(self.size()-pos))
 
     #--------------------------------------------------------------------------------
     def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None, 
@@ -715,10 +680,9 @@ class UNRST_file(unfmt_file):
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, end='ENDSOL', **kwargs):
+    def __init__(self, file, wait_func=None, end='ENDSOL', **kwargs):    # UNRST_file
     #--------------------------------------------------------------------------------
-        suffix = '.UNRST'
-        super().__init__(Path(file).with_suffix(suffix))
+        super().__init__(file, '.UNRST')
         self.varmap = {'step'  : keypos(key='SEQNUM'),
                        'nwell' : keypos('INTEHEAD', 16 , 'NWELLS'), 
                        'day'   : keypos('INTEHEAD', 64 , 'IDAY'),
@@ -732,7 +696,7 @@ class UNRST_file(unfmt_file):
 
 
     #--------------------------------------------------------------------------------
-    def dates(self, N=0):                                          # UNRST_file
+    def dates(self, N=0):                                                # UNRST_file
     #--------------------------------------------------------------------------------
         year, month, day = self.get('year','month','day', N=N)
         dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date() for d,m,y in zip(day, month, year))
@@ -772,8 +736,7 @@ class RFT_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, **kwargs):
     #--------------------------------------------------------------------------------
-        suffix = '.RFT'
-        super().__init__(Path(file).with_suffix(suffix))
+        super().__init__(file, '.RFT')
         self.check = check_blocks(self, start='TIME', end='CONNXT', wait_func=wait_func, **kwargs)
 
     #--------------------------------------------------------------------------------
@@ -792,60 +755,30 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __init__(self, file):
     #--------------------------------------------------------------------------------
-        suffix = '.UNSMRY'
-        super().__init__(Path(file).with_suffix(suffix))
+        super().__init__(file, '.UNSMRY')
         self.varmap = {'time' : keypos(key='PARAMS'), 
                        'step' : keypos(key='MINISTEP')}
 
 
 #====================================================================================
-class MSG_file:
+class SMSPEC_file(unfmt_file):
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, file):
     #--------------------------------------------------------------------------------
-        self.file = Path(file).with_suffix('.MSG')
-        self._pattern = {'time' : r'<\s*\bmessage\b\s+\bdate\b="[0-9/]+"\s+time="([0-9.]+)"\s*>',
-                        'step' : r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)'}
-        self._convert = {'time' : float,
-                         'step' : int}
+        super().__init__(file, '.SMSPEC')
 
-    #-----------------------------------------------------------------------
-    def size(self):
-    #-----------------------------------------------------------------------
-        return self.file.stat().st_size
-
-    #-----------------------------------------------------------------------
-    def get(self, *var_list, N=0, raise_error=True):
-    #-----------------------------------------------------------------------
-        with open(self.file) as f:
-            lines = f.readlines()
-        lines = ''.join(lines)
-        values = {}
-        for var in var_list:
-            match = compile(self._pattern[var]).findall(lines)
-            values[var] = [self._convert[var](m) for m in match]
-        if raise_error and not all(values.values()):
-            raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
-        if N == 0:
-            return list(values.values())
-        else:
-            if N > 0:
-                N -= 1
-            return [[v[N]] if v else [] for v in values.values()]
 
 
 #====================================================================================
-class PRT_file:
+class text_file:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file):
+    def __init__(self, file, suffix):
     #--------------------------------------------------------------------------------
-        self.file = Path(file).with_suffix('.PRT')
-        self._pattern = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
-                        'step' : r'\bSTEP\b\s+([0-9]+)'}
-        self._convert = {'time' : float,
-                         'step' : int}
+        self.file = Path(file).with_suffix(suffix)
+        self._pattern = {}
+        self._convert = {}
 
     #-----------------------------------------------------------------------
     def size(self):
@@ -867,6 +800,36 @@ class PRT_file:
             if N > 0:
                 N -= 1
             return [[v[N]] if v else [] for v in values.values()]
+
+
+
+#====================================================================================
+class MSG_file(text_file):
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, file):
+    #--------------------------------------------------------------------------------
+        super().__init__(file, '.MSG')
+        self._pattern = {'time' : r'<\s*\bmessage\b\s+\bdate\b="[0-9/]+"\s+time="([0-9.]+)"\s*>',
+                        'step' : r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)'}
+        self._convert = {'time' : float,
+                         'step' : int}
+
+
+
+#====================================================================================
+class PRT_file(text_file):
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, file):
+    #--------------------------------------------------------------------------------
+        #self.file = Path(file).with_suffix('.PRT')
+        super().__init__(file, '.PRT')
+        self._pattern = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
+                        'step' : r'\bSTEP\b\s+([0-9]+)'}
+        self._convert = {'time' : float,
+                         'step' : int}
+
 
 
 #====================================================================================
