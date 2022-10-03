@@ -193,24 +193,40 @@ class unfmt_block:
                 mmap_write.flush()
 
 
+    # #--------------------------------------------------------------------------------
+    # def data(self, raise_error=False):                                  # unfmt_block
+    # #--------------------------------------------------------------------------------
+    #     value = []
+    #     a = self._data_start
+    #     while a < self._end:
+    #         size, n = self.read_size_at(a)
+    #         a += 4
+    #         try:
+    #             value.extend(unpack(ENDIAN+f'{n}{self._dtype.unpack}', self._mmap[a:a+size]))
+    #         except struct_error as e:
+    #             if raise_error:
+    #                 raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
+    #             return None
+    #         a += size + 4
+    #     if self._type == b'CHAR':
+    #         value = [b''.join(value).decode()]
+    #     return value
+
     #--------------------------------------------------------------------------------
     def data(self, raise_error=False):                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        value = []
-        a = self._data_start
-        while a < self._end:
-            size, n = self.read_size_at(a)
-            a += 4
-            try:
-                value.extend(unpack(ENDIAN+f'{n}{self._dtype.unpack}', self._mmap[a:a+size]))
-            except struct_error as e:
-                if raise_error:
-                    raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
-                return None
-            a += size + 4
+        slices = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)) + [self._end]
+        try:           
+            value = unpack(ENDIAN+f'{self._length}{self._dtype.unpack}', b''.join([self._mmap[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
+        except struct_error as e:
+            if raise_error:
+                raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
+            return None
         if self._type == b'CHAR':
             value = [b''.join(value).decode()]
         return value
+
+
 
 #====================================================================================
 @dataclass
@@ -255,11 +271,6 @@ class File:
             raise SystemError(f'ERROR {self.file.name} is missing in folder {self.file.parent}')
         return False
 
-    # #--------------------------------------------------------------------------------
-    # def exists(self):                                                    # File
-    # #--------------------------------------------------------------------------------
-    #     return self.file.exists()
-
 
     #--------------------------------------------------------------------------------
     def size(self):                                                      # File
@@ -288,57 +299,9 @@ class unfmt_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def __str__(self):                                                  # unfmt_file
+    def __repr__(self):                                                  # unfmt_file
     #--------------------------------------------------------------------------------
         return f'<unfmt_file, {self}, endpos={self.endpos}>'
-
-
-    # #--------------------------------------------------------------------------------
-    # def __del__(self):                                                  # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     DEBUG and print(f'Deleting {self}')
-
-
-    # #--------------------------------------------------------------------------------
-    # def open(self):                                                   # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     self.fileobj = open(self.file, 'rb')
-    #     return self.fileobj
-
-    # #--------------------------------------------------------------------------------
-    # def seek(self, pos):                                                 # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     self.fileobj.seek(pos)
-    #     return self.fileobj
-
-    # #--------------------------------------------------------------------------------
-    # def close(self):                                                   # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     self.fileobj.close()
-
-
-    # #--------------------------------------------------------------------------------
-    # def is_file(self):                                                   # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     return self.file.is_file()
-
-        
-    # #--------------------------------------------------------------------------------
-    # def exists(self):                                                    # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     return self.file.exists()
-
-
-    # #--------------------------------------------------------------------------------
-    # def size(self):                                                      # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     return self.file.stat().st_size
-
-
-    # #--------------------------------------------------------------------------------
-    # def name(self):                                                      # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     return self.file.name
 
 
     #--------------------------------------------------------------------------------
@@ -493,7 +456,7 @@ class unfmt_file(File):
 
 
 #====================================================================================
-class Input_file:
+class Input_file(File):
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, file, check=False, read=False, reread=False, include=False):      # Input_file
@@ -748,6 +711,11 @@ class UNRST_file(unfmt_file):
                        'time'  : keypos(key='DOUBHEAD')}
         self.check = check_blocks(self, start='SEQNUM', end=end, wait_func=wait_func, **kwargs)
 
+
+    #--------------------------------------------------------------------------------
+    def __repr__(self):                                                  # UNRST_file
+    #--------------------------------------------------------------------------------
+        return f'<UNRST_file, {self}>'
 
     #--------------------------------------------------------------------------------
     def dates(self, N=0):                                                # UNRST_file
@@ -1070,12 +1038,6 @@ class fmt_file(File):                                                      # fmt
     #
     # Class to handle formatted Eclipse files.
     #
-    # Functions:
-    #             blocks(warn_missing=False)
-    #             convert()
-    #             is_file()
-    #
-    #
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix):                                  # fmt_file
@@ -1152,49 +1114,10 @@ class fmt_file(File):                                                      # fmt
 class FUNRST_file(fmt_file):
 #====================================================================================
     #----------------------------------------------------------------------------
-    def __init__(self, filename, suffix):                           # FUNRST_file
+    def __init__(self, filename):                           # FUNRST_file
     #----------------------------------------------------------------------------
-        super().__init__(filename, suffix)
+        super().__init__(filename, '.FUNRST')
 
-
-    # #----------------------------------------------------------------------------
-    # def convert(self, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
-    #             rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file
-    # #--------------------------------------------------------------------------------
-    #     if rename_key and len(rename_key)<2:
-    #         raise SystemError(f"ERROR in convert: Format of rename_keyword options is ('old name', 'new name'), but {rename_key} were given")
-    #     stem = self.file.stem.upper()
-    #     fname = str(self.file.parent/stem)+'.'+ext
-    #     out_file = open(fname, 'wb')
-    #     bytes_ = bytearray()
-    #     n = 0
-    #     count = {}
-    #     for block in self.blocks():
-    #         key = block.key()
-    #         if key==init_key and len(bytes_)>0:
-    #             # write previous block to file, and reset bytes_
-    #             n += 1
-    #             out_file.write(bytes_)
-    #             # reset bytes for next section
-    #             bytes_ = bytearray()
-    #             progress(n)
-    #             cancel()
-    #             count = {}
-    #         if rename_duplicate:
-    #             if count.get(key):
-    #                 # duplicate keyname, rename key
-    #                 block.set_key(key[:-1]+str(count[key]+1))
-    #             else:
-    #                 # create new entry
-    #                 count[key] = 0
-    #             count[key] += 1
-    #         if rename_key and key==rename_key[0]:
-    #             block.set_key(rename_key[1])
-    #         bytes_ += block.unformatted()
-    #     out_file.close()
-    #     if echo:
-    #         print(f'{self.file.name} converted to {Path(fname)}')
-    #     return Path(fname)
 
     #----------------------------------------------------------------------------
     def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # FUNRST_file
@@ -1361,6 +1284,44 @@ class FUNRST_file(fmt_file):
         return buffer
 
 
+    # #----------------------------------------------------------------------------
+    # def convert(self, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
+    #             rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file
+    # #--------------------------------------------------------------------------------
+    #     if rename_key and len(rename_key)<2:
+    #         raise SystemError(f"ERROR in convert: Format of rename_keyword options is ('old name', 'new name'), but {rename_key} were given")
+    #     stem = self.file.stem.upper()
+    #     fname = str(self.file.parent/stem)+'.'+ext
+    #     out_file = open(fname, 'wb')
+    #     bytes_ = bytearray()
+    #     n = 0
+    #     count = {}
+    #     for block in self.blocks():
+    #         key = block.key()
+    #         if key==init_key and len(bytes_)>0:
+    #             # write previous block to file, and reset bytes_
+    #             n += 1
+    #             out_file.write(bytes_)
+    #             # reset bytes for next section
+    #             bytes_ = bytearray()
+    #             progress(n)
+    #             cancel()
+    #             count = {}
+    #         if rename_duplicate:
+    #             if count.get(key):
+    #                 # duplicate keyname, rename key
+    #                 block.set_key(key[:-1]+str(count[key]+1))
+    #             else:
+    #                 # create new entry
+    #                 count[key] = 0
+    #             count[key] += 1
+    #         if rename_key and key==rename_key[0]:
+    #             block.set_key(rename_key[1])
+    #         bytes_ += block.unformatted()
+    #     out_file.close()
+    #     if echo:
+    #         print(f'{self.file.name} converted to {Path(fname)}')
+    #     return Path(fname)
             
 # #@njit
 # #----------------------------------------------------------------------------
