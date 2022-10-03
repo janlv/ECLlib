@@ -222,14 +222,67 @@ class keypos:
 
 
 #====================================================================================
-class unfmt_file:
+class File:
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, filename, suffix):                                # File
+    #--------------------------------------------------------------------------------
+        self.file = Path(filename).with_suffix(suffix)
+        DEBUG and print(f'Creating {self}')
+
+    #--------------------------------------------------------------------------------
+    def __repr__(self):                                                  # File
+    #--------------------------------------------------------------------------------
+        return f'<File, file={self.file}>'
+
+    #--------------------------------------------------------------------------------
+    def __del__(self):                                                  # File
+    #--------------------------------------------------------------------------------
+        DEBUG and print(f'Deleting {self}')
+
+    #--------------------------------------------------------------------------------
+    def is_file(self):                                                   # File
+    #--------------------------------------------------------------------------------
+        return self.file.is_file()
+
+        
+    #--------------------------------------------------------------------------------
+    def exists(self, raise_error=False):                                  # File
+    #--------------------------------------------------------------------------------
+        if self.file.is_file():
+            return True
+        if raise_error:
+            raise SystemError(f'ERROR {self.file.name} is missing in folder {self.file.parent}')
+        return False
+
+    # #--------------------------------------------------------------------------------
+    # def exists(self):                                                    # File
+    # #--------------------------------------------------------------------------------
+    #     return self.file.exists()
+
+
+    #--------------------------------------------------------------------------------
+    def size(self):                                                      # File
+    #--------------------------------------------------------------------------------
+        return self.file.stat().st_size
+
+
+    #--------------------------------------------------------------------------------
+    def name(self):                                                      # File
+    #--------------------------------------------------------------------------------
+        return self.file.name
+
+
+#====================================================================================
+class unfmt_file(File):
 #====================================================================================
 
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix):                                # unfmt_file
     #--------------------------------------------------------------------------------
         # self.fileobj = None
-        self.file = Path(filename).with_suffix(suffix)
+        super().__init__(filename, suffix)
+        #self.file = Path(filename).with_suffix(suffix)
         self.endpos = 0
         DEBUG and print(f'Creating {self}')
 
@@ -237,13 +290,13 @@ class unfmt_file:
     #--------------------------------------------------------------------------------
     def __str__(self):                                                  # unfmt_file
     #--------------------------------------------------------------------------------
-        return f'<unfmt_file(filename={self.file}>'
+        return f'<unfmt_file, {self}, endpos={self.endpos}>'
 
 
-    #--------------------------------------------------------------------------------
-    def __del__(self):                                                  # unfmt_file
-    #--------------------------------------------------------------------------------
-        DEBUG and print(f'Deleting {self}')
+    # #--------------------------------------------------------------------------------
+    # def __del__(self):                                                  # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     DEBUG and print(f'Deleting {self}')
 
 
     # #--------------------------------------------------------------------------------
@@ -264,28 +317,28 @@ class unfmt_file:
     #     self.fileobj.close()
 
 
-    #--------------------------------------------------------------------------------
-    def is_file(self):                                                   # unfmt_file
-    #--------------------------------------------------------------------------------
-        return self.file.is_file()
+    # #--------------------------------------------------------------------------------
+    # def is_file(self):                                                   # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     return self.file.is_file()
 
         
-    #--------------------------------------------------------------------------------
-    def exists(self):                                                    # unfmt_file
-    #--------------------------------------------------------------------------------
-        return self.file.exists()
+    # #--------------------------------------------------------------------------------
+    # def exists(self):                                                    # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     return self.file.exists()
 
 
-    #--------------------------------------------------------------------------------
-    def size(self):                                                      # unfmt_file
-    #--------------------------------------------------------------------------------
-        return self.file.stat().st_size
+    # #--------------------------------------------------------------------------------
+    # def size(self):                                                      # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     return self.file.stat().st_size
 
 
-    #--------------------------------------------------------------------------------
-    def name(self):                                                      # unfmt_file
-    #--------------------------------------------------------------------------------
-        return self.file.name
+    # #--------------------------------------------------------------------------------
+    # def name(self):                                                      # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     return self.file.name
 
 
     #--------------------------------------------------------------------------------
@@ -446,13 +499,14 @@ class Input_file:
     def __init__(self, file, check=False, read=False, reread=False, include=False):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
-        file = Path(file)  
-        if not file.suffix:
-            ### .DATA is the default suffix
-            file = file.with_suffix('.DATA')
-        if check and not file.is_file():
+        #file = Path(file)  
+        #if not file.suffix:
+        #    ### .DATA is the default suffix
+        #    file = file.with_suffix('.DATA')
+        super().__init__(file, '.DATA')
+        if check and not self.file.is_file():
             raise SystemError(f'ERROR Eclipse input-file {file.name} is missing in folder {file.parent}')        
-        self.file = file
+        #self.file = file
         self._data = None
         self._reread = reread
         if read or include:
@@ -553,20 +607,20 @@ class Input_file:
         return tsteps
 
 
-    #--------------------------------------------------------------------------------
-    def is_file(self):                                                   # Input_file
-    #--------------------------------------------------------------------------------
-        return self.file.is_file()
+    # #--------------------------------------------------------------------------------
+    # def is_file(self):                                                   # Input_file
+    # #--------------------------------------------------------------------------------
+    #     return self.file.is_file()
 
 
-    #--------------------------------------------------------------------------------
-    def exists(self, raise_error=False):                                  # Input_file
-    #--------------------------------------------------------------------------------
-        if self.file.is_file():
-            return True
-        if raise_error:
-            raise SystemError(f'ERROR {self.file.name} is missing in folder {self.file.parent}')
-        return False
+    # #--------------------------------------------------------------------------------
+    # def exists(self, raise_error=False):                                  # Input_file
+    # #--------------------------------------------------------------------------------
+    #     if self.file.is_file():
+    #         return True
+    #     if raise_error:
+    #         raise SystemError(f'ERROR {self.file.name} is missing in folder {self.file.parent}')
+    #     return False
 
 
     #--------------------------------------------------------------------------------
@@ -771,19 +825,20 @@ class SMSPEC_file(unfmt_file):
 
 
 #====================================================================================
-class text_file:
+class text_file(File):
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, file, suffix):
     #--------------------------------------------------------------------------------
-        self.file = Path(file).with_suffix(suffix)
+        #self.file = Path(file).with_suffix(suffix)
+        super().__init__(file, suffix)
         self._pattern = {}
         self._convert = {}
 
-    #-----------------------------------------------------------------------
-    def size(self):
-    #-----------------------------------------------------------------------
-        return self.file.stat().st_size
+    # #-----------------------------------------------------------------------
+    # def size(self):
+    # #-----------------------------------------------------------------------
+    #     return self.file.stat().st_size
 
     #-----------------------------------------------------------------------
     def get(self, *var_list, N=0, raise_error=True):
@@ -1011,7 +1066,7 @@ class fmt_block:                                                         # fmt_b
 
         
 #====================================================================================
-class fmt_file:                                                            # fmt_file
+class fmt_file(File):                                                      # fmt_file
     #
     # Class to handle formatted Eclipse files.
     #
@@ -1023,21 +1078,22 @@ class fmt_file:                                                            # fmt
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename):                                          # fmt_file
+    def __init__(self, filename, suffix):                                  # fmt_file
     #--------------------------------------------------------------------------------
-        self.file = Path(filename)
+        #self.file = Path(filename)
+        super().__init__(filename, suffix)
         self.fh = None
 
-    #--------------------------------------------------------------------------------
-    def is_file(self):                                                     # fmt_file
-    #--------------------------------------------------------------------------------
-        return self.file.is_file()
+    # #--------------------------------------------------------------------------------
+    # def is_file(self):                                                     # fmt_file
+    # #--------------------------------------------------------------------------------
+    #     return self.file.is_file()
 
 
-    #--------------------------------------------------------------------------------
-    def size(self):                                                        # fmt_file
-    #--------------------------------------------------------------------------------
-        return self.file.stat().st_size
+    # #--------------------------------------------------------------------------------
+    # def size(self):                                                        # fmt_file
+    # #--------------------------------------------------------------------------------
+    #     return self.file.stat().st_size
 
     #--------------------------------------------------------------------------------
     def blocks(self, warn_missing=False):                                  # fmt_file
@@ -1092,47 +1148,56 @@ class fmt_file:                                                            # fmt
         return data
             
 
+#====================================================================================
+class FUNRST_file(fmt_file):
+#====================================================================================
     #----------------------------------------------------------------------------
-    def convert(self, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
-                rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # fmt_file
-    #--------------------------------------------------------------------------------
-        if rename_key and len(rename_key)<2:
-            raise SystemError(f"ERROR in convert: Format of rename_keyword options is ('old name', 'new name'), but {rename_key} were given")
-        stem = self.file.stem.upper()
-        fname = str(self.file.parent/stem)+'.'+ext
-        out_file = open(fname, 'wb')
-        bytes_ = bytearray()
-        n = 0
-        count = {}
-        for block in self.blocks():
-            key = block.key()
-            if key==init_key and len(bytes_)>0:
-                # write previous block to file, and reset bytes_
-                n += 1
-                out_file.write(bytes_)
-                # reset bytes for next section
-                bytes_ = bytearray()
-                progress(n)
-                cancel()
-                count = {}
-            if rename_duplicate:
-                if count.get(key):
-                    # duplicate keyname, rename key
-                    block.set_key(key[:-1]+str(count[key]+1))
-                else:
-                    # create new entry
-                    count[key] = 0
-                count[key] += 1
-            if rename_key and key==rename_key[0]:
-                block.set_key(rename_key[1])
-            bytes_ += block.unformatted()
-        out_file.close()
-        if echo:
-            print(f'{self.file.name} converted to {Path(fname)}')
-        return Path(fname)
+    def __init__(self, filename, suffix):                           # FUNRST_file
+    #----------------------------------------------------------------------------
+        super().__init__(filename, suffix)
+
+
+    # #----------------------------------------------------------------------------
+    # def convert(self, ext='UNRST', init_key='SEQNUM', rename_duplicate=True,
+    #             rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file
+    # #--------------------------------------------------------------------------------
+    #     if rename_key and len(rename_key)<2:
+    #         raise SystemError(f"ERROR in convert: Format of rename_keyword options is ('old name', 'new name'), but {rename_key} were given")
+    #     stem = self.file.stem.upper()
+    #     fname = str(self.file.parent/stem)+'.'+ext
+    #     out_file = open(fname, 'wb')
+    #     bytes_ = bytearray()
+    #     n = 0
+    #     count = {}
+    #     for block in self.blocks():
+    #         key = block.key()
+    #         if key==init_key and len(bytes_)>0:
+    #             # write previous block to file, and reset bytes_
+    #             n += 1
+    #             out_file.write(bytes_)
+    #             # reset bytes for next section
+    #             bytes_ = bytearray()
+    #             progress(n)
+    #             cancel()
+    #             count = {}
+    #         if rename_duplicate:
+    #             if count.get(key):
+    #                 # duplicate keyname, rename key
+    #                 block.set_key(key[:-1]+str(count[key]+1))
+    #             else:
+    #                 # create new entry
+    #                 count[key] = 0
+    #             count[key] += 1
+    #         if rename_key and key==rename_key[0]:
+    #             block.set_key(rename_key[1])
+    #         bytes_ += block.unformatted()
+    #     out_file.close()
+    #     if echo:
+    #         print(f'{self.file.name} converted to {Path(fname)}')
+    #     return Path(fname)
 
     #----------------------------------------------------------------------------
-    def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # fmt_file
+    def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # FUNRST_file
     #----------------------------------------------------------------------------
         n = 0
         # pos = {k:0 for k in datasize.keys()}
@@ -1191,7 +1256,7 @@ class fmt_file:                                                            # fmt
 
 
     #----------------------------------------------------------------------------
-    def get_data_pos(self, filemap, size):                             # fmt_file
+    def get_data_pos(self, filemap, size):                             # FUNRST_file
     #----------------------------------------------------------------------------
         data = filemap[:size].split()
         # dtypes = [("'"+k+"'").encode() for k in datatype.keys()]
@@ -1205,7 +1270,7 @@ class fmt_file:                                                            # fmt
         return data_pos, len(data)
 
     # #----------------------------------------------------------------------------
-    # def get_data_pos_v2(self, filemap, size):                             # fmt_file
+    # def get_data_pos_v2(self, filemap, size):                             # FUNRST_file
     # #----------------------------------------------------------------------------
     #     dtypes = [("'"+k+"'").encode() for k in DTYPE_LIST]
     #     data_pos = {k:[] for k in DTYPE.keys()}
@@ -1217,7 +1282,7 @@ class fmt_file:                                                            # fmt
     #     return data_pos
 
     #----------------------------------------------------------------------------
-    def prepare_helper_arrays(self, blocks, nblocks):                  # fmt_file
+    def prepare_helper_arrays(self, blocks, nblocks):                  # FUNRST_file
     #----------------------------------------------------------------------------
         block_slices = nparray(blocks.slice)
         slices = nparray(block_slices)
@@ -1234,7 +1299,7 @@ class fmt_file:                                                            # fmt
 
     #----------------------------------------------------------------------------
     def fast_convert(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
-                rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # fmt_file 
+                rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file 
     #--------------------------------------------------------------------------------
         outfile = self.file.with_suffix(ext)
         # if self.size() < 1:
@@ -1275,7 +1340,7 @@ class fmt_file:                                                            # fmt
         return outfile
 
     #----------------------------------------------------------------------------
-    def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride): # fmt_file
+    def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride): # FUNRST_file
     #----------------------------------------------------------------------------
         buffer = {}
         # Loop over all datatypes (INTE, REAL, DOUB, etc.)
@@ -1344,16 +1409,17 @@ class RSM_block:                                                          # RSM_
     def get_data(self):                                                   # RSM_block
     #--------------------------------------------------------------------------------
         for col,(v,u,w) in enumerate(zip(self.var, self.unit, self.well)):
-            yield (v, u, w, [self.data[row][col] for row in range(self.nrow)])
+                yield (v, u, w, [self.data[row][col] for row in range(self.nrow)])
         
         
 #====================================================================================
-class RSM_file:                                                            # RSM_file
+class RSM_file(File):                                                      # RSM_file
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename):
+    def __init__(self, filename, suffix):
     #--------------------------------------------------------------------------------
-        self.name = Path(filename)
+        #self.file = Path(filename)
+        super().__init__(filename, suffix)
         self.fh = None
         self.tag = '1'
         self.nrow = self.block_length()-10
@@ -1362,9 +1428,9 @@ class RSM_file:                                                            # RSM
     #--------------------------------------------------------------------------------
     def get_data(self):                                                    # RSM_file
     #--------------------------------------------------------------------------------
-        if not self.name.is_file():
+        if not self.file.is_file():
             return ()
-        with open(self.name) as self.fh:
+        with open(self.file) as self.fh:
             for line in self.fh:
                 # line is now at the tag-line
                 for block in self.read_block():
@@ -1433,7 +1499,7 @@ class RSM_file:                                                            # RSM
     #--------------------------------------------------------------------------------
     def block_length(self):                                                # RSM_file
     #--------------------------------------------------------------------------------
-        with open(self.name) as fh: 
+        with open(self.file) as fh: 
             nb, n = 0, 0 
             for line in fh: 
                 n += 1 
