@@ -217,7 +217,7 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
         slices = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)) + [self._end]
         try:           
-            value = unpack(ENDIAN+f'{self._length}{self._dtype.unpack}', b''.join([self._mmap[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
+            value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._mmap[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
         except struct_error as e:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
