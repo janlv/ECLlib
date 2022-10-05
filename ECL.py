@@ -463,11 +463,8 @@ class Input_file(File):
     def __init__(self, file, check=False, read=False, reread=False, include=False):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
-        super().__init__(file, '.DATA', role='Eclipse input-file')
+        super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file')
         check and self.exists(raise_error=True)
-        # if check and not self.file.is_file():
-        #     raise SystemError(f'ERROR Eclipse input-file {self.file.name} is missing in folder {self.file.parent}')        
-        #self.file = file
         self._data = None
         self._reread = reread
         if read or include:
@@ -487,9 +484,9 @@ class Input_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def __str__(self):                                                   # Input_file
+    def __repr__(self):                                                   # Input_file
     #--------------------------------------------------------------------------------
-        return f'{self.file}'
+        return f'<Input_file {self.file}>'
 
 
     #--------------------------------------------------------------------------------
