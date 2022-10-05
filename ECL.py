@@ -269,7 +269,7 @@ class File:
         if self.file.is_file():
             return True
         if raise_error:
-            raise SystemError(f'ERROR{" ".join((self.role, self.file.name))} is missing in folder {self.file.parent}')
+            raise SystemError(f'ERROR {" ".join((self.role, self.file.name)).lstrip()} is missing in folder {self.file.parent}')
         return False
 
 
