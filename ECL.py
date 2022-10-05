@@ -241,45 +241,46 @@ class keypos:
 class File:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix):                                # File
+    def __init__(self, filename, suffix, role=''):                             # File
     #--------------------------------------------------------------------------------
         self.file = Path(filename).with_suffix(suffix)
+        self.role = role.rstrip().lstrip()
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
-    def __repr__(self):                                                  # File
+    def __repr__(self):                                                        # File
     #--------------------------------------------------------------------------------
         return f'<File, file={self.file}>'
 
     #--------------------------------------------------------------------------------
-    def __del__(self):                                                  # File
+    def __del__(self):                                                         # File
     #--------------------------------------------------------------------------------
         DEBUG and print(f'Deleting {self}')
 
     #--------------------------------------------------------------------------------
-    def is_file(self):                                                   # File
+    def is_file(self):                                                         # File
     #--------------------------------------------------------------------------------
         return self.file.is_file()
 
         
     #--------------------------------------------------------------------------------
-    def exists(self, raise_error=False):                                  # File
+    def exists(self, raise_error=False):                                       # File
     #--------------------------------------------------------------------------------
         if self.file.is_file():
             return True
         if raise_error:
-            raise SystemError(f'ERROR {self.file.name} is missing in folder {self.file.parent}')
+            raise SystemError(f'ERROR{" ".join((self.role, self.file.name))} is missing in folder {self.file.parent}')
         return False
 
 
     #--------------------------------------------------------------------------------
-    def size(self):                                                      # File
+    def size(self):                                                            # File
     #--------------------------------------------------------------------------------
         return self.file.stat().st_size
 
 
     #--------------------------------------------------------------------------------
-    def name(self):                                                      # File
+    def name(self):                                                            # File
     #--------------------------------------------------------------------------------
         return self.file.name
 
@@ -462,13 +463,10 @@ class Input_file(File):
     def __init__(self, file, check=False, read=False, reread=False, include=False):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
-        #file = Path(file)  
-        #if not file.suffix:
-        #    ### .DATA is the default suffix
-        #    file = file.with_suffix('.DATA')
-        super().__init__(file, '.DATA')
-        if check and not self.file.is_file():
-            raise SystemError(f'ERROR Eclipse input-file {file.name} is missing in folder {file.parent}')        
+        super().__init__(file, '.DATA', role='Eclipse input-file')
+        check and self.exists(raise_error=True)
+        # if check and not self.file.is_file():
+        #     raise SystemError(f'ERROR Eclipse input-file {self.file.name} is missing in folder {self.file.parent}')        
         #self.file = file
         self._data = None
         self._reread = reread
