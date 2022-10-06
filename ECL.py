@@ -884,18 +884,18 @@ class check_blocks:                                                    # check_b
 
 
     #--------------------------------------------------------------------------------
-    def data(self):
+    def data(self):                                                    # check_blocks
     #--------------------------------------------------------------------------------
         return self._start
 
     #--------------------------------------------------------------------------------
-    def info(self, data=None, count=False):                               # check_blocks
+    def info(self, data=None, count=False):                            # check_blocks
     #--------------------------------------------------------------------------------
         return f"  {self._key['start'].decode()} : {list2str(data and data or self._start, count=count)}"
 
         
     #--------------------------------------------------------------------------------
-    def _blocks_complete(self, nblocks=1):                           # check_blocks
+    def _blocks_complete(self, nblocks=1):                             # check_blocks
     #--------------------------------------------------------------------------------
         self._start, self._end = [], 0
         b = None
