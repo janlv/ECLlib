@@ -735,7 +735,7 @@ class UNRST_file(unfmt_file):
         return super().sections(init_key='SEQNUM', check_sync=self.step, **kwargs)
 
     #--------------------------------------------------------------------------------
-    def data(self, *keys):                                       # UNRST_file
+    def data(self, *keys):                                               # UNRST_file
     #--------------------------------------------------------------------------------
         data = {}
         for block in self.blocks():
@@ -1052,16 +1052,6 @@ class fmt_file(File):                                                      # fmt
         super().__init__(filename, suffix)
         self.fh = None
 
-    # #--------------------------------------------------------------------------------
-    # def is_file(self):                                                     # fmt_file
-    # #--------------------------------------------------------------------------------
-    #     return self.file.is_file()
-
-
-    # #--------------------------------------------------------------------------------
-    # def size(self):                                                        # fmt_file
-    # #--------------------------------------------------------------------------------
-    #     return self.file.stat().st_size
 
     #--------------------------------------------------------------------------------
     def blocks(self, warn_missing=False):                                  # fmt_file
@@ -1136,7 +1126,7 @@ class FUNRST_file(fmt_file):
                 data = {}
                 data['SEQNUM'] = block.data[0]
             if block.key() == 'INTEHEAD':
-                data['DATE'] = block.data[64:67] #data[206:208], data[410] 
+                data['DATE'] = list(block.data[64:67]) #data[206:208], data[410] 
             for key in keys:
                 if block.key() == key:
                     data[key] = (block.data.min(), block.data.max())
