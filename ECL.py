@@ -569,22 +569,6 @@ class Input_file(File):
     #     return tsteps
 
 
-    # #--------------------------------------------------------------------------------
-    # def is_file(self):                                                   # Input_file
-    # #--------------------------------------------------------------------------------
-    #     return self.file.is_file()
-
-
-    # #--------------------------------------------------------------------------------
-    # def exists(self, raise_error=False):                                  # Input_file
-    # #--------------------------------------------------------------------------------
-    #     if self.file.is_file():
-    #         return True
-    #     if raise_error:
-    #         raise SystemError(f'ERROR {self.file.name} is missing in folder {self.file.parent}')
-    #     return False
-
-
     #--------------------------------------------------------------------------------
     def remove_comments(self):                                          # Input_file
     #--------------------------------------------------------------------------------
@@ -749,6 +733,24 @@ class UNRST_file(unfmt_file):
     def sections(self, **kwargs):                                       # UNRST_file
     #--------------------------------------------------------------------------------
         return super().sections(init_key='SEQNUM', check_sync=self.step, **kwargs)
+
+    #--------------------------------------------------------------------------------
+    def data(self, *keys):                                       # UNRST_file
+    #--------------------------------------------------------------------------------
+        data = {}
+        for block in self.blocks():
+            if block.key() == 'SEQNUM':
+                if data:
+                    yield data
+                data = {}
+                data['SEQNUM'] = block.data()[0]
+            if block.key() == 'INTEHEAD':
+                data['DATE'] = block.data()[64:67] #data[206:208], data[410] 
+            for key in keys:
+                if block.key() == key:
+                    D = block.data()
+                    data[key] = (min(D), max(D))
+
 
 
 #====================================================================================
@@ -1122,6 +1124,22 @@ class FUNRST_file(fmt_file):
     #----------------------------------------------------------------------------
         super().__init__(filename, '.FUNRST')
 
+
+    #--------------------------------------------------------------------------------
+    def data(self, *keys):                                       # FUNRST_file
+    #--------------------------------------------------------------------------------
+        data = {}
+        for block in self.blocks():
+            if block.key() == 'SEQNUM':
+                if data:
+                    yield data
+                data = {}
+                data['SEQNUM'] = block.data[0]
+            if block.key() == 'INTEHEAD':
+                data['DATE'] = block.data[64:67] #data[206:208], data[410] 
+            for key in keys:
+                if block.key() == key:
+                    data[key] = (block.data.min(), block.data.max())
 
     #----------------------------------------------------------------------------
     def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # FUNRST_file
