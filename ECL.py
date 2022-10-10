@@ -1126,7 +1126,7 @@ class FUNRST_file(fmt_file):
                 data = {}
                 data['SEQNUM'] = block.data[0]
             if block.key() == 'INTEHEAD':
-                data['DATE'] = list(block.data[64:67]) #data[206:208], data[410] 
+                data['DATE'] = tuple(block.data[64:67]) #data[206:208], data[410] 
             for key in keys:
                 if block.key() == key:
                     data[key] = (block.data.min(), block.data.max())
