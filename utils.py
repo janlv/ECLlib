@@ -5,7 +5,7 @@ from pathlib import Path
 from re import RegexFlag, findall, compile, DOTALL, search, sub
 from threading import Thread
 from time import sleep, time
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, time as dt_time
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
@@ -221,6 +221,11 @@ def remove_comments(file=None, lines=None, comment='--', end=None, raise_error=T
 def safeindex(alist, value):
 #--------------------------------------------------------------------------------
     return alist.index(value) if value in alist else None
+
+#--------------------------------------------------------------------------------
+def date_to_datetime(dates):
+#--------------------------------------------------------------------------------
+    return [datetime.combine(d, dt_time.min) for d in dates]
 
 #--------------------------------------------------------------------------------
 def flat_list(alist):

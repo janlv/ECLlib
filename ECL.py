@@ -5,6 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
+from itertools import accumulate
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
@@ -14,7 +15,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flat_list, safezip, list2str, float_or_str, matches, remove_comments
+from .utils import date_to_datetime, safezip, list2str, float_or_str, matches
 
 #
 #
@@ -472,7 +473,7 @@ class Input_file(File):
         getter = namedtuple('getter', 'default convert pattern')
         self._get = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/'),
                      'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                     'DATES'   : getter([0],     self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)'), 
+                     'DATES'   : getter([],      self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)'), 
                      'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                      'GDFILE'  : getter([''],    self._file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                      'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
@@ -538,31 +539,34 @@ class Input_file(File):
                 yield inc
 
     #--------------------------------------------------------------------------------
-    def tsteps(self, start=None):                                        # Input_file
+    def tsteps(self, start=[]):                                        # Input_file
     #--------------------------------------------------------------------------------
         '''
         Return timesteps, if DATES are present they are converted to timesteps
         '''
-        start = start or self.get('START')
-        tstep = self.get('TSTEP')
-        if start and start[0]:
-            dates = self.get('DATES')
-            tstep = tstep + self.date2tstep(dates, start=start[0]+timedelta(days=sum(tstep)))
-        0 in tstep and tstep.pop(tstep.index(0))
-        return tstep
+        start = date_to_datetime(start or self.get('START'))
+        tsteps = [start[0] + timedelta(hours=t*24) for t in accumulate(self.get('TSTEP'))]
+        dates = start + tsteps + date_to_datetime(self.get('DATES'))
+        ### Return timesteps as days, 1 day = 86400 sec
+        return [(a-b).total_seconds()/86400 for a,b in zip(dates[1:], dates[:-1])]
+        # if start and start[0]:
+        #     dates = self.get('DATES')
+        #     tstep = tstep + self.date2tstep(dates, start=start[0]+timedelta(days=sum(tstep)))
+        # 0 in tstep and tstep.pop(tstep.index(0))
+        # return tstep
 
 
-    #--------------------------------------------------------------------------------
-    def date2tstep(self, dates, start=None):                             # Input_file
-    #--------------------------------------------------------------------------------
-        if dates == [0]:
-            return [0]
-        if start is None:
-            start = self.get('START')[0]
-        days = [(d-start).days for d in dates]
-        tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
-        tsteps.insert(0, days[0])
-        return tsteps
+    # #--------------------------------------------------------------------------------
+    # def date2tstep(self, dates, start=None):                             # Input_file
+    # #--------------------------------------------------------------------------------
+    #     if dates == [0]:
+    #         return [0]
+    #     if start is None:
+    #         start = self.get('START')[0]
+    #     days = [(d-start).days for d in dates]
+    #     tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
+    #     tsteps.insert(0, days[0])
+    #     return tsteps
 
 
     # #--------------------------------------------------------------------------------
@@ -990,6 +994,11 @@ class fmt_block:                                                         # fmt_b
         self._dtype = DTYPE[datatype.encode()]
         self.data = data
         #self.max_length = max_length
+
+    #--------------------------------------------------------------------------------                                                            
+    def __repr__(self):                                                   # fmt_block                                                           
+    #--------------------------------------------------------------------------------                                                            
+        return f'<fmt_block(key={self.keyword:8s}, type={self._dtype.name}, length={self.length:8d}>'
 
     #--------------------------------------------------------------------------------
     def key(self):                                                        # fmt_block
