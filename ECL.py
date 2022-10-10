@@ -15,7 +15,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import date_to_datetime, safezip, list2str, float_or_str, matches
+from .utils import date_to_datetime, remove_comments, safezip, list2str, float_or_str, matches
 
 #
 #
