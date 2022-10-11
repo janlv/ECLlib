@@ -281,7 +281,7 @@ def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=T
         text = [text]
     regex = [rf'\b{t}\b' for t in text]
     lines = remove_comments(file=fname, comment=comment, end=end)
-    if any((search(r, lines) for r in regex)):
+    if any(search(r, lines) for r in regex):
         return True
     # for reg in regex:
     #     #regex = rf'\b{text}\b'
