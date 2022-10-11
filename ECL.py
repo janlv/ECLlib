@@ -335,7 +335,7 @@ class unfmt_file(File):
                         data_start = data.tell()
                         bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
                         data.seek(bytes, 1)
-                    except (ValueError, struct_error): # as e:
+                    except (ValueError, struct_error, KeyError): # as e:
                         # Catch 'seek out of range' error
                         #print(f'break in blocks(): {e}')
                         break
