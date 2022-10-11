@@ -9,7 +9,7 @@ from itertools import accumulate
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
-from re import finditer, compile
+from re import IGNORECASE, finditer, compile
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime, timedelta
@@ -480,8 +480,18 @@ class Input_file(File):
                      'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
                      #'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b([A-Z\s]+)|(.*)\bSCHEDULE\b")}
         if include:
+            top = ''
+            if isinstance(include, str):
+                ### Only add INCLUDE's from given section
+                match = compile(rf'(?<!--)\s*\b{include}\b', flags=IGNORECASE).search(self._data)
+                if not match:
+                    raise SystemError(f'ERROR Section {include} not found in {self}')
+                s = match.start()
+                top = self._data[:s]
+                self._data = self._data[s:]
             while 'INCLUDE' in self._data:
                 self._data = self.add_include_files()
+            self._data = top + self._data
 
 
     #--------------------------------------------------------------------------------
@@ -489,6 +499,10 @@ class Input_file(File):
     #--------------------------------------------------------------------------------
         return f'<Input_file {self.file}>'
 
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                                   # Input_file
+    #--------------------------------------------------------------------------------
+        return f'{self.file.name}'
 
     #--------------------------------------------------------------------------------
     def __add__(self, other):                                            # Input_file
