@@ -471,8 +471,8 @@ class Input_file(File):
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file')
-        check and self.exists(raise_error=True)
         self._data = None
+        self._checked = False
         self._reread = reread
         if read or include:
             self._data = self.remove_comments()
@@ -485,19 +485,21 @@ class Input_file(File):
                      'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
                      'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
                      #'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b([A-Z\s]+)|(.*)\bSCHEDULE\b")}
-        if include:
-            top = ''
-            if isinstance(include, str):
-                ### Only add INCLUDE's from given section
-                match = compile(rf'(?<!--)\s*\b{include}\b', flags=IGNORECASE).search(self._data)
-                if not match:
-                    raise SystemError(f'ERROR Section {include} not found in {self}')
-                s = match.start()
-                top = self._data[:s]
-                self._data = self._data[s:]
-            while 'INCLUDE' in self._data:
-                self._data = self.add_include_files()
-            self._data = top + self._data
+        (check or include) and self.check() 
+        include and self.with_include_files(section=include)
+        #if include:
+            # top = ''
+            # if isinstance(include, str):
+            #     ### Only add INCLUDE's from given section
+            #     match = compile(rf'(?<!--)\s*\b{include}\b', flags=IGNORECASE).search(self._data)
+            #     if not match:
+            #         raise SystemError(f'ERROR Section {include} not found in {self}')
+            #     s = match.start()
+            #     top = self._data[:s]
+            #     self._data = self._data[s:]
+            # while 'INCLUDE' in self._data:
+            #     self._data = self.add_include_files()
+            # self._data = top + self._data
 
 
     #--------------------------------------------------------------------------------
@@ -514,6 +516,16 @@ class Input_file(File):
         self._data += other._data
         return self
 
+    #--------------------------------------------------------------------------------
+    def check(self, msg='', include=True):                                             # Input_file
+    #--------------------------------------------------------------------------------
+        ### Check if file exists
+        self.exists(raise_error=True)        
+        ### Check if included files exists
+        if include and not all((file:=f).is_file() for f in self.include_files()):
+            raise SystemError(f"{msg} '{file.name}' included from {self} is missing")
+        self._checked = True
+        return True
 
     #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
@@ -554,34 +566,23 @@ class Input_file(File):
                 yield inc
 
     #--------------------------------------------------------------------------------
-    def tsteps(self, start=[]):                                        # Input_file
+    def tsteps(self, start=[], negative_ok=False, missing_ok=False):                        # Input_file
     #--------------------------------------------------------------------------------
         '''
         Return timesteps, if DATES are present they are converted to timesteps
         '''
+        self.with_include_files(section='SCHEDULE')
         start = date_to_datetime(start or self.get('START'))
         tsteps = [start[0] + timedelta(hours=t*24) for t in accumulate(self.get('TSTEP'))]
         dates = start + tsteps + date_to_datetime(self.get('DATES'))
         ### Return timesteps as days, 1 day = 86400 sec
-        return [(a-b).total_seconds()/86400 for a,b in zip(dates[1:], dates[:-1])]
-        # if start and start[0]:
-        #     dates = self.get('DATES')
-        #     tstep = tstep + self.date2tstep(dates, start=start[0]+timedelta(days=sum(tstep)))
-        # 0 in tstep and tstep.pop(tstep.index(0))
-        # return tstep
-
-
-    # #--------------------------------------------------------------------------------
-    # def date2tstep(self, dates, start=None):                             # Input_file
-    # #--------------------------------------------------------------------------------
-    #     if dates == [0]:
-    #         return [0]
-    #     if start is None:
-    #         start = self.get('START')[0]
-    #     days = [(d-start).days for d in dates]
-    #     tsteps = [days[i+1]-days[i] for i in range(len(days)-1)]
-    #     tsteps.insert(0, days[0])
-    #     return tsteps
+        tsteps = [(a-b).total_seconds()/86400 for a,b in zip(dates[1:], dates[:-1])]
+        ## Checks
+        if not negative_ok and any(t<=0 for t in tsteps):
+            raise SystemError(f'ERROR Zero or negative timestep in {self}, probably caused by too long TSTEP preceding a DATES keyword')
+        if not missing_ok and tsteps == []:
+            raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
+        return tsteps
 
 
     #--------------------------------------------------------------------------------
@@ -671,7 +672,28 @@ class Input_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def add_include_files(self):                                             # Input_file
+    def with_include_files(self, section=None):                           # Input_file
+    #--------------------------------------------------------------------------------
+        self._checked or self.check()
+        self._data = self._data or self.remove_comments()
+        if not 'INCLUDE' in self._data:
+            return None
+        top = ''
+        if isinstance(section, str):
+            ### Only add INCLUDE's from the given section
+            match = compile(rf'(?<!--)\s*\b{section}\b', flags=IGNORECASE).search(self._data)
+            if not match:
+                raise SystemError(f'ERROR Section {section} not found in {self}')
+            s = match.start()
+            top = self._data[:s]
+            self._data = self._data[s:]
+        while 'INCLUDE' in self._data:
+            self._data = self._append_include_files()
+        self._data = top + self._data
+
+
+    #--------------------------------------------------------------------------------
+    def _append_include_files(self):                                         # Input_file
     #--------------------------------------------------------------------------------
         matches = self.get('INCLUDE', pos=True)
         data = ''.join(self._data)
@@ -680,8 +702,8 @@ class Input_file(File):
         for file,(a,b) in matches:
             out.append(data[n:a])
             inc_file = self.file.parent/file
-            if not inc_file.is_file():
-                raise SystemError(f'ERROR Eclipse include file {inc_file.name} is missing, simulation stopped...')
+            # if not inc_file.is_file():
+            #     raise SystemError(f'ERROR Eclipse include file {inc_file.name} is missing, simulation stopped...')
             lines = remove_comments(inc_file, comment='--', end='END')
             out.append(''.join(lines))
             n = b
