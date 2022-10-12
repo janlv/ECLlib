@@ -427,8 +427,9 @@ def loop_until(func, *args, limit=None, pause=None, loop_func=None, **kwargs):
         try:
             if func(**kwargs):
                 return n
-        except:
-            break
+        except Exception as e:
+            print('EXCEPTION in loop_until', e)
+            raise SystemError(e)
         if pause:
             sleep(pause)
         n += 1

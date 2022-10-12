@@ -969,20 +969,24 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
         self._start, self._end = [], 0
         b = None
-        for b in self._unfmt.blocks(start=self._startpos):
-            if b._key == self._key['start']:
-                self._start.append(b.data()[0])
-                # self.out['startpos'].append(b.start())
-            if b._key == self._key['end']:
-                self._end += 1 
-                if self._end == len(self._start):
-                    ### Some complete blocks read
-                    self._endpos = b.end()
-                    if self._end == nblocks:
-                        ### Given number (nblocks) complete blocks read
-                        self._startpos = b.end()
-                        return True
-        return False
+        try:
+            for b in self._unfmt.blocks(start=self._startpos):
+                if b._key == self._key['start']:
+                    self._start.append(b.data()[0])
+                    # self.out['startpos'].append(b.start())
+                if b._key == self._key['end']:
+                    self._end += 1 
+                    if self._end == len(self._start):
+                        ### Some complete blocks read
+                        self._endpos = b.end()
+                        if self._end == nblocks:
+                            ### Given number (nblocks) complete blocks read
+                            self._startpos = b.end()
+                            return True
+            return False
+        except Exception as e:
+            print('EXCEPTION in _blocks_complete', e)
+            raise SystemError(e)
 
     #--------------------------------------------------------------------------------
     def at_end(self):
