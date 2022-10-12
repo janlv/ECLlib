@@ -424,15 +424,15 @@ def loop_until(func, *args, limit=None, pause=None, loop_func=None, **kwargs):
     if not loop_func:
         loop_func = lambda:None
     while True:
-        if func(**kwargs):
-            return n
+        try:
+            if func(**kwargs):
+                return n
+        except:
+            break
         if pause:
             sleep(pause)
         n += 1
         if limit and n > limit:
-            # if error:
-            #     raise SystemError(error)
-            # else:
             return -1
         loop_func()
 
