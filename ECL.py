@@ -321,6 +321,7 @@ class unfmt_file(File):
             startpos = self.endpos
         if start:
             startpos = start
+        keyerror = False
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 data.seek(startpos, 1)
@@ -341,12 +342,15 @@ class unfmt_file(File):
                         #print(f'break in blocks(): {e}')
                         break
                     except KeyError:
-                        print(key, length, type)
+                        keyerror = True
                         break
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
                                       data=data, data_start=data_start, file=self.file)
                 self.endpos = data.tell()
-
+        if keyerror:
+            for b in self.blocks():
+                print(b)
+            raise SystemError('ERROR in blocks')
 
     #--------------------------------------------------------------------------------
     def tail_blocks(self):                                               # unfmt_file
