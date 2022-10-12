@@ -340,6 +340,9 @@ class unfmt_file(File):
                         # Catch 'seek out of range' error
                         #print(f'break in blocks(): {e}')
                         break
+                    except KeyError:
+                        print(key, length, type)
+                        break
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
                                       data=data, data_start=data_start, file=self.file)
                 self.endpos = data.tell()
