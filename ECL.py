@@ -42,7 +42,8 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
          b'DOUB' : Dtyp('DOUB', 'd', 8, 1000, float64),
          b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
-         b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
+         b'MESS' : Dtyp('MESS', ' ', 1, 1   , str),
+         b'\x00\x00\x00\x00': Dtyp('ERR', ' ', 1, 1   , str)}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
 
@@ -341,8 +342,6 @@ class unfmt_file(File):
                         # Catch 'seek out of range' error
                         #print(f'break in blocks(): {e}')
                         break
-                    except KeyError as e:
-                        yield unfmt_block(key=b'ERROR', type=b'MESS')
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
                                       data=data, data_start=data_start, file=self.file)
                 self.endpos = data.tell()
@@ -976,7 +975,7 @@ class check_blocks:                                                    # check_b
                         ### Given number (nblocks) complete blocks read
                         self._startpos = b.end()
                         return True
-            if b._key == 'ERROR':
+            if b._dtype.name == 'ERR':
                 raise SystemError('ERROR in _blocks_complete')
         return False
 
