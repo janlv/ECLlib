@@ -42,8 +42,7 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
          b'DOUB' : Dtyp('DOUB', 'd', 8, 1000, float64),
          b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
-         b'MESS' : Dtyp('MESS', ' ', 1, 1   , str),
-         b'\x00\x00\x00\x00': Dtyp('FAIL', ' ', 1, 1   , str)}
+         b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
 
@@ -322,7 +321,6 @@ class unfmt_file(File):
             startpos = self.endpos
         if start:
             startpos = start
-        keyerror = False
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 data.seek(startpos, 1)
@@ -975,8 +973,6 @@ class check_blocks:                                                    # check_b
                         ### Given number (nblocks) complete blocks read
                         self._startpos = b.end()
                         return True
-            # if b._dtype.name == 'ERR':
-            #     raise SystemError('ERROR in _blocks_complete')
         return False
 
 
