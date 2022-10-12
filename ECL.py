@@ -326,16 +326,17 @@ class unfmt_file(File):
                 data.seek(startpos, 1)
                 while data.tell() < data.size():
                     start = data.tell()
-                    # Header
+                    ### Header
                     try:
                         data.seek(4, 1)
                         key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
                         data.seek(4, 1)
-                        # Value array
+                        ### Value array
                         data_start = data.tell()
                         bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
                         data.seek(bytes, 1)
-                    except (ValueError, struct_error, KeyError): # as e:
+                    # except (ValueError, struct_error, KeyError): # as e:
+                    except (ValueError, struct_error): # as e:
                         # Catch 'seek out of range' error
                         #print(f'break in blocks(): {e}')
                         break
@@ -355,8 +356,8 @@ class unfmt_file(File):
                 data.seek(0, 2)
                 while data.tell() > 0:
                     end = data.tell()
-                    # Header
-                    # Rewind until we find a header
+                    ### Header
+                    ### Rewind until we find a header
                     while data.tell() > 0:
                         try:
                             data.seek(-4, 1)
@@ -364,7 +365,7 @@ class unfmt_file(File):
                             data.seek(-4-size, 1)
                             # if self.is_header(data, size, data.tell()):
                             pos = data.tell()
-                            # Check if this is a header
+                            ### Check if this is a header
                             if size == 16 and data[pos+12:pos+16] in DTYPE.keys():
                                 start = data.tell()-4
                                 key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
@@ -374,7 +375,7 @@ class unfmt_file(File):
                                 data.seek(-4, 1)
                         except (ValueError, struct_error):
                             return None
-                    # Value array
+                    ### Value array
                     data_start = data.tell()
                     data.seek(start, 0)
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=end, 
