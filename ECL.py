@@ -349,6 +349,8 @@ class unfmt_file(File):
                 self.endpos = data.tell()
         if keyerror:
             for b in self.blocks():
+                if b.key() == 'SEQNUM':
+                    print()
                 print(b)
             raise SystemError('ERROR in blocks')
 
