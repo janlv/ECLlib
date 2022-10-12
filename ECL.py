@@ -517,7 +517,7 @@ class Input_file(File):
         return self
 
     #--------------------------------------------------------------------------------
-    def check(self, msg='', include=True):                                             # Input_file
+    def check(self, msg='', include=True):                               # Input_file
     #--------------------------------------------------------------------------------
         ### Check if file exists
         self.exists(raise_error=True)        
@@ -648,9 +648,10 @@ class Input_file(File):
             raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
         default = self._get[keyword].default
         if not self._data or self._reread:
-            if not self.file.is_file(): 
-                if raise_error:
-                    raise SystemError(f'{self.file} is missing!')
+            # if not self.file.is_file(): 
+            #     if raise_error:
+            #         raise SystemError(f'{self.file} is missing!')
+            if not self.exists(raise_error=raise_error):
                 return default
             if not keyword.encode() in open(self.file, 'rb').read():
                 if raise_error:
@@ -710,6 +711,23 @@ class Input_file(File):
         out.append(data[n:])
         return ''.join(out)
 
+    #--------------------------------------------------------------------------------
+    def replace_keyword(self, keyword, new_string):                              # Input_file
+    #--------------------------------------------------------------------------------
+        ### Get keyword value and position in file
+        match = self.get(keyword, pos=True) 
+        if match:
+            value, pos = match[0] # Get first match
+        else:
+            raise SystemError(f'ERROR Missing {keyword} in {self}')
+        #print('UPDATE:', file_tstep, pos)
+        with open(self.file, 'r') as f:
+            lines = ''.join(f.readlines())
+        #out = lines[:pos[0]] + (action and action or '') + f'TSTEP\n{tstep} /\n' + lines[pos[1]:]
+        out = lines[:pos[0]] + new_string + lines[pos[1]:]
+        #print(out)
+        with open(self.file, 'w') as f:
+            f.write(out)
 
 
 #====================================================================================
