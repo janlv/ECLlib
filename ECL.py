@@ -507,19 +507,6 @@ class Input_file(File):
                      #'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b([A-Z\s]+)|(.*)\bSCHEDULE\b")}
         (check or include) and self.check() 
         include and self.with_include_files(section=include)
-        #if include:
-            # top = ''
-            # if isinstance(include, str):
-            #     ### Only add INCLUDE's from given section
-            #     match = compile(rf'(?<!--)\s*\b{include}\b', flags=IGNORECASE).search(self._data)
-            #     if not match:
-            #         raise SystemError(f'ERROR Section {include} not found in {self}')
-            #     s = match.start()
-            #     top = self._data[:s]
-            #     self._data = self._data[s:]
-            # while 'INCLUDE' in self._data:
-            #     self._data = self.add_include_files()
-            # self._data = top + self._data
 
 
     #--------------------------------------------------------------------------------
@@ -575,11 +562,11 @@ class Input_file(File):
     #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
     #--------------------------------------------------------------------------------
-        if not self._data or self._reread:
-            if not self.is_file(): 
-                return ()
-            self._data = self.without_comments()
-        return (line for line in self._data.split('\n') if line)
+        # if not self._data or self._reread:
+        #     if not self.is_file(): 
+        #         return ()
+        #     self._data = self.without_comments()
+        return (line for line in self.data().split('\n') if line)
 
     #--------------------------------------------------------------------------------
     def include_file(self, suffix):                                      # Input_file
