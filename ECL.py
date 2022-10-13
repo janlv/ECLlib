@@ -271,6 +271,16 @@ class File:
             output = f.read()
         return string.encode() in output
 
+    #--------------------------------------------------------------------------------
+    def delete(self, raise_error=False, echo=False):                                       # File
+    #--------------------------------------------------------------------------------
+        try:
+            self.file.unlink(missing_ok=True)
+        except (PermissionError, FileNotFoundError) as e:
+            if raise_error:
+                raise SystemError(f'Unable to delete {self}: {e}')
+            echo and print(f'Deleted {self}')
+
 
     #--------------------------------------------------------------------------------
     def is_file(self):                                                         # File
