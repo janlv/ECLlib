@@ -334,7 +334,7 @@ class unfmt_file(File):
                         ### Value array
                         #data_start = data.tell()
                         #bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
-                        bytes = length*DTYPE[type].size + 8*(1+length//DTYPE[type].max)
+                        bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
                         data.seek(bytes, 1)
                     except (ValueError, struct_error): # as e:
                         # Catch 'seek out of range' error
