@@ -12,6 +12,15 @@ from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
 from contextlib import contextmanager
 
+
+
+#-----------------------------------------------------------------------
+def string_in_file(string, file):
+#-----------------------------------------------------------------------
+    with open(file, 'rb') as f:
+        output = f.read()
+    return string.encode() in output
+
 @contextmanager
 #-----------------------------------------------------------------------
 def safezip(*gen):

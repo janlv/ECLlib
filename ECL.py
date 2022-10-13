@@ -7,7 +7,7 @@ ENDIAN = '>'  # Big-endian
 from dataclasses import dataclass
 from itertools import accumulate
 from pathlib import Path
-from numpy import zeros, int32, float32, float64, ceil, bool_ as np_bool, array as nparray, append as npappend 
+from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
 from re import IGNORECASE, finditer, compile
 from copy import deepcopy
@@ -15,7 +15,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import date_to_datetime, remove_comments, safezip, list2str, float_or_str, matches
+from .utils import date_to_datetime, list2text, remove_comments, safezip, list2str, float_or_str, matches
 
 #
 #
@@ -244,7 +244,7 @@ class File:
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix, role=''):                             # File
     #--------------------------------------------------------------------------------
-        self.file = Path(filename).with_suffix(suffix)
+        self.file = suffix and Path(filename).with_suffix(suffix) or Path(filename)
         self.role = role.rstrip().lstrip()
         DEBUG and print(f'Creating {self}')
 
@@ -289,6 +289,14 @@ class File:
     def name(self):                                                            # File
     #--------------------------------------------------------------------------------
         return self.file.name
+
+    #--------------------------------------------------------------------------------
+    def contains(self, string, comments=None):                                                # File
+    #--------------------------------------------------------------------------------
+        with open(self.file, 'rb') as f:
+            output = f.read()
+        return string.encode() in output
+
 
 
 #====================================================================================
@@ -517,13 +525,14 @@ class Input_file(File):
         return self
 
     #--------------------------------------------------------------------------------
-    def check(self, msg='', include=True):                               # Input_file
+    def check(self, include=True):                               # Input_file
     #--------------------------------------------------------------------------------
         ### Check if file exists
         self.exists(raise_error=True)        
         ### Check if included files exists
-        if include and not all((file:=f).is_file() for f in self.include_files()):
-            raise SystemError(f"{msg} '{file.name}' included from {self} is missing")
+        #if include and not all((file:=f).is_file() for f in self.include_files()):
+        if include and (missing := [f.name for f in self.include_files() if not f.is_file()]):
+            raise SystemError(f'ERROR {list2text(missing)} included from {self} is missing')
         self._checked = True
         return True
 
@@ -648,17 +657,14 @@ class Input_file(File):
             raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
         default = self._get[keyword].default
         if not self._data or self._reread:
-            # if not self.file.is_file(): 
-            #     if raise_error:
-            #         raise SystemError(f'{self.file} is missing!')
             if not self.exists(raise_error=raise_error):
                 return default
-            if not keyword.encode() in open(self.file, 'rb').read():
+            if self.contains(keyword): 
+                self._data = self.remove_comments()
+            else:
                 if raise_error:
                     raise SystemError(error_msg)
                 return default
-            else:
-                self._data = self.remove_comments()
         key = self._get[keyword]
         match_list = compile(key.pattern).finditer(self._data)
         #match_list = matches(file=self.file, check='INCLUDE', pattern=r"(?<!--)\s*\bINCLUDE\b *(?:--.*)*\s+(?:--.*\s+)*'*([a-zA-Z0-9_./\\-]+)'*")
