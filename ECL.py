@@ -328,20 +328,20 @@ class unfmt_file(File):
                     start = data.tell()
                     ### Header
                     try:
-                        data.seek(4, 1)
-                        key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
-                        data.seek(4, 1)
+                        #data.seek(4, 1)
+                        _, key, length, type, _ = unpack(ENDIAN+'i8si4si', data.read(24))
+                        #data.seek(4, 1)
                         ### Value array
-                        data_start = data.tell()
-                        bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
+                        #data_start = data.tell()
+                        #bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
+                        bytes = length*DTYPE[type].size + 8*(1+length//DTYPE[type].max)
                         data.seek(bytes, 1)
-                    # except (ValueError, struct_error, KeyError): # as e:
                     except (ValueError, struct_error): # as e:
                         # Catch 'seek out of range' error
                         #print(f'break in blocks(): {e}')
                         break
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
-                                      data=data, data_start=data_start, file=self.file)
+                                      data=data, data_start=start+24, file=self.file)
                 self.endpos = data.tell()
 
 
