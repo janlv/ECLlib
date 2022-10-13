@@ -251,7 +251,7 @@ class File:
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
     #--------------------------------------------------------------------------------
-        return f'<File, file={self.file}>'
+        return f'<File, file={self.file}, role={self.role}>'
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                         # File
@@ -262,6 +262,15 @@ class File:
     def __del__(self):                                                         # File
     #--------------------------------------------------------------------------------
         DEBUG and print(f'Deleting {self}')
+
+    #--------------------------------------------------------------------------------
+    def __contains__(self, string):                                            # File
+    #--------------------------------------------------------------------------------
+        ### Open as binary file to avoid encoding errors
+        with open(self.file, 'rb') as f:
+            output = f.read()
+        return string.encode() in output
+
 
     #--------------------------------------------------------------------------------
     def is_file(self):                                                         # File
@@ -289,13 +298,6 @@ class File:
     def name(self):                                                            # File
     #--------------------------------------------------------------------------------
         return self.file.name
-
-    #--------------------------------------------------------------------------------
-    def contains(self, string, comments=None):                                                # File
-    #--------------------------------------------------------------------------------
-        with open(self.file, 'rb') as f:
-            output = f.read()
-        return string.encode() in output
 
 
 
@@ -483,7 +485,7 @@ class Input_file(File):
         self._checked = False
         self._reread = reread
         if read or include:
-            self._data = self.remove_comments()
+            self._data = self.without_comments()
         getter = namedtuple('getter', 'default convert pattern')
         self._get = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/'),
                      'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
@@ -520,9 +522,14 @@ class Input_file(File):
     #--------------------------------------------------------------------------------
         for obj in (self, other):
             if not obj._data:
-                obj._data = obj.remove_comments()
+                obj._data = obj.without_comments()
         self._data += other._data
         return self
+
+    #--------------------------------------------------------------------------------
+    def without_comments(self):                                          # Input_file
+    #--------------------------------------------------------------------------------
+        return remove_comments(file=self.file, comment='--', end='END')
 
     #--------------------------------------------------------------------------------
     def check(self, include=True):                               # Input_file
@@ -537,12 +544,26 @@ class Input_file(File):
         return True
 
     #--------------------------------------------------------------------------------
+    def contains(self, regex):                                           # Input_file
+    #--------------------------------------------------------------------------------
+        return compile(regex).search(self.data())
+
+    #--------------------------------------------------------------------------------
+    def data(self):                                                     # Input_file
+    #--------------------------------------------------------------------------------
+        if not self._data or self._reread:
+            if not self.is_file(): 
+                return ()
+            self._data = self.without_comments()
+        return self._data
+
+    #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
     #--------------------------------------------------------------------------------
         if not self._data or self._reread:
-            if not self.file.is_file(): 
+            if not self.is_file(): 
                 return ()
-            self._data = self.remove_comments()
+            self._data = self.without_comments()
         return (line for line in self._data.split('\n') if line)
 
     #--------------------------------------------------------------------------------
@@ -593,11 +614,6 @@ class Input_file(File):
             raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
         return tsteps
 
-
-    #--------------------------------------------------------------------------------
-    def remove_comments(self):                                          # Input_file
-    #--------------------------------------------------------------------------------
-            return remove_comments(file=self.file, comment='--', end='END')
 
     #--------------------------------------------------------------------------------
     def _pass(self, values, key, raise_error=False):                     # Input_file
@@ -659,8 +675,8 @@ class Input_file(File):
         if not self._data or self._reread:
             if not self.exists(raise_error=raise_error):
                 return default
-            if self.contains(keyword): 
-                self._data = self.remove_comments()
+            if keyword in self: 
+                self._data = self.without_comments()
             else:
                 if raise_error:
                     raise SystemError(error_msg)
@@ -682,7 +698,7 @@ class Input_file(File):
     def with_include_files(self, section=None):                           # Input_file
     #--------------------------------------------------------------------------------
         self._checked or self.check()
-        self._data = self._data or self.remove_comments()
+        self._data = self._data or self.without_comments()
         if not 'INCLUDE' in self._data:
             return None
         top = ''
