@@ -703,7 +703,7 @@ class Input_file(File):
         self._checked or self.check()
         #self._data = self._data or self.without_comments()
         if not 'INCLUDE' in self.data():
-            return None
+            return self
         top = ''
         if isinstance(section, str):
             ### Only add INCLUDE's from the given section
