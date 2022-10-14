@@ -505,7 +505,7 @@ class Input_file(File):
                      'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
                      #'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b([A-Z\s]+)|(.*)\bSCHEDULE\b")}
         (check or include) and self.check() 
-        include and self.with_include_files(section=include)
+        include and self.include(section=include)
 
 
     #--------------------------------------------------------------------------------
@@ -603,7 +603,7 @@ class Input_file(File):
         '''
         Return timesteps, if DATES are present they are converted to timesteps
         '''
-        self.with_include_files(section='SCHEDULE')
+        self.include(section='SCHEDULE')
         start = date_to_datetime(start or self.get('START'))
         tsteps = [start[0] + timedelta(hours=t*24) for t in accumulate(self.get('TSTEP'))]
         dates = start + tsteps + date_to_datetime(self.get('DATES'))
@@ -697,7 +697,8 @@ class Input_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def with_include_files(self, section=None):                           # Input_file
+    #def with_include_files(self, section=None):                           # Input_file
+    def include(self, section=None):                           # Input_file
     #--------------------------------------------------------------------------------
         self._checked or self.check()
         #self._data = self._data or self.without_comments()
@@ -715,7 +716,7 @@ class Input_file(File):
         while 'INCLUDE' in self._data:
             self._data = self._append_include_files()
         self._data = top + self._data
-
+        return self
 
 
     #--------------------------------------------------------------------------------
