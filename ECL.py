@@ -264,13 +264,12 @@ class File:
         DEBUG and print(f'Deleting {self}')
 
     #--------------------------------------------------------------------------------
-    def __contains__(self, string):                                            # File
+    def binarydata(self):                                                      # File
     #--------------------------------------------------------------------------------
-        ### Open as binary file to avoid encoding errors
+        ### Open as binary file can avoid encoding errors
         with open(self.file, 'rb') as f:
-            output = f.read()
-        return string.encode() in output
-
+            return f.read()
+ 
     #--------------------------------------------------------------------------------
     def delete(self, raise_error=False, echo=False):                                       # File
     #--------------------------------------------------------------------------------
@@ -535,8 +534,8 @@ class Input_file(File):
         self.exists(raise_error=True)        
         ### Check if included files exists
         #if include and not all((file:=f).is_file() for f in self.include_files()):
-        if include and (missing := [f.name for f in self.include_files() if not f.is_file()]):
-            raise SystemError(f'ERROR {list2text(missing)} included from {self} is missing')
+        if include and (missing := [f for f in self.include_files() if not f.is_file()]):
+            raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
         self._checked = True
         return True
 
@@ -554,9 +553,10 @@ class Input_file(File):
     def data(self):                                                     # Input_file
     #--------------------------------------------------------------------------------
         if not self._data or self._reread:
-            if not self.is_file(): 
+            if self.is_file(): 
+                self._data = self.without_comments()
+            else:
                 return ()
-            self._data = self.without_comments()
         return self._data
 
     #--------------------------------------------------------------------------------
@@ -677,7 +677,7 @@ class Input_file(File):
         if not self._data or self._reread:
             if not self.exists(raise_error=raise_error):
                 return default
-            if keyword in self: 
+            if keyword.encode() in self.binarydata(): 
                 self._data = self.without_comments()
             else:
                 if raise_error:
@@ -700,8 +700,8 @@ class Input_file(File):
     def with_include_files(self, section=None):                           # Input_file
     #--------------------------------------------------------------------------------
         self._checked or self.check()
-        self._data = self._data or self.without_comments()
-        if not 'INCLUDE' in self._data:
+        #self._data = self._data or self.without_comments()
+        if not 'INCLUDE' in self.data():
             return None
         top = ''
         if isinstance(section, str):
@@ -715,6 +715,7 @@ class Input_file(File):
         while 'INCLUDE' in self._data:
             self._data = self._append_include_files()
         self._data = top + self._data
+
 
 
     #--------------------------------------------------------------------------------
