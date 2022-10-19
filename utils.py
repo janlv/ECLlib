@@ -15,8 +15,9 @@ from itertools import chain, takewhile
 
 ### pairwise is new in python 3.10, define it for older versions
 try:
-    from itertools import pairwise, tee
+    from itertools import pairwise
 except ImportError:
+    from itertools import tee
     def pairwise(iterable):
         # pairwise('ABCDEFG') --> AB BC CD DE EF FG
         a, b = tee(iterable)
