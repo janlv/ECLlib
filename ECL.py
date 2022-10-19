@@ -768,10 +768,11 @@ class DATA_file(File):
         else:
             raise SystemError(f'ERROR Missing {keyword} in {self}')
         #print('UPDATE:', file_tstep, pos)
-        with open(self.file, 'r') as f:
-            lines = ''.join(f.readlines())
+        # with open(self.file, 'r') as f:
+        #     lines = ''.join(f.readlines())
         #out = lines[:pos[0]] + (action and action or '') + f'TSTEP\n{tstep} /\n' + lines[pos[1]:]
-        out = lines[:pos[0]] + new_string + lines[pos[1]:]
+        # out = lines[:pos[0]] + new_string + lines[pos[1]:]
+        out = self._data[:pos[0]] + new_string + self._data[pos[1]:]
         #print(out)
         with open(self.file, 'w') as f:
             f.write(out)
