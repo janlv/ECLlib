@@ -1,8 +1,9 @@
 
 # -*- coding: utf-8 -*-
 
+from itertools import chain, pairwise, takewhile
 from pathlib import Path
-from re import RegexFlag, findall, compile, DOTALL, search, sub
+from re import RegexFlag, findall, compile, DOTALL, search, sub, IGNORECASE
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
@@ -12,6 +13,48 @@ from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
 from contextlib import contextmanager
 
+#-----------------------------------------------------------------------
+def split_by_words(string, words, comment=None):
+#-----------------------------------------------------------------------
+    '''
+    Split a string, with comments, into sections based on a list of unique words.
+    Returns a dict with words as keys and a tuple of begin and end positins
+    '''
+    regex =  (comment and rf'(?<!{comment})' or '') + r'\s*\b' + r'\b|\b'.join(words) + r'\b'
+    matches = compile(regex, flags=IGNORECASE).finditer(string)
+    ### Append string end pos as tuple of tuple
+    tag_pos = chain( ((m.group(), m.start()) for m in matches), (('', len(string)),) )
+    return ((tag, a, b) for (tag, a), (_, b) in pairwise(tag_pos))
+    #return [(a[0],a[1],b[1]) for a,b in pairwise(tag_pos)]
+
+
+#-----------------------------------------------------------------------
+def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
+#-----------------------------------------------------------------------
+    #print(f'get_keyword({file}, {keyword}, end={end})')
+    if not Path(file).is_file():
+        return []
+    flags = 0
+    if ignore_case:
+        flags = RegexFlag.IGNORECASE
+    data = remove_comments(file, comment=comment, raise_error=raise_error)
+    if data == []:
+        return []
+    #print(data)
+    space = '\s'
+    slash = '/'
+    if end in (' ','\s','\n','\t'):
+        end = space
+        space = ''
+    if end == slash:
+        slash = ''
+    ### Lookahead used at the end to mark end without consuming
+    regex = compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)   
+    #values = [v.split() for v in regex.findall(data)]
+    values = (v.split() for v in regex.findall(data))
+    #print(keyword, values)
+    return [float_or_str(v) for v in values]
+    #return list(regex.finditer(data))
 
 
 #-----------------------------------------------------------------------
@@ -105,34 +148,6 @@ def file_not_empty(file):
     return False
 
 
-#-----------------------------------------------------------------------
-def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
-#-----------------------------------------------------------------------
-    #print(f'get_keyword({file}, {keyword}, end={end})')
-    if not Path(file).is_file():
-        return []
-    flags = 0
-    if ignore_case:
-        flags = RegexFlag.IGNORECASE
-    data = remove_comments(file=file, comment=comment, raise_error=raise_error)
-    if data == []:
-        return []
-    #print(data)
-    space = '\s'
-    slash = '/'
-    if end in (' ','\s','\n','\t'):
-        end = space
-        space = ''
-    if end == slash:
-        slash = ''
-    ### Lookahead used at the end to mark end without consuming
-    regex = compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)   
-    #values = [v.split() for v in regex.findall(data)]
-    values = (v.split() for v in regex.findall(data))
-    #print(keyword, values)
-    return [float_or_str(v) for v in values]
-    #return list(regex.finditer(data))
-
 #--------------------------------------------------------------------------------
 def get_python_version():
 #--------------------------------------------------------------------------------
@@ -204,32 +219,60 @@ def write_file(file, text):
 
 
 #--------------------------------------------------------------------------------
-def remove_comments(file=None, lines=None, comment='--', end=None, raise_error=True, newline=True):
+def remove_comments(path, comment='--', join=True, raise_error=True, encoding=None, end=None):
 #--------------------------------------------------------------------------------
-    if file:
-        try:
-            if not Path(file).is_file():
-                if raise_error:
-                    raise SystemError(f'ERROR {file} not found in remove_comments()')    
-                else:
-                    return []
-            with open(file) as f:
-                lines = f.readlines()
-        except UnicodeDecodeError:
-            #with open(file, encoding='ISO-8859-1') as f:
-            with open(file, encoding='latin-1') as f:
-                lines = f.readlines()
-        except (FileNotFoundError, PermissionError):
-            return []
-    lf = ''
-    if newline:
-        lf = '\n'
-    lines = ''.join([l.split(comment)[0]+lf if comment in l else l for l in lines])
-    if end:
-        pos = [m.end() for m in compile(rf'\b{end}\b').finditer(lines)]
-        if pos:
-            lines = lines[:pos[0]]+lf
-    return lines
+    try:
+        path = Path(path)
+        if not path.is_file:
+            if raise_error:
+                raise SystemError(f'ERROR {path} not found in remove_comments()')    
+            else:
+                return []
+        with open(path, encoding=encoding) as file:
+            lines = (line.split(comment)[0].strip() for l in file if (line:=l.strip()) and not line.startswith(comment))
+            if end:
+                lines = chain(takewhile(lambda x: x != end, lines), (end,))
+            if join:
+                return '\n'.join(lines)+'\n'
+            else:
+                return list(lines)
+    except (FileNotFoundError, PermissionError):
+        return []
+    except UnicodeDecodeError as e:
+        if encoding:
+            raise SystemError('ERROR {path} raised UnicodeDecodeError for both UTF-8 and latin-1 encodings: {e}')
+        else:
+            return remove_comments(path, encoding='latin-1', comment=comment, join=join, raise_error=raise_error, end=end)
+
+
+
+# #--------------------------------------------------------------------------------
+# def remove_comments_old(file=None, lines=None, comment='--', end=None, raise_error=True, newline=True):
+# #--------------------------------------------------------------------------------
+#     if file:
+#         try:
+#             if not Path(file).is_file():
+#                 if raise_error:
+#                     raise SystemError(f'ERROR {file} not found in remove_comments()')    
+#                 else:
+#                     return []
+#             with open(file) as f:
+#                 lines = f.readlines()
+#         except UnicodeDecodeError:
+#             #with open(file, encoding='ISO-8859-1') as f:
+#             with open(file, encoding='latin-1') as f:
+#                 lines = f.readlines()
+#         except (FileNotFoundError, PermissionError):
+#             return []
+#     lf = ''
+#     if newline:
+#         lf = '\n'
+#     lines = ''.join([l.split(comment)[0]+lf if comment in l else l for l in lines])
+#     if end:
+#         pos = [m.end() for m in compile(rf'\b{end}\b').finditer(lines)]
+#         if pos:
+#             lines = lines[:pos[0]]+lf
+#     return lines
 
 #--------------------------------------------------------------------------------
 def safeindex(alist, value):
@@ -290,7 +333,7 @@ def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=T
     if isinstance(text, str):
         text = [text]
     regex = [rf'\b{t}\b' for t in text]
-    lines = remove_comments(file=fname, comment=comment, end=end)
+    lines = remove_comments(fname, comment=comment, end=end)
     if any(search(r, lines) for r in regex):
         return True
     # for reg in regex:

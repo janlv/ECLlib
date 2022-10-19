@@ -15,7 +15,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import date_to_datetime, list2text, remove_comments, safezip, list2str, float_or_str, matches
+from .utils import date_to_datetime, list2text, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
 
 #
 #
@@ -48,28 +48,28 @@ DTYPE_LIST = [v.name for v in DTYPE.values()]
 
 
 
-#====================================================================================
-class keywords:
-#====================================================================================
-    # Sections
-    sections = ['RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE']
-    # Global keywords
-    globals = ['COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
-                'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN']
-    # Common keywords
-    common = ['TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
-              'FMTOUT','UNIFOUT','UNIFIN','OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS','REGDIMS','TRACERS',
-              'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO','BOX','PERMX','PERMY','PERMZ','TOPS',
-              'INIT','RPTGRID','PVCDO','PVTW','DENSITY','PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP',
-              'TRDIFPAR','TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
-              'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT','FWCT','FWIR',
-              'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR','WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1',
-              'WTIRA1','WTITA1','WTICA1','CTPRA1','CTIRA1','FOIP','ROIP','FPR','TCPU','TCPUTS','WNEWTON','ZIPEFF','STEPTYPE',
-              'NEWTON','NLINEARP','NLINEARS','MSUMLINS','MSUMNEWT','MSUMPROB','WTPRPAR','WTPRIDE','WTPCPAR','WTPCIDE','RUNSUM',
-              'SEPARATE','WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD','WCONHIST','WTEMP','RPTSCHED',
-              'RPTRST','TUNING','READDATA', 'ROCKTABH','GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP',
-              'GRIDOPTS','VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS','MINPV',
-              'COPY','MULTIPLY']
+# #====================================================================================
+# class keywords:
+# #====================================================================================
+#     # Sections
+#     sections = ['RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE']
+#     # Global keywords
+#     globals = ['COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
+#                 'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN']
+#     # Common keywords
+#     common = ['TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
+#               'FMTOUT','UNIFOUT','UNIFIN','OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS','REGDIMS','TRACERS',
+#               'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO','BOX','PERMX','PERMY','PERMZ','TOPS',
+#               'INIT','RPTGRID','PVCDO','PVTW','DENSITY','PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP',
+#               'TRDIFPAR','TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
+#               'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT','FWCT','FWIR',
+#               'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR','WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1',
+#               'WTIRA1','WTITA1','WTICA1','CTPRA1','CTIRA1','FOIP','ROIP','FPR','TCPU','TCPUTS','WNEWTON','ZIPEFF','STEPTYPE',
+#               'NEWTON','NLINEARP','NLINEARS','MSUMLINS','MSUMNEWT','MSUMPROB','WTPRPAR','WTPRIDE','WTPCPAR','WTPCIDE','RUNSUM',
+#               'SEPARATE','WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD','WCONHIST','WTEMP','RPTSCHED',
+#               'RPTRST','TUNING','READDATA', 'ROCKTABH','GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP',
+#               'GRIDOPTS','VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS','MINPV',
+#               'COPY','MULTIPLY']
         
 
 #====================================================================================
@@ -101,6 +101,12 @@ class unfmt_block:
     def __repr__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
         return f'<unfmt_block(key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._end:8d}>'
+
+
+    #--------------------------------------------------------------------------------
+    def __contains__(self, key):                                        # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self.key() == key
 
 
     #--------------------------------------------------------------------------------
@@ -271,7 +277,7 @@ class File:
             return f.read()
  
     #--------------------------------------------------------------------------------
-    def delete(self, raise_error=False, echo=False):                                       # File
+    def delete(self, raise_error=False, echo=False):                           # File
     #--------------------------------------------------------------------------------
         try:
             self.file.unlink(missing_ok=True)
@@ -483,14 +489,35 @@ class unfmt_file(File):
 
 
 #====================================================================================
-class Input_file(File):
+class DATA_file(File):
 #====================================================================================
+    # Sections
+    section_names = ['RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE']
+    # Global keywords
+    global_kw = ['COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
+                'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN']
+    # Common keywords
+    common_kw = ['TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
+                'FMTOUT','UNIFOUT','UNIFIN','OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS','REGDIMS','TRACERS',
+                'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO','BOX','PERMX','PERMY','PERMZ','TOPS',
+                'INIT','RPTGRID','PVCDO','PVTW','DENSITY','PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP',
+                'TRDIFPAR','TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
+                'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT','FWCT','FWIR',
+                'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR','WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1',
+                'WTIRA1','WTITA1','WTICA1','CTPRA1','CTIRA1','FOIP','ROIP','FPR','TCPU','TCPUTS','WNEWTON','ZIPEFF','STEPTYPE',
+                'NEWTON','NLINEARP','NLINEARS','MSUMLINS','MSUMNEWT','MSUMPROB','WTPRPAR','WTPRIDE','WTPCPAR','WTPCIDE','RUNSUM',
+                'SEPARATE','WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD','WCONHIST','WTEMP','RPTSCHED',
+                'RPTRST','TUNING','READDATA', 'ROCKTABH','GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP',
+                'GRIDOPTS','VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS','MINPV',
+                'COPY','MULTIPLY']
+
     #--------------------------------------------------------------------------------
     def __init__(self, file, check=False, read=False, reread=False, include=False):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file')
         self._data = None
+        # self._sections = None
         self._checked = False
         self._reread = reread
         if read or include:
@@ -505,7 +532,7 @@ class Input_file(File):
                      'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
                      #'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b([A-Z\s]+)|(.*)\bSCHEDULE\b")}
         (check or include) and self.check() 
-        include and self.include(section=include)
+        include and self.with_includes(section=include)
 
 
     #--------------------------------------------------------------------------------
@@ -525,10 +552,10 @@ class Input_file(File):
     #--------------------------------------------------------------------------------
     def without_comments(self):                                          # Input_file
     #--------------------------------------------------------------------------------
-        return remove_comments(file=self.file, comment='--', end='END')
+        return remove_comments(self.file, comment='--', end='END')
 
     #--------------------------------------------------------------------------------
-    def check(self, include=True):                               # Input_file
+    def check(self, include=True):                                       # Input_file
     #--------------------------------------------------------------------------------
         ### Check if file exists
         self.exists(raise_error=True)        
@@ -553,20 +580,18 @@ class Input_file(File):
     def data(self):                                                     # Input_file
     #--------------------------------------------------------------------------------
         if not self._data or self._reread:
-            if self.is_file(): 
+            if self.is_file():
                 self._data = self.without_comments()
             else:
                 return ()
         return self._data
 
+
     #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
     #--------------------------------------------------------------------------------
-        # if not self._data or self._reread:
-        #     if not self.is_file(): 
-        #         return ()
-        #     self._data = self.without_comments()
         return (line for line in self.data().split('\n') if line)
+
 
     #--------------------------------------------------------------------------------
     def include_file(self, suffix):                                      # Input_file
@@ -591,19 +616,19 @@ class Input_file(File):
     #--------------------------------------------------------------------------------
     def _include_files_recursive(self, file):                           # Input_file
     #--------------------------------------------------------------------------------
-        new_files = (f for f in Input_file(file).get('INCLUDE') if f != '')
+        new_files = (f for f in DATA_file(file).get('INCLUDE') if f != '')
         for new_file in new_files:
             yield new_file
             for inc in self._include_files_recursive(new_file):
                 yield inc
 
     #--------------------------------------------------------------------------------
-    def tsteps(self, start=[], negative_ok=False, missing_ok=False):                        # Input_file
+    def tsteps(self, start=[], negative_ok=False, missing_ok=False):     # Input_file
     #--------------------------------------------------------------------------------
         '''
         Return timesteps, if DATES are present they are converted to timesteps
         '''
-        self.include(section='SCHEDULE')
+        self.with_includes(section='SCHEDULE')
         start = date_to_datetime(start or self.get('START'))
         tsteps = [start[0] + timedelta(hours=t*24) for t in accumulate(self.get('TSTEP'))]
         dates = start + tsteps + date_to_datetime(self.get('DATES'))
@@ -697,48 +722,44 @@ class Input_file(File):
 
 
     #--------------------------------------------------------------------------------
-    #def with_include_files(self, section=None):                           # Input_file
-    def include(self, section=None):                           # Input_file
+    def with_includes(self, section=None):                               # Input_file
     #--------------------------------------------------------------------------------
         self._checked or self.check()
-        #self._data = self._data or self.without_comments()
         if not 'INCLUDE' in self.data():
             return self
-        top = ''
-        if isinstance(section, str):
-            ### Only add INCLUDE's from the given section
-            match = compile(rf'(?<!--)\s*\b{section}\b', flags=IGNORECASE).search(self._data)
-            if not match:
+        ### Create dict of section names and positions
+        sections = {name.upper():(a,b) for name, a, b in split_by_words(self._data, self.section_names)}
+        head = tail = ''
+        if section:
+            section = section.upper()
+            if section not in sections.keys():
                 raise SystemError(f'ERROR Section {section} not found in {self}')
-            s = match.start()
-            top = self._data[:s]
-            self._data = self._data[s:]
+            a, b = sections[section]
+            head = self._data[:a]
+            self._data = self._data[a:b]
+            tail = self._data[b:]
         while 'INCLUDE' in self._data:
             self._data = self._append_include_files()
-        self._data = top + self._data
+        self._data = head + self._data + tail
         return self
 
 
     #--------------------------------------------------------------------------------
-    def _append_include_files(self):                                         # Input_file
+    def _append_include_files(self):                                     # Input_file
     #--------------------------------------------------------------------------------
         matches = self.get('INCLUDE', pos=True)
-        data = ''.join(self._data)
         out = []
         n = 0
         for file,(a,b) in matches:
-            out.append(data[n:a])
+            out.append(self._data[n:a])
             inc_file = self.file.parent/file
-            # if not inc_file.is_file():
-            #     raise SystemError(f'ERROR Eclipse include file {inc_file.name} is missing, simulation stopped...')
-            lines = remove_comments(inc_file, comment='--', end='END')
-            out.append(''.join(lines))
+            out.append(remove_comments(inc_file, comment='--', end='END'))
             n = b
-        out.append(data[n:])
+        out.append(self._data[n:])
         return ''.join(out)
 
     #--------------------------------------------------------------------------------
-    def replace_keyword(self, keyword, new_string):                              # Input_file
+    def replace_keyword(self, keyword, new_string):                      # Input_file
     #--------------------------------------------------------------------------------
         ### Get keyword value and position in file
         match = self.get(keyword, pos=True) 
