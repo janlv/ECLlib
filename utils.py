@@ -1,7 +1,6 @@
 
 # -*- coding: utf-8 -*-
 
-from itertools import chain, pairwise, takewhile
 from pathlib import Path
 from re import RegexFlag, findall, compile, DOTALL, search, sub, IGNORECASE
 from threading import Thread
@@ -12,6 +11,19 @@ from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
 from contextlib import contextmanager
+from itertools import chain, takewhile
+
+### pairwise is new in python 3.10, define it for older versions
+try:
+    from itertools import pairwise, tee
+except ImportError:
+    def pairwise(iterable):
+        # pairwise('ABCDEFG') --> AB BC CD DE EF FG
+        a, b = tee(iterable)
+        next(b, None)
+        return zip(a, b)
+
+
 
 #-----------------------------------------------------------------------
 def split_by_words(string, words, comment=None):
