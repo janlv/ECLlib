@@ -5,7 +5,8 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import accumulate
+from itertools import tee
+from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
@@ -248,9 +249,13 @@ class keypos:
 class File:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, role=''):                             # File
+    def __init__(self, filename, suffix, role='', case=True):                  # File
     #--------------------------------------------------------------------------------
         self.file = suffix and Path(filename).with_suffix(suffix) or Path(filename)
+        if not case and not self.file.is_file():
+            ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
+            pattern = '*.'+'['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
+            self.file = next(filename.parent.glob(pattern), self.file)
         self.role = role.rstrip().lstrip()
         DEBUG and print(f'Creating {self}')
 
@@ -321,10 +326,10 @@ class unfmt_file(File):
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix):                                # unfmt_file
+    def __init__(self, filename, suffix, **kwargs):                                # unfmt_file
     #--------------------------------------------------------------------------------
         # self.fileobj = None
-        super().__init__(filename, suffix)
+        super().__init__(filename, suffix, **kwargs)
         #self.file = Path(filename).with_suffix(suffix)
         self.endpos = 0
         DEBUG and print(f'Creating {self}')
@@ -512,10 +517,10 @@ class DATA_file(File):
                 'COPY','MULTIPLY']
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=False, read=False, reread=False, include=False):      # Input_file
+    def __init__(self, file, check=False, read=False, reread=False, include=False, **kwargs):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
-        super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file')
+        super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file', **kwargs)
         self._data = None
         # self._sections = None
         self._checked = False
@@ -523,14 +528,13 @@ class DATA_file(File):
         if read or include:
             self._data = self.without_comments()
         getter = namedtuple('getter', 'default convert pattern')
-        self._get = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/'),
-                     'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                     'DATES'   : getter([],      self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)'), 
-                     'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                     'GDFILE'  : getter([''],    self._file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                     'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
-                     'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
-                     #'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b([A-Z\s]+)|(.*)\bSCHEDULE\b")}
+        self._getter = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
+                        'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+                        'DATES'   : getter([],      self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*'), 
+                        'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                        'GDFILE'  : getter([''],    self._file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                        'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
+                        'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
         (check or include) and self.check() 
         include and self.with_includes(section=include)
 
@@ -622,25 +626,54 @@ class DATA_file(File):
             for inc in self._include_files_recursive(new_file):
                 yield inc
 
+    # #--------------------------------------------------------------------------------
+    # def tsteps(self, start=[], negative_ok=False, missing_ok=False):     # Input_file
+    # #--------------------------------------------------------------------------------
+    #     '''
+    #     Return timesteps, if DATES are present they are converted to timesteps
+    #     '''
+    #     self.with_includes(section='SCHEDULE', raise_error=False)
+    #     start = date_to_datetime(start or self.get('START'))
+    #     tsteps = [start[0] + timedelta(hours=t*24) for t in accumulate(self.get('TSTEP'))]
+    #     dates = start + tsteps + date_to_datetime(self.get('DATES'))
+    #     ### Return timesteps as days, 1 day = 86400 sec
+    #     tsteps = [(a-b).total_seconds()/86400 for a,b in zip(dates[1:], dates[:-1])]
+    #     ## Checks
+    #     if not negative_ok and any(t<=0 for t in tsteps):
+    #         raise SystemError(f'ERROR Zero or negative timestep in {self}, probably caused by too long TSTEP preceding a DATES keyword')
+    #     if not missing_ok and tsteps == []:
+    #         raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
+    #     return tsteps
+
     #--------------------------------------------------------------------------------
-    def tsteps(self, start=[], negative_ok=False, missing_ok=False):     # Input_file
+    def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False):     # Input_file
     #--------------------------------------------------------------------------------
-        '''
-        Return timesteps, if DATES are present they are converted to timesteps
-        '''
-        self.with_includes(section='SCHEDULE')
-        start = date_to_datetime(start or self.get('START'))
-        tsteps = [start[0] + timedelta(hours=t*24) for t in accumulate(self.get('TSTEP'))]
-        dates = start + tsteps + date_to_datetime(self.get('DATES'))
-        ### Return timesteps as days, 1 day = 86400 sec
-        tsteps = [(a-b).total_seconds()/86400 for a,b in zip(dates[1:], dates[:-1])]
+        'Return timesteps, if DATES are present they are converted to timesteps'
+
+        self.with_includes(section='SCHEDULE', raise_error=False)
+        dates, tsteps = self.get('DATES', 'TSTEP', pos=True)
+        #tsteps = self.get('TSTEP', pos=True)
+        times = sorted(dates+tsteps, key=itemgetter(1))
+        start = start or self.get('START')[0]
+        tsteps = list(self._days(times, start=start))
         ## Checks
-        if not negative_ok and any(t<=0 for t in tsteps):
-            raise SystemError(f'ERROR Zero or negative timestep in {self}, probably caused by too long TSTEP preceding a DATES keyword')
+        if not negative_ok and any(t<=0 for t,_ in tsteps):
+            raise SystemError(f'ERROR Zero or negative timestep in {self}, probably caused by a TSTEP preceding a DATES keyword')
         if not missing_ok and tsteps == []:
             raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
-        return tsteps
+        return pos and tsteps or [t for t,_ in tsteps]
 
+    #--------------------------------------------------------------------------------
+    def _days(self, time_pos, start=None):                           # Input_file
+    #--------------------------------------------------------------------------------
+        last_date = start
+        for t,p in time_pos:
+            if isinstance(t, datetime):
+                dt = t
+            else:
+                dt = last_date + timedelta(hours=t*24)
+            last_date = dt
+            yield (dt-start).total_seconds()/86400, p
 
     #--------------------------------------------------------------------------------
     def _pass(self, values, key, raise_error=False):                     # Input_file
@@ -654,15 +687,15 @@ class DATA_file(File):
         mult = lambda x, y : int(x)*(' '+y) 
         values = [a if not '*' in a else mult(*a.split('*')) for a in values]
         values = [float(b) for a in values for b in a.split()] or [0]
-        return values or self._get[key].default
+        return values or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
     def _date(self, values, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
-        dates = [' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3)]
-        dates = [datetime.strptime(d, '%d %b %Y').date() for d in dates]
-        return dates or self._get[key].default
+        dates = (' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3))
+        dates = (datetime.strptime(d, '%d %b %Y') for d in dates)
+        return list(dates) or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
@@ -687,18 +720,27 @@ class DATA_file(File):
         missing = [str(val) for val in values if not isinstance(val, int) and not val.is_file()]
         if missing and raise_error:
             raise SystemError(f'ERROR {key}-files requested in {self.file.name} are not found: {", ".join(missing)}')
-        return values or self._get[key].default
-
+        return values or self._getter[key].default
 
     #--------------------------------------------------------------------------------
-    def get(self, keyword, raise_error=False, pos=False):                # Input_file
+    def get(self, *keywords, **kwargs):                                  # Input_file
+    #--------------------------------------------------------------------------------
+        ret = [self._get(key, **kwargs) for key in keywords]
+        if len(ret) == 1:
+            return ret[0]
+        return ret
+
+    #--------------------------------------------------------------------------------
+    def _get(self, keyword, raise_error=False, pos=False):               # Input_file
     #--------------------------------------------------------------------------------
         # print(f'get {keyword} from {self.file.name}')
         keyword = keyword.upper()
         error_msg = f'ERROR Keyword {keyword} not found in {self.file}'
-        if not keyword in self._get.keys():
-            raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
-        default = self._get[keyword].default
+        if not keyword in self._getter.keys():
+            if raise_error:
+                raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
+            return []
+        default = self._getter[keyword].default
         if not self._data or self._reread:
             if not self.exists(raise_error=raise_error):
                 return default
@@ -708,21 +750,27 @@ class DATA_file(File):
                 if raise_error:
                     raise SystemError(error_msg)
                 return default
-        key = self._get[keyword]
+        key = self._getter[keyword]
         match_list = compile(key.pattern).finditer(self._data)
         #match_list = matches(file=self.file, check='INCLUDE', pattern=r"(?<!--)\s*\bINCLUDE\b *(?:--.*)*\s+(?:--.*\s+)*'*([a-zA-Z0-9_./\\-]+)'*")
         #matches = list(matches)
         #print(keyword, matches)
+        ### Copy the generator
+        ma, mb = tee(match_list)
+        values = [n for m in ma for n in m.group(1).split()]
+        values = key.convert(values, keyword, raise_error=raise_error)
         if pos:
-            return [(m.group(1), m.span()) for m in match_list]
-        values = [n for m in match_list for n in m.group(1).split()]
+            pos = (m.span() for m in mb)
+            #return [(m.group(1), m.span()) for m in match_list]
+            return list(zip(values, pos))
+        #values = [n for m in match_list for n in m.group(1).split()]
         if raise_error and not values:
             raise SystemError(error_msg)
-        return key.convert(values, keyword, raise_error=raise_error)
+        return values #key.convert(values, keyword, raise_error=raise_error)
 
 
     #--------------------------------------------------------------------------------
-    def with_includes(self, section=None):                               # Input_file
+    def with_includes(self, section=None, raise_error=True):                               # Input_file
     #--------------------------------------------------------------------------------
         self._checked or self.check()
         if not 'INCLUDE' in self.data():
@@ -733,7 +781,9 @@ class DATA_file(File):
         if section:
             section = section.upper()
             if section not in sections.keys():
-                raise SystemError(f'ERROR Section {section} not found in {self}')
+                if raise_error:
+                    raise SystemError(f'ERROR Section {section} not found in {self}')
+                return self 
             a, b = sections[section]
             head = self._data[:a]
             self._data = self._data[a:b]
@@ -764,7 +814,7 @@ class DATA_file(File):
         ### Get keyword value and position in file
         match = self.get(keyword, pos=True) 
         if match:
-            value, pos = match[0] # Get first match
+            _, pos = match[0] # Get first match
         else:
             raise SystemError(f'ERROR Missing {keyword} in {self}')
         out = self._data[:pos[0]] + new_string + self._data[pos[1]:]
@@ -903,10 +953,10 @@ class SMSPEC_file(unfmt_file):
 class text_file(File):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, suffix):
+    def __init__(self, file, suffix, **kwargs):
     #--------------------------------------------------------------------------------
         #self.file = Path(file).with_suffix(suffix)
-        super().__init__(file, suffix)
+        super().__init__(file, suffix, **kwargs)
         self._pattern = {}
         self._convert = {}
 
@@ -1153,10 +1203,10 @@ class fmt_file(File):                                                      # fmt
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix):                                  # fmt_file
+    def __init__(self, filename, suffix, *kwargs):                                  # fmt_file
     #--------------------------------------------------------------------------------
         #self.file = Path(filename)
-        super().__init__(filename, suffix)
+        super().__init__(filename, suffix, **kwargs)
         self.fh = None
 
 
@@ -1496,10 +1546,10 @@ class RSM_block:                                                          # RSM_
 class RSM_file(File):                                                      # RSM_file
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix):
+    def __init__(self, filename, suffix, **kwargs):
     #--------------------------------------------------------------------------------
         #self.file = Path(filename)
-        super().__init__(filename, suffix)
+        super().__init__(filename, suffix, **kwargs)
         self.fh = None
         self.tag = '1'
         self.nrow = self.block_length()-10

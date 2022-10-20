@@ -11,29 +11,55 @@ from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
 from contextlib import contextmanager
-from itertools import chain, takewhile
+from itertools import chain, takewhile, tee
+from collections import deque
+
+# Short Python regexp guide:
+#   \s : whitespace, [ \t\n\r\f\v]
+#   \w : alphanumeric, [a-zA-Z0-9_]
+#   \d : decimal digit, [0-9]
+#   \b : word-delimiter
+#    ? : 0 or 1 repetitions
+#    + : 1 or more rep.
+#    * : 0 or more rep.
+
 
 ### pairwise is new in python 3.10, define it for older versions
-try:
-    from itertools import pairwise
-except ImportError:
-    from itertools import tee
-    def pairwise(iterable):
-        # pairwise('ABCDEFG') --> AB BC CD DE EF FG
-        a, b = tee(iterable)
-        next(b, None)
-        return zip(a, b)
-
-
+# try:
+#     from itertools import pairwise
+# except ImportError:
+#     from itertools import tee
 
 #-----------------------------------------------------------------------
-def split_by_words(string, words, comment=None):
+def pairwise(iterable):
+#-----------------------------------------------------------------------
+    # pairwise('ABCDEFG') --> AB BC CD DE EF FG
+    a, b = tee(iterable)
+    next(b, None)
+    return zip(a, b)
+
+#-----------------------------------------------------------------------
+def tail(n, iterable): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Return an iterator over the last n items"
+    # tail(3, 'ABCDEFG') --> E F G
+    return iter(deque(iterable, maxlen=n))
+
+#-----------------------------------------------------------------------
+def flatten(list_of_lists): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Flatten one level of nesting"
+    return chain.from_iterable(list_of_lists)
+
+#-----------------------------------------------------------------------
+def split_by_words(string, words, comment=None): #, wb=r'\b'):
 #-----------------------------------------------------------------------
     '''
     Split a string, with comments, into sections based on a list of unique words.
     Returns a dict with words as keys and a tuple of begin and end positins
     '''
     regex =  (comment and rf'(?<!{comment})' or '') + r'\s*\b' + r'\b|\b'.join(words) + r'\b'
+    #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*' + wb + rf'{wb}|{wb}'.join(words) + wb
     matches = compile(regex, flags=IGNORECASE).finditer(string)
     ### Append string end pos as tuple of tuple
     tag_pos = chain( ((m.group(), m.start()) for m in matches), (('', len(string)),) )
@@ -239,23 +265,22 @@ def remove_comments(path, comment='--', join=True, raise_error=True, encoding=No
         if not path.is_file:
             if raise_error:
                 raise SystemError(f'ERROR {path} not found in remove_comments()')    
-            else:
-                return []
+            return []
         with open(path, encoding=encoding) as file:
             lines = (line.split(comment)[0].strip() for l in file if (line:=l.strip()) and not line.startswith(comment))
             if end:
-                lines = chain(takewhile(lambda x: x != end, lines), (end,))
+                # If end should be included
+                #lines = chain(takewhile(lambda x: x != end, lines), (end,))
+                lines = takewhile(lambda x: x != end, lines)
             if join:
                 return '\n'.join(lines)+'\n'
-            else:
-                return list(lines)
+            return list(lines)
     except (FileNotFoundError, PermissionError):
         return []
     except UnicodeDecodeError as e:
         if encoding:
             raise SystemError('ERROR {path} raised UnicodeDecodeError for both UTF-8 and latin-1 encodings: {e}')
-        else:
-            return remove_comments(path, encoding='latin-1', comment=comment, join=join, raise_error=raise_error, end=end)
+        return remove_comments(path, encoding='latin-1', comment=comment, join=join, raise_error=raise_error, end=end)
 
 
 
@@ -297,15 +322,15 @@ def date_to_datetime(dates):
 #--------------------------------------------------------------------------------
     return [datetime.combine(d, dt_time.min) for d in dates]
 
-#--------------------------------------------------------------------------------
-def flat_list(alist):
-#--------------------------------------------------------------------------------
-    return [item for sublist in alist for item in sublist]
+# #--------------------------------------------------------------------------------
+# def flat_list(alist):
+# #--------------------------------------------------------------------------------
+#     return [item for sublist in alist for item in sublist]
 
 #--------------------------------------------------------------------------------
 def upper_and_lower(alist):
 #--------------------------------------------------------------------------------
-    return flat_list([[item.upper(),item.lower()] for item in alist])
+    return flatten([[item.upper(),item.lower()] for item in alist])
 
 #--------------------------------------------------------------------------------
 def is_file_ignore_suffix_case(file):
