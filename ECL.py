@@ -674,9 +674,9 @@ class DATA_file(File):
                 dt = t
             else:
                 dt = last_date + timedelta(hours=t*24)
-            yield (dt-last_date).total_seconds()/86400, p
             last_date = dt
-
+            yield (dt-start).total_seconds()/86400, p
+            
     #--------------------------------------------------------------------------------
     def _convert_pass(self, values, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
