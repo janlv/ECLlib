@@ -49,7 +49,16 @@ def tail(n, iterable): # From Itertools Recipes at docs.python.org
 def flatten(list_of_lists): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
     "Flatten one level of nesting"
-    return chain.from_iterable(list_of_lists)
+    try:
+        return list(chain.from_iterable(list_of_lists))
+    except TypeError:
+        return list_of_lists
+        
+
+# #--------------------------------------------------------------------------------
+# def flat_list(alist):
+# #--------------------------------------------------------------------------------
+#     return [item for sublist in alist for item in sublist]
 
 #-----------------------------------------------------------------------
 def split_by_words(string, words, comment=None): #, wb=r'\b'):
@@ -321,11 +330,6 @@ def safeindex(alist, value):
 def date_to_datetime(dates):
 #--------------------------------------------------------------------------------
     return [datetime.combine(d, dt_time.min) for d in dates]
-
-# #--------------------------------------------------------------------------------
-# def flat_list(alist):
-# #--------------------------------------------------------------------------------
-#     return [item for sublist in alist for item in sublist]
 
 #--------------------------------------------------------------------------------
 def upper_and_lower(alist):

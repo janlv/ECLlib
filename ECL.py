@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import tee
+from itertools import repeat, tee
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import date_to_datetime, list2text, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
+from .utils import flatten, list2text, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
 
 #
 #
@@ -528,13 +528,13 @@ class DATA_file(File):
         if read or include:
             self._data = self.without_comments()
         getter = namedtuple('getter', 'default convert pattern')
-        self._getter = {'TSTEP'   : getter([],      self._float, r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
-                        'START'   : getter([0],     self._date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                        'DATES'   : getter([],      self._date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*'), 
-                        'INCLUDE' : getter([''],    self._file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                        'GDFILE'  : getter([''],    self._file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                        'RESTART' : getter(['', 0], self._file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
-                        'SUMMARY' : getter([],      self._pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
+        self._getter = {'TSTEP'   : getter([],      self._convert_float, r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
+                        'START'   : getter([0],     self._convert_date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+                        'DATES'   : getter([],      self._convert_date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*'), 
+                        'INCLUDE' : getter([''],    self._convert_file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                        'GDFILE'  : getter([''],    self._convert_file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                        'RESTART' : getter(['', 0], self._convert_file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
+                        'SUMMARY' : getter([],      self._convert_pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
         (check or include) and self.check() 
         include and self.with_includes(section=include)
 
@@ -655,6 +655,8 @@ class DATA_file(File):
         #tsteps = self.get('TSTEP', pos=True)
         times = sorted(dates+tsteps, key=itemgetter(1))
         start = start or self.get('START')[0]
+        if not start:
+            raise SystemError('ERROR Missing start-date in DATA_file.tsteps()')
         tsteps = list(self._days(times, start=start))
         ## Checks
         if not negative_ok and any(t<=0 for t,_ in tsteps):
@@ -672,34 +674,36 @@ class DATA_file(File):
                 dt = t
             else:
                 dt = last_date + timedelta(hours=t*24)
+            yield (dt-last_date).total_seconds()/86400, p
             last_date = dt
-            yield (dt-start).total_seconds()/86400, p
 
     #--------------------------------------------------------------------------------
-    def _pass(self, values, key, raise_error=False):                     # Input_file
+    def _convert_pass(self, values, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
         return values
 
     #--------------------------------------------------------------------------------
-    def _float(self, values, key, raise_error=False):                     # Input_file
+    def _convert_float(self, values, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
         # Process x*y statements
         mult = lambda x, y : int(x)*(' '+y) 
-        values = [a if not '*' in a else mult(*a.split('*')) for a in values]
-        values = [float(b) for a in values for b in a.split()] or [0]
+        values = (a if not '*' in a else mult(*a.split('*')) for a in values)
+        #values = [float(b) for a in values for b in a.split()] or [0]
+        values = [[float(b) for b in a.split()] for a in values] # or [0]
+        #print('_float', values)
         return values or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
-    def _date(self, values, key, raise_error=False):                     # Input_file
+    def _convert_date(self, values, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
         dates = (' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3))
-        dates = (datetime.strptime(d, '%d %b %Y') for d in dates)
-        return list(dates) or self._getter[key].default
+        dates = [[datetime.strptime(d, '%d %b %Y')] for d in dates]
+        return dates or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
-    def _file(self, values, key, raise_error=True):                      # Input_file
+    def _convert_file(self, values, key, raise_error=True):                      # Input_file
     #--------------------------------------------------------------------------------
         '''
         Return full path of file
@@ -712,14 +716,10 @@ class DATA_file(File):
                 values[i] = int(val)
             except ValueError:
                 pass
-        values = [(self.file.parent/val).resolve() if isinstance(val, str) else val for val in values]
+        values = [[(self.file.parent/val).resolve()] if isinstance(val, str) else [val] for val in values]
         # Add suffix for RESTART keyword
         if key == 'RESTART' and values:
             values[0] = values[0].with_suffix('.UNRST')
-        # Check if files are missing
-        missing = [str(val) for val in values if not isinstance(val, int) and not val.is_file()]
-        if missing and raise_error:
-            raise SystemError(f'ERROR {key}-files requested in {self.file.name} are not found: {", ".join(missing)}')
         return values or self._getter[key].default
 
     #--------------------------------------------------------------------------------
@@ -752,21 +752,16 @@ class DATA_file(File):
                 return default
         key = self._getter[keyword]
         match_list = compile(key.pattern).finditer(self._data)
-        #match_list = matches(file=self.file, check='INCLUDE', pattern=r"(?<!--)\s*\bINCLUDE\b *(?:--.*)*\s+(?:--.*\s+)*'*([a-zA-Z0-9_./\\-]+)'*")
-        #matches = list(matches)
-        #print(keyword, matches)
         ### Copy the generator
         ma, mb = tee(match_list)
         values = [n for m in ma for n in m.group(1).split()]
         values = key.convert(values, keyword, raise_error=raise_error)
         if pos:
             pos = (m.span() for m in mb)
-            #return [(m.group(1), m.span()) for m in match_list]
-            return list(zip(values, pos))
-        #values = [n for m in match_list for n in m.group(1).split()]
+            values = (tuple(zip(v,repeat(p))) for v,p in zip(values,pos))
         if raise_error and not values:
             raise SystemError(error_msg)
-        return values #key.convert(values, keyword, raise_error=raise_error)
+        return flatten(values) #key.convert(values, keyword, raise_error=raise_error)
 
 
     #--------------------------------------------------------------------------------
