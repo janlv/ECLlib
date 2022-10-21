@@ -773,7 +773,7 @@ class DATA_file(File):
         ### Create dict of section names and positions
         sections = {name.upper():(a,b) for name, a, b in split_by_words(self._data, self.section_names)}
         head = tail = ''
-        if section:
+        if isinstance(section,str):
             section = section.upper()
             if section not in sections.keys():
                 if raise_error:
