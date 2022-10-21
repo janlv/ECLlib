@@ -1198,7 +1198,7 @@ class fmt_file(File):                                                      # fmt
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, *kwargs):                                  # fmt_file
+    def __init__(self, filename, suffix, **kwargs):                                  # fmt_file
     #--------------------------------------------------------------------------------
         #self.file = Path(filename)
         super().__init__(filename, suffix, **kwargs)
