@@ -249,10 +249,10 @@ class keypos:
 class File:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, role='', case=True):                  # File
+    def __init__(self, filename, suffix, role='', ignore_case=False):          # File
     #--------------------------------------------------------------------------------
         self.file = suffix and Path(filename).with_suffix(suffix) or Path(filename)
-        if not case and not self.file.is_file():
+        if ignore_case and not self.file.is_file():
             ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
             pattern = '*.'+'['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
             self.file = next(filename.parent.glob(pattern), self.file)
