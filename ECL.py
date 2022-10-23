@@ -674,14 +674,15 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _days(self, time_pos, start=None):                           # Input_file
     #--------------------------------------------------------------------------------
+        'Return relative timestep in days given a timestep or a datetime'
         last_date = start
         for t,p in time_pos:
             if isinstance(t, datetime):
                 dt = t
             else:
                 dt = last_date + timedelta(hours=t*24)
+            yield (dt-last_date).total_seconds()/86400, p
             last_date = dt
-            yield (dt-start).total_seconds()/86400, p
             
     #--------------------------------------------------------------------------------
     def _convert_pass(self, values, key, raise_error=False):                     # Input_file
