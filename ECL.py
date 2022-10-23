@@ -354,7 +354,8 @@ class unfmt_file(File):
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 data.seek(startpos, 1)
-                while data.tell()+24 < data.size():
+                while data.tell() < data.size():
+                # while data.tell()+24 < data.size():
                     start = data.tell()
                     ### Header
                     try:
