@@ -106,6 +106,16 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     #return list(regex.finditer(data))
 
 
+#--------------------------------------------------------------------------------
+def convert_float_or_str(words): 
+#--------------------------------------------------------------------------------
+    for w in words: 
+        try:
+            v = float(w)
+        except ValueError:
+            v = str(w)
+        yield v
+
 #-----------------------------------------------------------------------
 def string_in_file(string, file):
 #-----------------------------------------------------------------------
@@ -491,16 +501,6 @@ def float_or_str(words):
             v = str(w)
         values.append(v)
     return values
-
-#--------------------------------------------------------------------------------
-def convert_float_or_str(*words): 
-#--------------------------------------------------------------------------------
-    for w in words: 
-        try:
-            v = float(w)
-        except ValueError:
-            v = str(w)
-        yield v
 
     
 #------------------------------------------------
