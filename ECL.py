@@ -46,31 +46,6 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
-
-
-
-# #====================================================================================
-# class keywords:
-# #====================================================================================
-#     # Sections
-#     sections = ['RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE']
-#     # Global keywords
-#     globals = ['COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
-#                 'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN']
-#     # Common keywords
-#     common = ['TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
-#               'FMTOUT','UNIFOUT','UNIFIN','OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS','REGDIMS','TRACERS',
-#               'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO','BOX','PERMX','PERMY','PERMZ','TOPS',
-#               'INIT','RPTGRID','PVCDO','PVTW','DENSITY','PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP',
-#               'TRDIFPAR','TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
-#               'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT','FWCT','FWIR',
-#               'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR','WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1',
-#               'WTIRA1','WTITA1','WTICA1','CTPRA1','CTIRA1','FOIP','ROIP','FPR','TCPU','TCPUTS','WNEWTON','ZIPEFF','STEPTYPE',
-#               'NEWTON','NLINEARP','NLINEARS','MSUMLINS','MSUMNEWT','MSUMPROB','WTPRPAR','WTPRIDE','WTPCPAR','WTPCIDE','RUNSUM',
-#               'SEPARATE','WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD','WCONHIST','WTEMP','RPTSCHED',
-#               'RPTRST','TUNING','READDATA', 'ROCKTABH','GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP',
-#               'GRIDOPTS','VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS','MINPV',
-#               'COPY','MULTIPLY']
         
 
 #====================================================================================
@@ -326,60 +301,62 @@ class unfmt_file(File):
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, **kwargs):                                # unfmt_file
+    def __init__(self, filename, suffix, **kwargs):                      # unfmt_file
     #--------------------------------------------------------------------------------
-        # self.fileobj = None
         super().__init__(filename, suffix, **kwargs)
-        #self.file = Path(filename).with_suffix(suffix)
         self.endpos = 0
         DEBUG and print(f'Creating {self}')
-
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_file
     #--------------------------------------------------------------------------------
         return f'<unfmt_file, {self}, endpos={self.endpos}>'
 
+    #--------------------------------------------------------------------------------
+    def at_end(self, raise_error=False):                                 # unfmt_file
+    #--------------------------------------------------------------------------------
+        return self.endpos == self.size()
 
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False, start=None):      # unfmt_file
+    def offset(self, raise_error=False):                                 # unfmt_file
     #--------------------------------------------------------------------------------
-        if not self.is_file() or self.size()<24: # Header is 24 bytes
+        return self.size() - self.endpos
+
+    #--------------------------------------------------------------------------------
+    def blocks(self, only_new=False, start=None):                        # unfmt_file
+    #--------------------------------------------------------------------------------
+        if not self.is_file():
             return False
         startpos = 0
         if only_new:
             startpos = self.endpos
         if start:
             startpos = start
+        if self.size() - startpos < 24: # Header is 24 bytes
+            return False
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                data.seek(startpos, 1)
-                while data.tell() < data.size():
-                # while data.tell()+24 < data.size():
-                    start = data.tell()
+                size = data.size()
+                pos = startpos
+                while pos < size:
+                    start = pos
                     ### Header
                     try:
-                        #data.seek(4, 1)
-                        _, key, length, type, _ = unpack(ENDIAN+'i8si4si', data.read(24))
-                        #data.seek(4, 1)
+                        _, key, length, type, _ = unpack(ENDIAN+'i8si4si', data[pos:pos+24])
                         ### Value array
-                        #data_start = data.tell()
-                        #bytes = length*DTYPE[type].size + 8*int(ceil(length/DTYPE[type].max))
                         bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
-                        data.seek(bytes, 1)
-                    except (ValueError, struct_error): # as e:
-                        # Catch 'seek out of range' error
-                        #print(f'break in blocks(): {e}')
-                        break
-                    yield unfmt_block(key=key, length=length, type=type, start=start, end=data.tell(), 
+                        pos += 24 + bytes
+                    except (ValueError, struct_error): 
+                        return False
+                    self.endpos = pos
+                    yield unfmt_block(key=key, length=length, type=type, start=start, end=pos, 
                                       data=data, data_start=start+24, file=self.file)
-                self.endpos = data.tell()
-
+    
 
     #--------------------------------------------------------------------------------
     def tail_blocks(self):                                               # unfmt_file
     #--------------------------------------------------------------------------------
-        if not self.is_file() or self.size()<24: # Header is 24 bytes
+        if not self.is_file() or self.size() < 24: # Header is 24 bytes
             return
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
@@ -1019,19 +996,16 @@ class check_blocks:                                                    # check_b
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, start=None, end=None, wait_func=None, check_size=True, timer=False):   # check_blocks
+    def __init__(self, file, start=None, end=None, wait_func=None, warn_offset=True, timer=False):   # check_blocks
     #--------------------------------------------------------------------------------
         if isinstance(file, unfmt_file):
             self._unfmt = file
         else:
             self._unfmt = unfmt_file(file)
-        self._key = {'start':start.ljust(8).encode(), 'end':end.ljust(8).encode()}
-        self._start = []
-        self._end = 0
-        self._startpos = 0
-        self._endpos = 0
+        self._keys = [start.ljust(8).encode(), [], end.ljust(8).encode(),  0]
+        self._data = None
         self._wait_func = wait_func
-        self._check_size = check_size
+        self._warn_offset = warn_offset
         self._timer = timer
         DEBUG and print(f'Creating {self}')
 
@@ -1040,56 +1014,51 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
         return f'<check_blocks(file={self._unfmt}>'
 
-
     #--------------------------------------------------------------------------------
     def __del__(self):                                                 # check_blocks
     #--------------------------------------------------------------------------------
         DEBUG and print(f'Deleting {self}')
 
-
     #--------------------------------------------------------------------------------
     def data(self):                                                    # check_blocks
     #--------------------------------------------------------------------------------
-        return self._start
+        return self._data and self._data[1]
 
     #--------------------------------------------------------------------------------
     def info(self, data=None, count=False):                            # check_blocks
     #--------------------------------------------------------------------------------
-        return f"  {self._key['start'].decode()} : {list2str(data and data or self._start, count=count)}"
-
+        return f"  {self._data[0].decode()} : {list2str(data and data or self._data[1], count=count)}"
         
     #--------------------------------------------------------------------------------
     def _blocks_complete(self, nblocks=1):                             # check_blocks
     #--------------------------------------------------------------------------------
-        self._start, self._end = [], 0
-        b = None
-        for b in self._unfmt.blocks(start=self._startpos):
-            if b._key == self._key['start']:
-                self._start.append(b.data()[0])
-                # self.out['startpos'].append(b.start())
-            if b._key == self._key['end']:
-                self._end += 1 
-                if self._end == len(self._start):
-                    ### Some complete blocks read
-                    self._endpos = b.end()
-                    if self._end == nblocks:
-                        ### Given number (nblocks) complete blocks read
-                        self._startpos = b.end()
-                        return True
+        block = None
+        start, start_val, end, end_val = 0, 1, 2, 3
+        for block in self._unfmt.blocks(only_new=True):
+            if block._key == self._keys[start]:
+                self._keys[start_val].append(block.data()[0])
+            if block._key == self._keys[end]:
+                self._keys[end_val] += 1 
+                if self.steps_complete() and self._keys[end_val] == nblocks:
+                    ### nblocks complete blocks read, reset counters and return True
+                    self._data = self._keys[:start_val+1]
+                    self._keys[start_val], self._keys[end_val] = [], 0
+                    return True
         return False
 
+    #--------------------------------------------------------------------------------
+    def steps_complete(self):
+    #--------------------------------------------------------------------------------
+        ### 1: start_list, 3: end_count
+        return len(self._keys[1]) == self._keys[3]
+
 
     #--------------------------------------------------------------------------------
-    def at_end(self):
-    #--------------------------------------------------------------------------------
-        return self._endpos == self._unfmt.size() and len(self._start) == self._end
-
-    #--------------------------------------------------------------------------------
-    def check_size(self):
+    def warn_if_offset(self):
     #--------------------------------------------------------------------------------
         msg = ''
-        if self._startpos != self._unfmt.size():
-            msg = f'WARNING {self._unfmt.file.name} not at end after check, offset is {self._unfmt.size()-self._startpos}'
+        if (offset := self._unfmt.offset()):
+            msg = f'WARNING {self._unfmt} not at end after check, offset is {offset}'
         return msg
 
 
@@ -1108,20 +1077,19 @@ class check_blocks:                                                    # check_b
         while n > 0:
             passed = self._wait_func( self._blocks_complete, nblocks=n, limit=iter, timer=self._timer, v=v, **kwargs )
             #msg.append(f'start, end: {self._start, self._end}, at_end: {self.at_end()}, passed: {passed}')
-            if self.at_end():
+            if self._unfmt.at_end() and self.steps_complete():
                 ### blocks <= max_blocks
-                self._startpos = self._endpos
                 break
             elif passed:
                 ### Not at end, but check passed: Read one more block!
                 n = 1
-                data.extend(self._start)
+                data.extend(self.data())
                 v = 4
             else:
                 ### Not at end, not passed
                 n -= 1
                 msg.append(f'WARNING Trying to read n - 1 = {n} blocks')
-        data.extend(self._start)
+        data.extend(self.data())
         msg.append(self.info(data=data, count=True))
         if not data:
             msg.append(f'WARNING No blocks read in {self._unfmt.file.name}')
@@ -1135,7 +1103,7 @@ class check_blocks:                                                    # check_b
         wait_func = self._wait_func or wait_func
         OK = wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
         msg += not OK and f'WARNING Check of {self._unfmt.file.name} failed!' or ''
-        msg += self._check_size and self.check_size() or ''
+        msg += self._warn_offset and self.warn_if_offset() or ''
         return msg
 
 
