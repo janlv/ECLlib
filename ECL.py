@@ -257,7 +257,7 @@ class File:
             pattern = '*.'+'['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
             self.file = next(filename.parent.glob(pattern), self.file)
         self.role = role.rstrip().lstrip()
-        DEBUG and print(f'Creating {self}')
+        DEBUG and print(f'Creating {repr(self)}')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
@@ -272,12 +272,12 @@ class File:
     #--------------------------------------------------------------------------------
     def __del__(self):                                                         # File
     #--------------------------------------------------------------------------------
-        DEBUG and print(f'Deleting {self}')
+        DEBUG and print(f'Deleting {repr(self)}')
 
     #--------------------------------------------------------------------------------
     def binarydata(self):                                                      # File
     #--------------------------------------------------------------------------------
-        ### Open as binary file can avoid encoding errors
+        ### Open as binary file to avoid encoding errors
         with open(self.file, 'rb') as f:
             return f.read()
  
@@ -311,7 +311,7 @@ class File:
     #--------------------------------------------------------------------------------
     def size(self):                                                            # File
     #--------------------------------------------------------------------------------
-        return self.file.stat().st_size
+        return self.file.is_file and self.file.stat().st_size or -1
 
 
     #--------------------------------------------------------------------------------

@@ -101,7 +101,8 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     #values = [v.split() for v in regex.findall(data)]
     values = (v.split() for v in regex.findall(data))
     #print(keyword, values)
-    return [float_or_str(v) for v in values]
+    #return [float_or_str(v) for v in values]
+    return list(convert_float_or_str(values))
     #return list(regex.finditer(data))
 
 
@@ -111,6 +112,7 @@ def string_in_file(string, file):
     with open(file, 'rb') as f:
         output = f.read()
     return string.encode() in output
+
 
 @contextmanager
 #-----------------------------------------------------------------------
@@ -489,6 +491,16 @@ def float_or_str(words):
             v = str(w)
         values.append(v)
     return values
+
+#--------------------------------------------------------------------------------
+def convert_float_or_str(*words): 
+#--------------------------------------------------------------------------------
+    for w in words: 
+        try:
+            v = float(w)
+        except ValueError:
+            v = str(w)
+        yield v
 
     
 #------------------------------------------------
