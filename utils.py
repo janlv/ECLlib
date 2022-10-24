@@ -11,7 +11,7 @@ from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
 from contextlib import contextmanager
-from itertools import chain, takewhile, tee
+from itertools import chain, takewhile, tee, zip_longest
 from collections import deque
 
 # Short Python regexp guide:
@@ -54,6 +54,22 @@ def flatten(list_of_lists): # From Itertools Recipes at docs.python.org
     except TypeError:
         return list_of_lists
         
+#-----------------------------------------------------------------------
+def grouper(iterable, n, *, incomplete='fill', fillvalue=None): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Collect data into non-overlapping fixed-length chunks or blocks"
+    # grouper('ABCDEFG', 3, fillvalue='x') --> ABC DEF Gxx
+    # grouper('ABCDEFG', 3, incomplete='strict') --> ABC DEF ValueError
+    # grouper('ABCDEFG', 3, incomplete='ignore') --> ABC DEF
+    args = [iter(iterable)] * n
+    if incomplete == 'fill':
+        return zip_longest(*args, fillvalue=fillvalue)
+    if incomplete == 'strict':
+        return zip(*args, strict=True)
+    if incomplete == 'ignore':
+        return zip(*args)
+    else:
+        raise ValueError('Expected fill, strict, or ignore')
 
 # #--------------------------------------------------------------------------------
 # def flat_list(alist):
@@ -99,10 +115,10 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     ### Lookahead used at the end to mark end without consuming
     regex = compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)   
     #values = [v.split() for v in regex.findall(data)]
-    values = (v.split() for v in regex.findall(data))
+    #values = (v.split() for v in regex.findall(data))
     #print(keyword, values)
     #return [float_or_str(v) for v in values]
-    return list(convert_float_or_str(values))
+    return [list(convert_float_or_str(v.split())) for v in regex.findall(data)]
     #return list(regex.finditer(data))
 
 
