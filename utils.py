@@ -11,7 +11,7 @@ from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
 from contextlib import contextmanager
-from itertools import chain, takewhile, tee, zip_longest
+from itertools import chain, islice, takewhile, tee, zip_longest
 from collections import deque
 
 # Short Python regexp guide:
@@ -31,7 +31,7 @@ from collections import deque
 #     from itertools import tee
 
 #-----------------------------------------------------------------------
-def pairwise(iterable):
+def pairwise(iterable): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
     # pairwise('ABCDEFG') --> AB BC CD DE EF FG
     a, b = tee(iterable)
@@ -39,11 +39,24 @@ def pairwise(iterable):
     return zip(a, b)
 
 #-----------------------------------------------------------------------
+def take(n, iterable): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Return first n items of the iterable as a list"
+    return list(islice(iterable, n))
+
+#-----------------------------------------------------------------------
 def tail(n, iterable): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
     "Return an iterator over the last n items"
     # tail(3, 'ABCDEFG') --> E F G
     return iter(deque(iterable, maxlen=n))
+
+#-----------------------------------------------------------------------
+def prepend(value, iterator): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Prepend a single value in front of an iterator"
+    # prepend(1, [2, 3, 4]) -> 1 2 3 4
+    return chain([value], iterator)
 
 #-----------------------------------------------------------------------
 def flatten(list_of_lists): # From Itertools Recipes at docs.python.org
@@ -572,19 +585,28 @@ def list2text(alist):
     text = ', '.join([str(a) for a in alist])
     return ' and'.join(text.rsplit(',',1))
 
+# #------------------------------------------------
+# def tail_file(fname, nchars=0, nlines=0):
+# #------------------------------------------------
+#     if Path(fname).is_file():
+#         if nlines:
+#             with open(fname) as f:
+#                 lines = f.readlines()                  
+#                 return ''.join(lines[-nlines:])
+#         else:
+#             with open(fname, 'rb') as f:
+#                 f.seek(-nchars, 2)
+#                 return f.read(nchars).decode()
+#     return ''
+
 #------------------------------------------------
-def tail_file(fname, nchars=0, nlines=0):
+def tail_file(fname, n=0):
 #------------------------------------------------
-    if Path(fname).is_file():
-        if nlines:
-            with open(fname) as f:
-                lines = f.readlines()                  
-                return ''.join(lines[-nlines:])
-        else:
-            with open(fname, 'rb') as f:
-                f.seek(-nchars, 2)
-                return f.read(nchars).decode()
-    return ''
+    'Return the last n lines of a file'
+    if Path(fname).is_file():   
+        with open(fname) as f:
+            return deque(f, n)
+    return None
 
 
 #------------------------------------------------
