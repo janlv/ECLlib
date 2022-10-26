@@ -413,8 +413,10 @@ class unfmt_file(File):
                 break
             if stop and stop[1] == values[stop[0]][-1] and len(set(size())) == 1:
                 break
-        if raise_error and not all(values.values()):
-            raise SystemError('ERROR Unable to read ' + list2str(var_pos.keys(), sep="'") + f' from {self.file.name}')
+        if not all(values.values()):
+            if raise_error:
+                raise SystemError('ERROR Unable to read ' + list2str(var_pos.keys(), sep="'") + f' from {self.file.name}')
+            return []
         return list(values.values())        
 
 
@@ -703,7 +705,7 @@ class DATA_file(File):
         values = [[(self.file.parent/val).resolve()] if isinstance(val, str) else [val] for val in values]
         # Add suffix for RESTART keyword
         if key == 'RESTART' and values:
-            values[0] = values[0].with_suffix('.UNRST')
+            values[0][0] = values[0][0].with_suffix('.UNRST')
         return values or self._getter[key].default
 
     #--------------------------------------------------------------------------------
@@ -829,7 +831,7 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def last_day(self):                                                # UNRST_file
     #--------------------------------------------------------------------------------
-        return (t:=self.get('time', N=-1)) and t[0][0] or 0
+        return (t := self.get('time', N=-1, raise_error=False)) and t[0][0] or 0
 
     #--------------------------------------------------------------------------------
     def dates(self, N=0):                                                # UNRST_file

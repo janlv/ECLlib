@@ -7,6 +7,7 @@ from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
+from turtle import up
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
@@ -680,10 +681,10 @@ def count_match(file=None, pattern=None):
 class Progress:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, N=1, update=1, format='%', indent=3, min=0):
+    def __init__(self, N=1, format='%', indent=3, min=0):
     #--------------------------------------------------------------------------------
-        self.start_time = time()
-        self.update = update
+        self.start_time = datetime.now()
+        #self.update = update
         self.N = N
         self.n0 = 0       # n0 != 0 if time-counter is reset
         self.min = min    # sets a minimum for the progress bar
@@ -695,29 +696,45 @@ class Progress:
             except ValueError: n = 1
             self.bar_length = n
         self.indent = indent*' '
-        self.eta = 0
+        #self.eta = 0
+        self.eta = None
+        self.last_eta = None
+        self.time_str = '--:--:--'
         self.length = 0
+        self.prev_n = -1
+        #print('Progress:', N, update, format, indent, min)
+
+    #--------------------------------------------------------------------------------
+    def __repr__(self):
+    #--------------------------------------------------------------------------------
+        return f'<Progress start_time:{self.start_time}, N:{self.N}, n0:{self.n0}, min:{self.min}, eta:{self.eta}, last_eta:{self.last_eta}, {self.time_str}>'
 
     #--------------------------------------------------------------------------------
     def set_min(self, min):
     #--------------------------------------------------------------------------------
         self.reset_time()
         self.min = self.n0 = min
+        #print('set_min:', min)
 
     #--------------------------------------------------------------------------------
-    def reset(self, N=1):
+    def reset(self, N=1, **kwargs):
     #--------------------------------------------------------------------------------
         self.N = N
         self.n0 = 0
-        self.reset_time()
+        self.eta = None
+        self.last_eta = None
+        self.time_str = '--:--:--'
+        self.reset_time(**kwargs)
 
     #--------------------------------------------------------------------------------
-    def reset_time(self, n=0):
+    def reset_time(self, n=0, min=None):
     #--------------------------------------------------------------------------------
         #print('reset_time', n)
-        self.start_time = time()
-        self.n0 = n
-        self.min = 0
+        self.start_time = datetime.now() #time()
+        #self.start_time = None
+        self.min = min and min or 0
+        # self.n0 = n
+        self.n0 = max(n, self.min)
 
     # #--------------------------------------------------------------------------------
     # def calc_estimated_arrival(self, n):
@@ -738,16 +755,22 @@ class Progress:
     #--------------------------------------------------------------------------------
     def format_bar(self, n):
     #--------------------------------------------------------------------------------
+        #print('format_bar', n, self.min)
+        hash = 0
         nn = max(n-self.min, 0)
-        hash = int(self.bar_length*nn/(self.N-self.min))
+        if (diff := self.N-self.min) > 0:
+            hash = int(self.bar_length*nn/diff)
         rest = self.bar_length - hash
-        count = f'{int(n)}'
+        # count = f'{int(n)}'
         t, T = strip_zero((n, self.N))
-        if self.min > 0:
+        if self.min > 0 and n >= self.min:
             #count = f'({int(self.min)} + {int(nn)})'
             a, b = strip_zero((self.min, nn))
             t = f'({a} + {b})'
-        return f'{t} / {T}  [{hash*"#"}{rest*"-"}]  {self.eta}'
+            #print('format_bar',t)
+        bar = hash <= self.bar_length and f'{hash*"#"}{rest*"-"}' or f'-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --'
+        return f'{t} / {T}  [{bar}]  {self.time_str}'
+        #return f'{t} / {T}  [{bar}]  {self.eta}'
 
     #--------------------------------------------------------------------------------
     def set_N(self, N):
@@ -757,27 +780,42 @@ class Progress:
     #--------------------------------------------------------------------------------
     def print(self, n, text=None):
     #--------------------------------------------------------------------------------
-        #print(n, self.min)
-        if n>self.min and int(n)%self.update==0:
-            #self.calc_estimated_arrival(n)
-            self.remaining_time(n)
-            line = self.format(n)
-            trail_space = max(1, self.length - len(line))
-            self.length = len(line)
-            print(f'\r{text or ""}' + self.indent + line + trail_space*' ', end='', flush=True)
-
-    #--------------------------------------------------------------------------------
-    def remaining_time(self, n):
-    #--------------------------------------------------------------------------------
-        #print('remaining_time: ',n, time()-self.start_time)
-        eta = 0
-        if n==0:
-            self.reset_time()
-        elif n > self.n0:
+        #print(n, self)
+        if self.prev_n < self.min:
+            self.start_time = datetime.now()# time()
+        if n>self.prev_n and n>self.min and n>self.n0:
+            #self.remaining_time(n)
+            ### Calculate estimated time of arrival, eta
             nn = n-self.n0
-            eta = max( int( (self.N-n) * (time()-self.start_time)/nn ) , 0)
-        self.eta = timedelta(seconds=eta)
-        return str(self.eta)
+            eta = max( int( (self.N-n) * (datetime.now()-self.start_time).total_seconds()/nn ) , 0)
+            self.eta = timedelta(seconds=eta)
+            ### Time of this estimate (used if progress printed more often than estimated)
+            self.last_eta = datetime.now()# time()
+            self.time_str = f'{self.eta}'.split('.')[0]
+        elif self.eta:
+            self.time_str = f'{self.eta-(datetime.now()-self.last_eta)}'.split('.')[0]
+        line = self.format(n)
+        trail_space = max(1, self.length - len(line))
+        self.length = len(line)
+        print(f'\r{text or ""}' + self.indent + line + trail_space*' ', end='', flush=True)
+        self.prev_n = n
+
+    # #--------------------------------------------------------------------------------
+    # def remaining_time(self, n):
+    # #--------------------------------------------------------------------------------
+    #     #print('remaining_time: ',n, time()-self.start_time)
+    #     #print(n, self)
+    #     #eta = None
+    #     # if n==0:
+    #     #     self.reset_time()
+    #     # elif n > self.n0:
+    #     if n > self.n0:
+    #         nn = n-self.n0
+    #         #eta = max( int( (self.N-n) * (time()-self.start_time)/nn ) , 0)
+    #         eta = max( int( (self.N-n) * (datetime.now()-self.start_time).total_seconds()/nn ) , 0)
+    #         self.eta = timedelta(seconds=eta)
+    #     return self.eta
+    #     # return str(self.eta)
     
     # #--------------------------------------------------------------------------------
     # def elapsed_time(self):
@@ -793,62 +831,6 @@ class Progress:
     #     Dt = time()-self.start_time
     #     tot = timedelta(seconds=int(Dt*self.N/n))
     #     return str(tot)
-
-
-# #====================================================================================
-# class check_endtag:
-# #====================================================================================
-
-#     #--------------------------------------------------------------------------------
-#     def __init__(self, file=None, endtag='', comment=''):
-#     #--------------------------------------------------------------------------------
-#         self._file = Path(file)        
-#         self._endtag = endtag
-#         self._endtag_size = len(endtag)
-#         self._comment = comment
-        
-#     #--------------------------------------------------------------------------------
-#     def file(self):
-#     #--------------------------------------------------------------------------------
-#         return self._file
-        
-#     #--------------------------------------------------------------------------------
-#     def find_endtag(self, binary=False):     
-#     #--------------------------------------------------------------------------------
-#         if binary:
-#             return self.find_endtag__binary()
-#         else:
-#             return self.find_endtag__ascii()
-        
-#     #--------------------------------------------------------------------------------
-#     def find_endtag__ascii(self):     
-#     #--------------------------------------------------------------------------------
-#         try:
-#             if self._file.stat().st_size < self._endtag_size:
-#                 return False
-#             with open(self._file, 'r') as f:
-#                 for line in f:
-#                     if self._endtag in line:
-#                         return True
-#         except FileNotFoundError:
-#             return None
-
-#     #--------------------------------------------------------------------------------
-#     def find_endtag__binary(self):  
-#     #--------------------------------------------------------------------------------
-#         try:
-#             size = self._endtag_size+2 # 2 = '\r\n'
-#             if self._file.stat().st_size < size:
-#                 return False
-#             endtag = self._endtag.encode()
-#             with open(self._file, 'rb') as f:
-#                 f.seek(-size, os.SEEK_END)
-#                 end = unpack('>%ds'%size, f.read(size))[0]
-#                 if endtag in end:
-#                     return True
-#         except FileNotFoundError:
-#             return None
-
 
 
 
