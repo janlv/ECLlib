@@ -57,7 +57,7 @@ def tail_file(fname, n=0):
     'Return the last n lines of a file'
     if fname and Path(fname).is_file():   
         with open(fname) as f:
-            return list(tail(n,f))
+            return tail(n,f)
 
 
 #-----------------------------------------------------------------------
