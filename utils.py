@@ -7,7 +7,6 @@ from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
-from turtle import up
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 from signal import SIGTERM
