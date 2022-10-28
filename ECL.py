@@ -203,7 +203,7 @@ class unfmt_block:
             value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._mmap[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
         except struct_error as e:
             if raise_error:
-                raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
+                raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
             return None
         if self._type == b'CHAR':
             value = [b''.join(value).decode()]
@@ -1038,7 +1038,10 @@ class check_blocks:                                                    # check_b
         start, start_val, end, end_val = 0, 1, 2, 3
         for block in self._unfmt.blocks(only_new=True):
             if block._key == self._keys[start]:
-                self._keys[start_val].append(block.data()[0])
+                if (data := block.data()):
+                    self._keys[start_val].append(data[0])
+                else:
+                    return False    
             if block._key == self._keys[end]:
                 self._keys[end_val] += 1 
                 if self.steps_complete() and self._keys[end_val] == nblocks:
