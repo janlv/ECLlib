@@ -51,6 +51,15 @@ def tail(n, iterable): # From Itertools Recipes at docs.python.org
     # tail(3, 'ABCDEFG') --> E F G
     return iter(deque(iterable, maxlen=n))
 
+#------------------------------------------------
+def tail_file(fname, n=0):
+#------------------------------------------------
+    'Return the last n lines of a file'
+    if fname and Path(fname).is_file():   
+        with open(fname) as f:
+            return list(tail(n,f))
+
+
 #-----------------------------------------------------------------------
 def prepend(value, iterator): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
@@ -598,15 +607,6 @@ def list2text(alist):
 #                 f.seek(-nchars, 2)
 #                 return f.read(nchars).decode()
 #     return ''
-
-#------------------------------------------------
-def tail_file(fname, n=0):
-#------------------------------------------------
-    'Return the last n lines of a file'
-    if Path(fname).is_file():   
-        with open(fname) as f:
-            return deque(f, n)
-    return None
 
 
 #------------------------------------------------
