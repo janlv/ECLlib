@@ -697,7 +697,7 @@ class Progress:
         self.indent = indent*' '
         #self.eta = 0
         self.eta = None
-        self.last_eta = None
+        self.time_last_eta = None
         self.time_str = '--:--:--'
         self.length = 0
         self.prev_n = -1
@@ -706,7 +706,7 @@ class Progress:
     #--------------------------------------------------------------------------------
     def __repr__(self):
     #--------------------------------------------------------------------------------
-        return f'<Progress start_time:{self.start_time}, N:{self.N}, n0:{self.n0}, min:{self.min}, eta:{self.eta}, last_eta:{self.last_eta}, {self.time_str}>'
+        return f'<Progress start_time:{self.start_time}, N:{self.N}, n0:{self.n0}, min:{self.min}, eta:{self.eta}, last_eta:{self.time_last_eta}, {self.time_str}>'
 
     #--------------------------------------------------------------------------------
     def set_min(self, min):
@@ -721,8 +721,7 @@ class Progress:
         self.N = N
         self.n0 = 0
         self.eta = None
-        self.last_eta = None
-        self.time_str = '--:--:--'
+        self.time_last_eta = None
         self.reset_time(**kwargs)
 
     #--------------------------------------------------------------------------------
@@ -733,6 +732,7 @@ class Progress:
         #self.start_time = None
         self.min = min and min or 0
         # self.n0 = n
+        self.time_str = '--:--:--'
         self.n0 = max(n, self.min)
         self.prev_n = -1
 
@@ -790,10 +790,11 @@ class Progress:
             eta = max( int( (self.N-n) * (datetime.now()-self.start_time).total_seconds()/nn ) , 0)
             self.eta = timedelta(seconds=eta)
             ### Time of this estimate (used if progress printed more often than estimated)
-            self.last_eta = datetime.now()
+            self.time_last_eta = datetime.now()
             self.time_str = f'{self.eta}'.split('.')[0]
         elif self.eta:
-            self.time_str = f'{self.eta-(datetime.now()-self.last_eta)}'.split('.')[0]
+            td = self.eta-(datetime.now()-self.time_last_eta)
+            self.time_str = f'{max(timedelta(0), td)}'.split('.')[0]
         line = self.format(n)
         trail_space = max(1, self.length - len(line))
         self.length = len(line)
