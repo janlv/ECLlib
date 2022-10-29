@@ -734,6 +734,7 @@ class Progress:
         self.min = min and min or 0
         # self.n0 = n
         self.n0 = max(n, self.min)
+        self.prev_n = -1
 
     # #--------------------------------------------------------------------------------
     # def calc_estimated_arrival(self, n):
