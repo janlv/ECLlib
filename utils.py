@@ -58,7 +58,7 @@ def tail_file(fname, n=0):
     if fname and Path(fname).is_file():   
         with open(fname) as f:
             return tail(n,f)
-
+    return ()
 
 #-----------------------------------------------------------------------
 def prepend(value, iterator): # From Itertools Recipes at docs.python.org
@@ -781,7 +781,7 @@ class Progress:
     #--------------------------------------------------------------------------------
         #print(n, self)
         if self.prev_n < self.min:
-            self.start_time = datetime.now()# time()
+            self.start_time = datetime.now()
         if n>self.prev_n and n>self.min and n>self.n0:
             #self.remaining_time(n)
             ### Calculate estimated time of arrival, eta
@@ -789,7 +789,7 @@ class Progress:
             eta = max( int( (self.N-n) * (datetime.now()-self.start_time).total_seconds()/nn ) , 0)
             self.eta = timedelta(seconds=eta)
             ### Time of this estimate (used if progress printed more often than estimated)
-            self.last_eta = datetime.now()# time()
+            self.last_eta = datetime.now()
             self.time_str = f'{self.eta}'.split('.')[0]
         elif self.eta:
             self.time_str = f'{self.eta-(datetime.now()-self.last_eta)}'.split('.')[0]
