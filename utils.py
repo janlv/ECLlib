@@ -58,7 +58,7 @@ def tail_file(fname, n=0):
     if fname and Path(fname).is_file():   
         with open(fname) as f:
             return tail(n,f)
-    return ()
+    return iter(())
 
 #-----------------------------------------------------------------------
 def prepend(value, iterator): # From Itertools Recipes at docs.python.org
