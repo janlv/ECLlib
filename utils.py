@@ -735,6 +735,8 @@ class Progress:
         self.time_str = '--:--:--'
         self.n0 = max(n, self.min)
         self.prev_n = -1
+        self.eta = None
+        self.time_last_eta = None
 
     # #--------------------------------------------------------------------------------
     # def calc_estimated_arrival(self, n):
