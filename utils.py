@@ -720,8 +720,8 @@ class Progress:
     #--------------------------------------------------------------------------------
         self.N = N
         self.n0 = 0
-        self.eta = None
-        self.time_last_eta = None
+        # self.eta = None
+        # self.time_last_eta = None
         self.reset_time(**kwargs)
 
     #--------------------------------------------------------------------------------
