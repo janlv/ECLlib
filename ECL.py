@@ -616,6 +616,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         'Return timesteps, if DATES are present they are converted to timesteps'
 
+        ### NB! Does not yet handle DATES with multiple entries
         self.with_includes(section='SCHEDULE', raise_error=False)
         # dates, tsteps = self.get('DATES', 'TSTEP', pos=True)
         dates = self.get('DATES', pos=True)
@@ -623,7 +624,6 @@ class DATA_file(File):
         if not 'SKIPREST' in self.data():
             tsteps = self.get('TSTEP', pos=True)
         times = sorted(dates+tsteps, key=itemgetter(1))
-        print(times)
         start = start or self.get('START')[0]
         if not start:
             raise SystemError('ERROR Missing start-date in DATA_file.tsteps()')
@@ -645,7 +645,6 @@ class DATA_file(File):
                 dt = t
             else:
                 dt = last_date + timedelta(hours=t*24)
-            print('yield',dt-last_date)
             yield (dt-last_date).total_seconds()/86400, p
             last_date = dt
             
