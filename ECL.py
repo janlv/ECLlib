@@ -611,33 +611,17 @@ class DATA_file(File):
             for inc in self._include_files_recursive(new_file):
                 yield inc
 
-    # #--------------------------------------------------------------------------------
-    # def tsteps(self, start=[], negative_ok=False, missing_ok=False):     # Input_file
-    # #--------------------------------------------------------------------------------
-    #     '''
-    #     Return timesteps, if DATES are present they are converted to timesteps
-    #     '''
-    #     self.with_includes(section='SCHEDULE', raise_error=False)
-    #     start = date_to_datetime(start or self.get('START'))
-    #     tsteps = [start[0] + timedelta(hours=t*24) for t in accumulate(self.get('TSTEP'))]
-    #     dates = start + tsteps + date_to_datetime(self.get('DATES'))
-    #     ### Return timesteps as days, 1 day = 86400 sec
-    #     tsteps = [(a-b).total_seconds()/86400 for a,b in zip(dates[1:], dates[:-1])]
-    #     ## Checks
-    #     if not negative_ok and any(t<=0 for t in tsteps):
-    #         raise SystemError(f'ERROR Zero or negative timestep in {self}, probably caused by too long TSTEP preceding a DATES keyword')
-    #     if not missing_ok and tsteps == []:
-    #         raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
-    #     return tsteps
-
     #--------------------------------------------------------------------------------
     def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False):     # Input_file
     #--------------------------------------------------------------------------------
         'Return timesteps, if DATES are present they are converted to timesteps'
 
         self.with_includes(section='SCHEDULE', raise_error=False)
-        dates, tsteps = self.get('DATES', 'TSTEP', pos=True)
-        #tsteps = self.get('TSTEP', pos=True)
+        # dates, tsteps = self.get('DATES', 'TSTEP', pos=True)
+        dates = self.get('DATES', pos=True)
+        tsteps = []
+        if not 'SKIPREST' in self.data():
+            tsteps = self.get('TSTEP', pos=True)
         times = sorted(dates+tsteps, key=itemgetter(1))
         start = start or self.get('START')[0]
         if not start:
