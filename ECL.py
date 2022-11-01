@@ -632,7 +632,7 @@ class DATA_file(File):
         tsteps = list(self._days(times, start=start))
         ## Checks
         if not negative_ok and any(t<=0 for t,_ in tsteps):
-            raise SystemError(f'ERROR Zero or negative timestep in {self}, probably caused by a TSTEP preceding a DATES keyword')
+            raise SystemError(f'ERROR Zero or negative timestep in {self} (check if TSTEP or RESTART oversteps a DATES keyword')
         if not missing_ok and tsteps == []:
             raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
         return pos and tsteps or [t for t,_ in tsteps]
