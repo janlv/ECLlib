@@ -674,20 +674,18 @@ class DATA_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def _convert_file(self, files, key, raise_error=True):                      # Input_file
+    def _convert_file(self, values, key, raise_error=True):                      # Input_file
     #--------------------------------------------------------------------------------
         '''
         Return full path of file
         '''
-        # Remove quotes and backslash
-        files = [file.replace("'",'').replace('\\','/') for file in files]
-        # Convert numbers if they exist
-        for i, file in enumerate(files):
-            try:
-                files[i] = int(file)
-            except ValueError:
-                pass
-        files = [[(self.file.parent/file).resolve()] if isinstance(file, str) else [file] for file in files]
+        ### Remove quotes and backslash
+        values = (val.replace("'",'').replace('\\','/') for val in values)
+        ### Split and unzip files in a files and numbers lists
+        unzip = zip(*(val.split() for val in values))
+        files = [[(self.file.parent/file).resolve()] for file in next(unzip)]
+        numbers = [[float(num)] for num in next(unzip, ())]
+        files = numbers and [[f[0],n[0]] for f,n in zip(files, numbers)] or files
         # Add suffix for RESTART keyword
         if key == 'RESTART' and files:
             files[0][0] = files[0][0].with_suffix('.UNRST')
