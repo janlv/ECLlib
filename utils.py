@@ -176,6 +176,13 @@ def safezip(*gen):
     finally:
         [g.close() for g in gen]
 
+#-----------------------------------------------------------------------
+def remove_chars(chars, text):
+#-----------------------------------------------------------------------
+    for c in chars:
+        if c in text:
+            text = text.replace(c,'')
+    return text
 
 #-----------------------------------------------------------------------
 def remove_leading_nondigits(txt):

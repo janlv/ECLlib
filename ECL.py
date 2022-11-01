@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flatten, list2text, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
+from .utils import flatten, grouper, list2text, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
 
 #
 #
@@ -510,14 +510,14 @@ class DATA_file(File):
         getter = namedtuple('getter', 'default convert pattern')
         self._getter = {'TSTEP'   : getter([],      self._convert_float, r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
                         'START'   : getter([0],     self._convert_date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                        'DATES'   : getter([],      self._convert_date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*'), 
+                        'DATES'   : getter([],      self._convert_date,  r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
                         'INCLUDE' : getter([''],    self._convert_file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                         'GDFILE'  : getter([''],    self._convert_file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                         'RESTART' : getter(['', 0], self._convert_file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
                         'SUMMARY' : getter([],      self._convert_pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
         (check or include) and self.check() 
         include and self.with_includes(section=include)
-
+        # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # Input_file
@@ -668,8 +668,10 @@ class DATA_file(File):
     def _convert_date(self, dates, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
         ### Remove possible quotes
-        dates = [v.replace("'", '') for v in dates]
-        dates = [[datetime.strptime(d, '%d %b %Y')] for d in dates]
+        #dates = [v.replace("'/\n", '') for v in dates]
+        ### Extract groups of 3 from the dates strings
+        dates = (grouper(remove_chars("'/\n", v).split(), 3) for v in dates)
+        dates = [[datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates]
         return dates or self._getter[key].default
 
 
@@ -680,9 +682,11 @@ class DATA_file(File):
         Return full path of file
         '''
         ### Remove quotes and backslash
-        values = (val.replace("'",'').replace('\\','/') for val in values)
+        #values = (val.replace("'",'').replace('\\','/') for val in values)
+        values = (remove_chars("'/\n", val).split() for val in values)
         ### Split and unzip files in a files and numbers lists
-        unzip = zip(*(val.split() for val in values))
+        #unzip = zip(*(val.split() for val in values))
+        unzip = zip(*values)
         files = [[(self.file.parent/file).resolve()] for file in next(unzip)]
         numbers = [[float(num)] for num in next(unzip, ())]
         files = numbers and [[f[0],n[0]] for f,n in zip(files, numbers)] or files
