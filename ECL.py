@@ -623,6 +623,9 @@ class DATA_file(File):
         tsteps = []
         if not 'SKIPREST' in self.data():
             tsteps = self.get('TSTEP', pos=True)
+        else:
+            ### with SKIPREST
+            negative_ok = True
         times = sorted(dates+tsteps, key=itemgetter(1))
         start = start or self.get('START')[0]
         if not start:
