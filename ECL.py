@@ -682,8 +682,10 @@ class DATA_file(File):
         Return full path of file
         '''
         ### Remove quotes and backslash
-        #values = (val.replace("'",'').replace('\\','/') for val in values)
-        values = (remove_chars("'/\n", val).split() for val in values)
+        values = (val.replace("'",'').replace('\\','/').split() for val in values)
+        # print(values)
+        # values = (remove_chars("'/\n", val).replace('\\','/').split() for val in values)
+        # print(values)
         ### Split and unzip files in a files and numbers lists
         #unzip = zip(*(val.split() for val in values))
         unzip = zip(*values)
