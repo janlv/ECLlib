@@ -800,7 +800,7 @@ class Progress:
         line = self.format(n)
         trail_space = max(1, self.length - len(line))
         self.length = len(line)
-        print(f'\r' + self.indent + line + (text or "") + trail_space*' ', end='', flush=True)
+        print(f'\r' + self.indent + line + (text and ' '+text or '') + trail_space*' ', end='', flush=True)
         self.prev_n = n
 
     # #--------------------------------------------------------------------------------
