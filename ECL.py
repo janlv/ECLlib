@@ -837,7 +837,8 @@ class UNRST_file(unfmt_file):
     def dates(self, N=0):                                                # UNRST_file
     #--------------------------------------------------------------------------------
         year, month, day = self.get('year','month','day', N=N)
-        dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date() for d,m,y in zip(day, month, year))
+        # dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date() for d,m,y in zip(day, month, year))
+        dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in zip(day, month, year))
         if abs(N) == 1:
             return list(dates)[-1]
         else:
@@ -848,7 +849,8 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
         if block.key() == 'INTEHEAD':
             d, m, y = block.data()[64:66]
-            return datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date()
+            # return datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date()
+            return datetime.strptime(f'{d} {m} {y}', '%d %m %Y')
         return step
 
     #--------------------------------------------------------------------------------
