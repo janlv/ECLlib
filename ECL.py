@@ -612,7 +612,7 @@ class DATA_file(File):
                 yield inc
 
     #--------------------------------------------------------------------------------
-    def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False):     # Input_file
+    def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # Input_file
     #--------------------------------------------------------------------------------
         'Return timesteps, if DATES are present they are converted to timesteps'
 
@@ -621,11 +621,10 @@ class DATA_file(File):
         # dates, tsteps = self.get('DATES', 'TSTEP', pos=True)
         dates = self.get('DATES', pos=True)
         tsteps = []
-        if not 'SKIPREST' in self.data():
-            tsteps = self.get('TSTEP', pos=True)
-        else:
-            ### with SKIPREST
+        if skiprest:
             negative_ok = True
+        else:
+            tsteps = self.get('TSTEP', pos=True)
         times = sorted(dates+tsteps, key=itemgetter(1))
         start = start or self.get('START')[0]
         if not start:
