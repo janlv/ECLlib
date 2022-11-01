@@ -658,42 +658,40 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _convert_float(self, values, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
-        # Process x*y statements
-        mult = lambda x, y : int(x)*(' '+y) 
-        values = (a if not '*' in a else mult(*a.split('*')) for a in values)
-        #values = [float(b) for a in values for b in a.split()] or [0]
-        values = [[float(b) for b in a.split()] for a in values] # or [0]
-        #print('_float', values)
+        mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
+        values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
+        values = [flatten(v) for v in values]
         return values or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
-    def _convert_date(self, values, key, raise_error=False):                     # Input_file
+    def _convert_date(self, dates, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
-        dates = (' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3))
+        ### Remove possible quotes
+        dates = [v.replace("'", '') for v in dates]
         dates = [[datetime.strptime(d, '%d %b %Y')] for d in dates]
         return dates or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
-    def _convert_file(self, values, key, raise_error=True):                      # Input_file
+    def _convert_file(self, files, key, raise_error=True):                      # Input_file
     #--------------------------------------------------------------------------------
         '''
         Return full path of file
         '''
         # Remove quotes and backslash
-        values = [val.replace("'",'').replace('\\','/') for val in values]
+        files = [file.replace("'",'').replace('\\','/') for file in files]
         # Convert numbers if they exist
-        for i, val in enumerate(values):
+        for i, file in enumerate(files):
             try:
-                values[i] = int(val)
+                files[i] = int(file)
             except ValueError:
                 pass
-        values = [[(self.file.parent/val).resolve()] if isinstance(val, str) else [val] for val in values]
+        files = [[(self.file.parent/file).resolve()] if isinstance(file, str) else [file] for file in files]
         # Add suffix for RESTART keyword
-        if key == 'RESTART' and values:
-            values[0][0] = values[0][0].with_suffix('.UNRST')
-        return values or self._getter[key].default
+        if key == 'RESTART' and files:
+            files[0][0] = files[0][0].with_suffix('.UNRST')
+        return files or self._getter[key].default
 
     #--------------------------------------------------------------------------------
     def get(self, *keywords, **kwargs):                                  # Input_file
@@ -725,13 +723,13 @@ class DATA_file(File):
                 return default
         key = self._getter[keyword]
         match_list = compile(key.pattern).finditer(self._data)
-        ### Copy the generator
-        ma, mb = tee(match_list)
-        values = [n for m in ma for n in m.group(1).split()]
+        val_span = tuple((m.group(1), m.span()) for m in match_list) 
+        if not val_span:
+            return default
+        values, span = zip(*val_span)
         values = key.convert(values, keyword, raise_error=raise_error)
         if pos:
-            pos = (m.span() for m in mb)
-            values = (tuple(zip(v,repeat(p))) for v,p in zip(values,pos))
+            values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
         if raise_error and not values:
             raise SystemError(error_msg)
         return flatten(values) #key.convert(values, keyword, raise_error=raise_error)
