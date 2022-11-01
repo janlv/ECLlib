@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flatten, list2text, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
+from .utils import flatten, grouper, list2text, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
 
 #
 #
@@ -510,14 +510,14 @@ class DATA_file(File):
         getter = namedtuple('getter', 'default convert pattern')
         self._getter = {'TSTEP'   : getter([],      self._convert_float, r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
                         'START'   : getter([0],     self._convert_date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                        'DATES'   : getter([],      self._convert_date,  r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*'), 
+                        'DATES'   : getter([],      self._convert_date,  r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
                         'INCLUDE' : getter([''],    self._convert_file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                         'GDFILE'  : getter([''],    self._convert_file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                         'RESTART' : getter(['', 0], self._convert_file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
                         'SUMMARY' : getter([],      self._convert_pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
         (check or include) and self.check() 
         include and self.with_includes(section=include)
-
+        # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # Input_file
@@ -658,20 +658,20 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _convert_float(self, values, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
-        # Process x*y statements
-        mult = lambda x, y : int(x)*(' '+y) 
-        values = (a if not '*' in a else mult(*a.split('*')) for a in values)
-        #values = [float(b) for a in values for b in a.split()] or [0]
-        values = [[float(b) for b in a.split()] for a in values] # or [0]
-        #print('_float', values)
+        mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
+        values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
+        values = [flatten(v) for v in values]
         return values or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
-    def _convert_date(self, values, key, raise_error=False):                     # Input_file
+    def _convert_date(self, dates, key, raise_error=False):                     # Input_file
     #--------------------------------------------------------------------------------
-        dates = (' '.join((values[i], values[i+1], values[i+2])).replace("'",'') for i in range(0, len(values), 3))
-        dates = [[datetime.strptime(d, '%d %b %Y')] for d in dates]
+        ### Remove possible quotes
+        #dates = [v.replace("'/\n", '') for v in dates]
+        ### Extract groups of 3 from the dates strings
+        dates = (grouper(remove_chars("'/\n", v).split(), 3) for v in dates)
+        dates = [[datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates]
         return dates or self._getter[key].default
 
 
@@ -681,19 +681,21 @@ class DATA_file(File):
         '''
         Return full path of file
         '''
-        # Remove quotes and backslash
-        values = [val.replace("'",'').replace('\\','/') for val in values]
-        # Convert numbers if they exist
-        for i, val in enumerate(values):
-            try:
-                values[i] = int(val)
-            except ValueError:
-                pass
-        values = [[(self.file.parent/val).resolve()] if isinstance(val, str) else [val] for val in values]
+        ### Remove quotes and backslash
+        values = (val.replace("'",'').replace('\\','/').split() for val in values)
+        # print(values)
+        # values = (remove_chars("'/\n", val).replace('\\','/').split() for val in values)
+        # print(values)
+        ### Split and unzip files in a files and numbers lists
+        #unzip = zip(*(val.split() for val in values))
+        unzip = zip(*values)
+        files = [[(self.file.parent/file).resolve()] for file in next(unzip)]
+        numbers = [[float(num)] for num in next(unzip, ())]
+        files = numbers and [[f[0],n[0]] for f,n in zip(files, numbers)] or files
         # Add suffix for RESTART keyword
-        if key == 'RESTART' and values:
-            values[0][0] = values[0][0].with_suffix('.UNRST')
-        return values or self._getter[key].default
+        if key == 'RESTART' and files:
+            files[0][0] = files[0][0].with_suffix('.UNRST')
+        return files or self._getter[key].default
 
     #--------------------------------------------------------------------------------
     def get(self, *keywords, **kwargs):                                  # Input_file
@@ -725,13 +727,13 @@ class DATA_file(File):
                 return default
         key = self._getter[keyword]
         match_list = compile(key.pattern).finditer(self._data)
-        ### Copy the generator
-        ma, mb = tee(match_list)
-        values = [n for m in ma for n in m.group(1).split()]
+        val_span = tuple((m.group(1), m.span()) for m in match_list) 
+        if not val_span:
+            return default
+        values, span = zip(*val_span)
         values = key.convert(values, keyword, raise_error=raise_error)
         if pos:
-            pos = (m.span() for m in mb)
-            values = (tuple(zip(v,repeat(p))) for v,p in zip(values,pos))
+            values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
         if raise_error and not values:
             raise SystemError(error_msg)
         return flatten(values) #key.convert(values, keyword, raise_error=raise_error)
