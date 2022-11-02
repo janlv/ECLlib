@@ -336,7 +336,9 @@ class unfmt_file(File):
             return False
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                size = data.size()
+                #size = data.size()
+                size = self.file.stat().st_size 
+                data.size()
                 pos = startpos
                 while pos < size:
                     start = pos
