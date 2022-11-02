@@ -334,16 +334,18 @@ class unfmt_file(File):
             startpos = start
         if self.size() - startpos < 24: # Header is 24 bytes
             return False
-        size = self.file.stat().st_size
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                #size = data.size()
+                size = data.size()
                 pos = startpos
                 while pos < size:
                     start = pos
                     ### Header
                     try:
-                        _, key, length, type, _ = unpack(ENDIAN+'i8si4si', data[pos:pos+24])
+                        s = unpack(ENDIAN+'i', data[pos:pos+4])
+                        if s < 1:
+                            break
+                        key, length, type = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
                         ### Value array
                         bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
                         pos += 24 + bytes
