@@ -74,10 +74,14 @@ class unfmt_block:
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
+    def __str__(self):                                                  # unfmt_block
+    #--------------------------------------------------------------------------------
+        return f'key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._end:8d}'
+
+    #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        return f'<unfmt_block(key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._end:8d}>'
-
+        return f'<unfmt_block, {self}>'
 
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                        # unfmt_block
