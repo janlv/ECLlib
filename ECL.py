@@ -615,10 +615,7 @@ class DATA_file(File):
     def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # Input_file
     #--------------------------------------------------------------------------------
         'Return timesteps, if DATES are present they are converted to timesteps'
-
-        ### NB! Does not yet handle DATES with multiple entries
         self.with_includes(section='SCHEDULE', raise_error=False)
-        # dates, tsteps = self.get('DATES', 'TSTEP', pos=True)
         dates = self.get('DATES', pos=True)
         tsteps = []
         if skiprest:
@@ -651,12 +648,12 @@ class DATA_file(File):
             last_date = dt
             
     #--------------------------------------------------------------------------------
-    def _convert_pass(self, values, key, raise_error=False):                     # Input_file
+    def _convert_pass(self, values, key, raise_error=False):             # Input_file
     #--------------------------------------------------------------------------------
         return values
 
     #--------------------------------------------------------------------------------
-    def _convert_float(self, values, key, raise_error=False):                     # Input_file
+    def _convert_float(self, values, key, raise_error=False):            # Input_file
     #--------------------------------------------------------------------------------
         mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
         values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
@@ -665,34 +662,27 @@ class DATA_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def _convert_date(self, dates, key, raise_error=False):                     # Input_file
+    def _convert_date(self, dates, key, raise_error=False):              # Input_file
     #--------------------------------------------------------------------------------
         ### Remove possible quotes
-        #dates = [v.replace("'/\n", '') for v in dates]
-        ### Extract groups of 3 from the dates strings
+        ### Extract groups of 3 from the dates strings 
         dates = (grouper(remove_chars("'/\n", v).split(), 3) for v in dates)
         dates = [[datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates]
         return dates or self._getter[key].default
 
 
     #--------------------------------------------------------------------------------
-    def _convert_file(self, values, key, raise_error=True):                      # Input_file
+    def _convert_file(self, values, key, raise_error=True):              # Input_file
     #--------------------------------------------------------------------------------
-        '''
-        Return full path of file
-        '''
+        'Return full path of file'
         ### Remove quotes and backslash
         values = (val.replace("'",'').replace('\\','/').split() for val in values)
-        # print(values)
-        # values = (remove_chars("'/\n", val).replace('\\','/').split() for val in values)
-        # print(values)
-        ### Split and unzip files in a files and numbers lists
-        #unzip = zip(*(val.split() for val in values))
+        ### Unzip values in a files (always) and numbers lists (only for RESTART)
         unzip = zip(*values)
         files = [[(self.file.parent/file).resolve()] for file in next(unzip)]
         numbers = [[float(num)] for num in next(unzip, ())]
         files = numbers and [[f[0],n[0]] for f,n in zip(files, numbers)] or files
-        # Add suffix for RESTART keyword
+        ### Add suffix for RESTART keyword
         if key == 'RESTART' and files:
             files[0][0] = files[0][0].with_suffix('.UNRST')
         return files or self._getter[key].default
