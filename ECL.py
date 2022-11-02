@@ -334,11 +334,10 @@ class unfmt_file(File):
             startpos = start
         if self.size() - startpos < 24: # Header is 24 bytes
             return False
+        size = self.file.stat().st_size
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 #size = data.size()
-                size = self.file.stat().st_size 
-                data.size()
                 pos = startpos
                 while pos < size:
                     start = pos
