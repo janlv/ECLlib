@@ -343,6 +343,7 @@ class unfmt_file(File):
                     ### Header
                     try:
                         s = unpack(ENDIAN+'i', data[pos:pos+4])
+                        print(s)
                         if s < 1:
                             break
                         key, length, type = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
