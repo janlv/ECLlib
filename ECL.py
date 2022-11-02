@@ -342,9 +342,7 @@ class unfmt_file(File):
                     start = pos
                     ### Header
                     try:
-                        s, *_ = unpack(ENDIAN+'i', data[pos:pos+4])
-                        if s < 1:
-                            break
+                        ### Header is 24 bytes, we skip int of length 4 before and after
                         key, length, type = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
                         ### Value array
                         bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
