@@ -199,23 +199,23 @@ class unfmt_block:
     #         value = [b''.join(value).decode()]
     #     return value
 
-    # #--------------------------------------------------------------------------------
-    # def read_data(self, a, b):                                          # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     if isinstance(self._data, mmap):
-    #         return self._data[a:b]
-    #     else:
-    #         #pos = self._data.tell()
-    #         self._data.seek(a)
-    #         return self._data.read(b-a)
+    #--------------------------------------------------------------------------------
+    def _read_data(self, a, b):                                          # unfmt_block
+    #--------------------------------------------------------------------------------
+        if isinstance(self._data, mmap):
+            return self._data[a:b]
+        else:
+            #pos = self._data.tell()
+            self._data.seek(a)
+            return self._data.read(b-a)
 
     #--------------------------------------------------------------------------------
     def data(self, raise_error=False):                                  # unfmt_block
     #--------------------------------------------------------------------------------
         slices = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)) + [self._end]
         try:           
-            value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._data[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
-            #value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self.read_data(a+4,b-4) for a,b in zip(slices[:-1], slices[1:])]))
+            #value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._data[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
+            value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._read_data(a+4,b-4) for a,b in zip(slices[:-1], slices[1:])]))
         except struct_error as e:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
@@ -301,7 +301,7 @@ class File:
     #--------------------------------------------------------------------------------
     def size(self):                                                            # File
     #--------------------------------------------------------------------------------
-        return self.file.is_file and self.file.stat().st_size or -1
+        return self.file.is_file() and self.file.stat().st_size or -1
 
 
     #--------------------------------------------------------------------------------
@@ -337,37 +337,6 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
 
-    #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False, start=None):                        # unfmt_file
-    #--------------------------------------------------------------------------------
-        if not self.is_file():
-            return False
-        startpos = 0
-        if only_new:
-            startpos = self.endpos
-        if start:
-            startpos = start
-        if self.size() - startpos < 24: # Header is 24 bytes
-            return False
-        with open(self.file, mode='rb') as file:
-            with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                size = data.size()
-                pos = startpos
-                while pos < size:
-                    start = pos
-                    ### Header
-                    try:
-                        ### Header is 24 bytes, we skip int of length 4 before and after
-                        key, length, type = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
-                        ### Value array
-                        bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
-                        pos += 24 + bytes
-                    except (ValueError, struct_error): 
-                        return False
-                    self.endpos = pos
-                    yield unfmt_block(key=key, length=length, type=type, start=start, end=pos, 
-                                      data=data, file=self.file)
-    
     # #--------------------------------------------------------------------------------
     # def blocks(self, only_new=False, start=None):                        # unfmt_file
     # #--------------------------------------------------------------------------------
@@ -380,25 +349,55 @@ class unfmt_file(File):
     #         startpos = start
     #     if self.size() - startpos < 24: # Header is 24 bytes
     #         return False
-    #     size = self.size()
     #     with open(self.file, mode='rb') as file:
-    #         # with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-    #         pos = startpos
-    #         while pos < size:
-    #             start = pos
-    #             file.seek(start)
-    #             ### Header
-    #             try:
-    #                 ### Header is 24 bytes, we skip int of length 4 before and after
-    #                 _, key, length, type = unpack(ENDIAN+'i8si4s', file.read(20))
-    #                 ### Value array
-    #                 bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
-    #                 pos += 24+bytes
-    #             except (ValueError, struct_error): 
-    #                 return False
-    #             self.endpos = pos
-    #             yield unfmt_block(key=key, length=length, type=type, start=start, end=pos, 
-    #                                 data=file, file=self.file)
+    #         with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
+    #             size = data.size()
+    #             pos = startpos
+    #             while pos < size:
+    #                 start = pos
+    #                 ### Header
+    #                 try:
+    #                     ### Header is 24 bytes, we skip int of length 4 before and after
+    #                     key, length, type = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
+    #                     ### Value array
+    #                     bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
+    #                     pos += 24 + bytes
+    #                 except (ValueError, struct_error): 
+    #                     return False
+    #                 self.endpos = pos
+    #                 yield unfmt_block(key=key, length=length, type=type, start=start, end=pos, 
+    #                                   data=data, file=self.file)
+    
+    #--------------------------------------------------------------------------------
+    def blocks(self, only_new=False, start=None):                        # unfmt_file
+    #--------------------------------------------------------------------------------
+        if not self.is_file():
+            return False
+        startpos = 0
+        if only_new:
+            startpos = self.endpos
+        if start:
+            startpos = start
+        if self.size() - startpos < 24: # Header is 24 bytes
+            return False
+        size = self.size()
+        with open(self.file, mode='rb') as file:
+            pos = startpos
+            while pos < size:
+                start = pos
+                file.seek(start)
+                ### Header
+                try:
+                    ### Header is 24 bytes, we skip int of length 4 before and after
+                    _, key, length, type = unpack(ENDIAN+'i8si4s', file.read(20))
+                    ### Value array
+                    bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
+                    pos += 24+bytes
+                except (ValueError, struct_error): 
+                    return False
+                self.endpos = pos
+                yield unfmt_block(key=key, length=length, type=type, start=start, end=pos, 
+                                    data=file, file=self.file)
     
 
     #--------------------------------------------------------------------------------
