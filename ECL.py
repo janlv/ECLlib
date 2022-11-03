@@ -432,10 +432,10 @@ class unfmt_file(File):
                         except (ValueError, struct_error):
                             return None
                     ### Value array
-                    data_start = data.tell()
+                    #data_start = data.tell()
                     data.seek(start, 0)
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=end, 
-                                    data=data, data_start=data_start)
+                                    data=data, file=self.file)
 
 
     #--------------------------------------------------------------------------------
