@@ -38,6 +38,13 @@ def pairwise(iterable): # From Itertools Recipes at docs.python.org
     next(b, None)
     return zip(a, b)
 
+
+#-----------------------------------------------------------------------
+def nth(iterable, n, default=None): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Returns the nth item or a default value"
+    return next(islice(iterable, n, None), default)
+    
 #-----------------------------------------------------------------------
 def take(n, iterable): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------

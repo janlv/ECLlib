@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import repeat, tee
+from itertools import chain, repeat, tee
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -14,9 +14,9 @@ from re import IGNORECASE, finditer, compile
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime, timedelta
-from struct import unpack, pack, error as struct_error
+from struct import iter_unpack, unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flatten, grouper, list2text, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words
+from .utils import flatten, grouper, list2text, nth, pairwise, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words, take
 
 #
 #
@@ -210,19 +210,34 @@ class unfmt_block:
     #         return self._data.read(b-a)
 
     #--------------------------------------------------------------------------------
-    def data(self, raise_error=False):                                  # unfmt_block
+    def data(self, n, raise_error=False):                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        slices = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)) + [self._end]
+        #slices = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)) + [self._end]
+        slices = chain(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8), (self._end, ))
         try:           
-            value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._data[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
-            # value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._read_data(a+4,b-4) for a,b in zip(slices[:-1], slices[1:])]))
+            #value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._data[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
+            #value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._data[a+4:b-4] for a,b in pairwise(slices)]))
+            #value = chain.from_iterable(iter_unpack(ENDIAN+f'{self._dtype.unpack}', self._data[a+4:b-4]) for a,b in pairwise(slices))
+            size_pos = (((b-a-8)//self._dtype.size, a, b) for a,b in pairwise(slices))
+            value = ((size, iter_unpack(ENDIAN+f'{size}{self._dtype.unpack}', self._data[a+4:b-4])) for size, a,b in size_pos)
         except struct_error as e:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
             return None
         if self._type == b'CHAR':
             value = [b''.join(value).decode()]
-        return value
+        ret = ()
+        for size, data in value:
+            #print(n, size)
+            n -= size-1
+            if n <= 0:
+                d = next(data, None)
+                if not d is None:
+                    #print(d)
+                    ret += (d[n+size-1],)
+                break
+        return ret
+        #return nth(value, n)
 
 
 
