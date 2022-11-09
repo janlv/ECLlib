@@ -210,34 +210,47 @@ class unfmt_block:
     #         return self._data.read(b-a)
 
     #--------------------------------------------------------------------------------
-    def data(self, n, raise_error=False):                                  # unfmt_block
+    def byte_pos(self, *length):                                        # unfmt_block
     #--------------------------------------------------------------------------------
-        #slices = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)) + [self._end]
-        slices = chain(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8), (self._end, ))
-        try:           
-            #value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._data[a+4:b-4] for a,b in zip(slices[:-1], slices[1:])]))
-            #value = unpack(ENDIAN+f'{self.length()}{self._dtype.unpack}', b''.join([self._data[a+4:b-4] for a,b in pairwise(slices)]))
-            #value = chain.from_iterable(iter_unpack(ENDIAN+f'{self._dtype.unpack}', self._data[a+4:b-4]) for a,b in pairwise(slices))
-            size_pos = (((b-a-8)//self._dtype.size, a, b) for a,b in pairwise(slices))
-            value = ((size, iter_unpack(ENDIAN+f'{size}{self._dtype.unpack}', self._data[a+4:b-4])) for size, a,b in size_pos)
+        #if self._type == b"CHAR":
+        #    length = (l*8 for l in length)
+        return tuple(self._data_start + L*self._dtype.size + 8*(L//self._dtype.max) + 4 for L in length)
+
+    #--------------------------------------------------------------------------------
+    def data(self, *n, raise_error=False):                              # unfmt_block
+    #--------------------------------------------------------------------------------
+        chunk_limits = range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)
+        data_chunks = [[a+4,b-4] for a,b in pairwise(chain(chunk_limits,[self._end]))]
+        print('data_chunks', data_chunks)        
+        n = [i if isinstance(i,(tuple,list)) else (i,i+1) for i in n]
+        print('n', n)        
+        byte_pos = [self.byte_pos(*i) for i in n]
+        print('byte_pos', byte_pos)
+        print('chunks', data_chunks)
+        pos = [ flatten([[max(a,pos[0]), min(b,pos[1])] for a,b in data_chunks if any(p>=a and p<=b for p in pos)]) for pos in byte_pos ]
+        print('pos', pos)
+        #values = ()
+        # pos = ()
+        # for i in n:
+        #     if isinstance(i,(tuple,list)):
+        #         i = [self.byte_pos(ii) for ii in i]
+        #         pos += tuple([max(a,i[0]), min(b,i[1])] for a,b in data_chunks if any(ii<=b and ii>=a for ii in i))
+        #         #values += tuple(unpack(ENDIAN+f'{b-a}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
+        #     else:
+        #         p = self.byte_pos(i)
+        #         pos += ((p, p+self._dtype.size),)
+        #         #values += unpack(ENDIAN+f'{self._dtype.unpack}', self._data[pos:pos+self._dtype.size])
+        try:
+            #print(pos)
+            values = (unpack(ENDIAN+f'{(b-a)//self._dtype.size}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
+            values = tuple(chain(*values))
         except struct_error as e:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
             return None
         if self._type == b'CHAR':
-            value = [b''.join(value).decode()]
-        ret = ()
-        for size, data in value:
-            #print(n, size)
-            n -= size-1
-            if n <= 0:
-                d = next(data, None)
-                if not d is None:
-                    #print(d)
-                    ret += (d[n+size-1],)
-                break
-        return ret
-        #return nth(value, n)
+            values = [b''.join(values).decode()]
+        return values
 
 
 
