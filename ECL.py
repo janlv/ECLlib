@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import chain, repeat, tee
+from itertools import chain, dropwhile, repeat, takewhile
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -14,9 +14,9 @@ from re import IGNORECASE, finditer, compile
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime, timedelta
-from struct import iter_unpack, unpack, pack, error as struct_error
+from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flatten, grouper, list2text, nth, pairwise, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words, take
+from .utils import flatten, flatten_all, grouper, list2text, pairwise, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
 #
 #
@@ -132,10 +132,8 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
         s = f'{self._key.decode()}'
         if details:
-            # s += f' block of {self._length*datasize[self._type]} bytes' 
             s += f' block of {self._length*self._dtype.size} bytes' 
-            # s += f' holding {self._length*(self._type==b"CHAR" and 8 or 1)} {self._type.decode()}'
-            s += f' holding {self._length*(self._dtype.name=="CHAR" and 8 or 1)} {self._dtype.name}'
+            s += f' holding {self.length()} {self._dtype.name}'
             s += f' at [{self._startpos}, {self._end}]'
         return s
 
@@ -148,108 +146,55 @@ class unfmt_block:
         else:
             print()
 
-    # #--------------------------------------------------------------------------------
-    # def read_size_at(self, pos):                                        # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     size = unpack(ENDIAN+'i',self._mmap[pos:pos+4])[0]
-    #     if self._type == b'CHAR':
-    #         n = size
-    #     else:
-    #         n = int(size/self._dtype.size)
-    #     return size, n 
-
-
-    # #--------------------------------------------------------------------------------
-    # def replace(self, func, key=None):                                  # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     with open(self._file, mode='r+') as f:
-    #         with mmap(f.fileno(), length=0, access=ACCESS_WRITE) as mmap_write:
-    #             pos = self._startpos + 4
-    #             if key is None:
-    #                 key = self.key()
-    #             mmap_write[pos:pos+8] = f'{key:8s}'.encode()
-    #             newdata = func(self.data())
-    #             pos = self._startpos + 24  # header: 4+8+4+4+4 = 24, data: 4 + 1000 data + 4
-    #             N = 0
-    #             while N < len(newdata):
-    #                 size, n = self.read_size_at(pos)
-    #                 pos += 4
-    #                 mmap_write[pos:pos+size] = pack(ENDIAN+f'{n}{self._dtype.unpack}', *newdata[N:N+n])
-    #                 pos += size + 4
-    #                 N += n
-    #             mmap_write.flush()
-
-
-    # #--------------------------------------------------------------------------------
-    # def data(self, raise_error=False):                                  # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     value = []
-    #     a = self._data_start
-    #     while a < self._end:
-    #         size, n = self.read_size_at(a)
-    #         a += 4
-    #         try:
-    #             value.extend(unpack(ENDIAN+f'{n}{self._dtype.unpack}', self._mmap[a:a+size]))
-    #         except struct_error as e:
-    #             if raise_error:
-    #                 raise SystemError(f'ERROR Unable to read {self._file.name}, corrupted file?')
-    #             return None
-    #         a += size + 4
-    #     if self._type == b'CHAR':
-    #         value = [b''.join(value).decode()]
-    #     return value
-
-    # #--------------------------------------------------------------------------------
-    # def _read_data(self, a, b):                                          # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     if isinstance(self._data, mmap):
-    #         return self._data[a:b]
-    #     else:
-    #         #pos = self._data.tell()
-    #         self._data.seek(a)
-    #         return self._data.read(b-a)
 
     #--------------------------------------------------------------------------------
-    def byte_pos(self, *length):                                        # unfmt_block
+    def byte_pos(self, *pos):                                        # unfmt_block
     #--------------------------------------------------------------------------------
-        #if self._type == b"CHAR":
-        #    length = (l*8 for l in length)
-        return tuple(self._data_start + L*self._dtype.size + 8*(L//self._dtype.max) + 4 for L in length)
+        return tuple(self._data_start + p*self._dtype.size + 8*(p//self._dtype.max) + 4 for p in pos)
 
     #--------------------------------------------------------------------------------
-    def data(self, *n, raise_error=False):                              # unfmt_block
+    def data(self, *n, raise_error=False, unwrap=True):                 # unfmt_block
     #--------------------------------------------------------------------------------
+        ### Abort if no data to return
+        if self._length == 0:
+            return ()
+        ### Return all data if no argument given
+        if n == ():
+            n = ((0, self._length),)
+            unwrap = False
+        ### Get (start,end) byte-positions of data-chunks
         chunk_limits = range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)
         data_chunks = [[a+4,b-4] for a,b in pairwise(chain(chunk_limits,[self._end]))]
-        print('data_chunks', data_chunks)        
-        n = [i if isinstance(i,(tuple,list)) else (i,i+1) for i in n]
-        print('n', n)        
+        ### Fix negative positions, and create tuple if not tuple 
+        fix_lim = lambda x: x+self._length if x < 0 else x
+        n = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in n]
+        ### Out of index error
+        if any(i>self._length or i<0 for i in flatten_all(n)):
+            raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
         byte_pos = [self.byte_pos(*i) for i in n]
-        print('byte_pos', byte_pos)
-        print('chunks', data_chunks)
-        pos = [ flatten([[max(a,pos[0]), min(b,pos[1])] for a,b in data_chunks if any(p>=a and p<=b for p in pos)]) for pos in byte_pos ]
-        print('pos', pos)
-        #values = ()
-        # pos = ()
-        # for i in n:
-        #     if isinstance(i,(tuple,list)):
-        #         i = [self.byte_pos(ii) for ii in i]
-        #         pos += tuple([max(a,i[0]), min(b,i[1])] for a,b in data_chunks if any(ii<=b and ii>=a for ii in i))
-        #         #values += tuple(unpack(ENDIAN+f'{b-a}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
-        #     else:
-        #         p = self.byte_pos(i)
-        #         pos += ((p, p+self._dtype.size),)
-        #         #values += unpack(ENDIAN+f'{self._dtype.unpack}', self._data[pos:pos+self._dtype.size])
+        #print('byte_pos', byte_pos)
+        pos = []
+        for bp in byte_pos:
+            ### Drop chunks with upper limits less than data start, and
+            ### keep chunks with lower limits less than or equal to data end
+            tmp = list(takewhile(lambda x: x[0]<=bp[1], dropwhile(lambda x: x[1]<bp[0], data_chunks)))
+            ### Set data start as chunk start, and data end as chunk end 
+            tmp[0][0], tmp[-1][-1] = bp[0], bp[-1]
+            pos.extend(tmp)
+        size = (self._type == b'CHAR') and 1 or self._dtype.size
         try:
-            #print(pos)
-            values = (unpack(ENDIAN+f'{(b-a)//self._dtype.size}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
+            values = (unpack(ENDIAN+f'{(b-a)//size}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
             values = tuple(chain(*values))
         except struct_error as e:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
             return None
+        ### Decode string data
         if self._type == b'CHAR':
-            values = [b''.join(values).decode()]
+            values = tuple(string_chunks(values[0].decode(), 8))
+        ### Return value instead of single-value list 
+        if unwrap and len(values) == 1:
+            return values[0]
         return values
 
 

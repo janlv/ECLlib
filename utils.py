@@ -13,6 +13,7 @@ from signal import SIGTERM
 from contextlib import contextmanager
 from itertools import chain, islice, takewhile, tee, zip_longest
 from collections import deque
+from collections.abc import Iterable
 
 # Short Python regexp guide:
 #   \s : whitespace, [ \t\n\r\f\v]
@@ -23,6 +24,10 @@ from collections import deque
 #    + : 1 or more rep.
 #    * : 0 or more rep.
 
+#-----------------------------------------------------------------------
+def string_chunks(str, l):
+#-----------------------------------------------------------------------
+    return (str[i:i+l] for i in range(0, len(str), l))
 
 ### pairwise is new in python 3.10, define it for older versions
 # try:
@@ -82,7 +87,18 @@ def flatten(list_of_lists): # From Itertools Recipes at docs.python.org
         return list(chain.from_iterable(list_of_lists))
     except TypeError:
         return list_of_lists
-        
+
+#-----------------------------------------------------------------------
+def flatten_all(list_of_lists):  #https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists        
+#-----------------------------------------------------------------------
+    "Flatten arbitrarily nested lists"
+    for list in list_of_lists:
+        if isinstance(list, Iterable) and not isinstance(list, (str, bytes)):
+            yield from flatten_all(list)
+        else:
+            yield list
+
+
 #-----------------------------------------------------------------------
 def grouper(iterable, n, *, incomplete='fill', fillvalue=None): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
