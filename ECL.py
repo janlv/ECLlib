@@ -98,7 +98,8 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def length(self):                                                   # unfmt_block
     #--------------------------------------------------------------------------------
-        return self._length*(self._type==b"CHAR" and 8 or 1)
+        return self._length
+        #return self._length*(self._type==b"CHAR" and 8 or 1)
 
 
     #--------------------------------------------------------------------------------
@@ -183,9 +184,11 @@ class unfmt_block:
             pos.extend(tmp)
         size = (self._type == b'CHAR') and 1 or self._dtype.size
         try:
-            values = (unpack(ENDIAN+f'{(b-a)//size}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
-            values = tuple(chain(*values))
-        except struct_error as e:
+            # values = (unpack(ENDIAN+f'{(b-a)//size}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
+            # values = tuple(chain(*values))
+            N = sum(b-a for a,b in pos)//size
+            values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in pos))
+        except struct_error:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
             return None
