@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import chain, dropwhile, repeat, takewhile
+from itertools import chain, islice, repeat
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -154,40 +154,51 @@ class unfmt_block:
         return tuple(self._data_start + p*self._dtype.size + 8*(p//self._dtype.max) + 4 for p in pos)
 
     #--------------------------------------------------------------------------------
-    def data(self, *n, raise_error=False, unwrap=True):                 # unfmt_block
+    def data(self, *ind, raise_error=False, unwrap=True):                 # unfmt_block
     #--------------------------------------------------------------------------------
         ### Abort if no data to return
         if self._length == 0:
             return ()
         ### Return all data if no argument given
-        if n == ():
-            n = ((0, self._length),)
+        if ind == ():
+            ind = ((0, self._length),)
             unwrap = False
-        ### Get (start,end) byte-positions of data-chunks
-        chunk_limits = range(self._data_start, self._end, self._dtype.max*self._dtype.size+8)
-        data_chunks = [[a+4,b-4] for a,b in pairwise(chain(chunk_limits,[self._end]))]
         ### Fix negative positions, and create tuple if not tuple 
         fix_lim = lambda x: x+self._length if x < 0 else x
-        n = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in n]
+        ind = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in ind]
         ### Out of index error
-        if any(i>self._length or i<0 for i in flatten_all(n)):
+        if any(i>self._length or i<0 for i in flatten_all(ind)):
             raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
-        byte_pos = [self.byte_pos(*i) for i in n]
-        #print('byte_pos', byte_pos)
-        pos = []
-        for bp in byte_pos:
-            ### Drop chunks with upper limits less than data start, and
-            ### keep chunks with lower limits less than or equal to data end
-            tmp = list(takewhile(lambda x: x[0]<=bp[1], dropwhile(lambda x: x[1]<bp[0], data_chunks)))
-            ### Set data start as chunk start, and data end as chunk end 
-            tmp[0][0], tmp[-1][-1] = bp[0], bp[-1]
-            pos.extend(tmp)
+        byte_pos = [self.byte_pos(*i) for i in ind]
+        #chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))+[self._end]
+        chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))
+        cind = lambda x: 1+(x//self._dtype.max)
+        #print(chunk_limits)
         size = (self._type == b'CHAR') and 1 or self._dtype.size
+        #pos = []
+        for (start, stop),(ia,ib) in zip(byte_pos, ind):
+            data_chunks = chain([start-4], islice(chunk_limits, cind(ia), cind(ib)), [stop+4])
+            #([a+4,b-4] for a,b in pairwise(data_chunks)) ))
+            #print(list( ([a+4,b-4] for a,b in pairwise(data_chunks)) ))
+        # for bp in byte_pos:
+        #     ### Get (start,end) byte-positions of data-chunks
+        #     data_chunks = ([a+4,b-4] for a,b in pairwise(chunk_limits))
+        #     #print('data_chunks', list(data_chunks))
+        #     ### Drop chunks with upper limits less than data start, and
+        #     ### keep chunks with lower limits less than or equal to data end
+        #     tmp = list( takewhile(lambda x: x[0]<=bp[1], dropwhile(lambda x: x[1]<bp[0], data_chunks)) )
+        #     ### Set data start as chunk start, and data end as chunk end 
+        #     tmp[0][0], tmp[-1][-1] = bp[0], bp[-1]
+        #     print(tmp)
+        #     pos.extend(tmp)
         try:
             # values = (unpack(ENDIAN+f'{(b-a)//size}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
             # values = tuple(chain(*values))
-            N = sum(b-a for a,b in pos)//size
-            values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in pos))
+            #N = sum(b-a for a,b in pos)//size
+            N = sum(i[1]-i[0] for i in ind)
+            #print([(b-a)//size for a,b in pos])
+            values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a+4:b-4] for a,b in pairwise(data_chunks)))
+            #values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in pos))
         except struct_error:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
@@ -851,7 +862,7 @@ class UNRST_file(unfmt_file):
     def date(self, block, step):                                         # UNRST_file
     #--------------------------------------------------------------------------------
         if block.key() == 'INTEHEAD':
-            d, m, y = block.data()[64:66]
+            d, m, y = block.data((64,67)) #[64:66]
             # return datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date()
             return datetime.strptime(f'{d} {m} {y}', '%d %m %Y')
         return step
@@ -864,7 +875,7 @@ class UNRST_file(unfmt_file):
         '''
         
         if block.key() == 'SEQNUM':
-            return block.data()[0]
+            return block.data(0) #[0]
         return step
 
     #--------------------------------------------------------------------------------
@@ -881,9 +892,9 @@ class UNRST_file(unfmt_file):
                 if data:
                     yield data
                 data = {}
-                data['SEQNUM'] = block.data()[0]
+                data['SEQNUM'] = block.data(0) #[0]
             if block.key() == 'INTEHEAD':
-                data['DATE'] = block.data()[64:67] #data[206:208], data[410] 
+                data['DATE'] = block.data((64,67)) #[64:67] #data[206:208], data[410] 
             for key in keys:
                 if block.key() == key:
                     D = block.data()
