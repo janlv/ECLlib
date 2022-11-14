@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import chain, islice, repeat
+from itertools import repeat
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -154,7 +154,7 @@ class unfmt_block:
         return tuple(self._data_start + p*self._dtype.size + 8*(p//self._dtype.max) + 4 for p in pos)
 
     #--------------------------------------------------------------------------------
-    def data(self, *index, raise_error=False, unwrap=True):                 # unfmt_block
+    def data(self, *index, raise_error=False, unwrap_tuple=True):                 # unfmt_block
     #--------------------------------------------------------------------------------
         ### Abort if no data to return
         if self._length == 0:
@@ -162,27 +162,21 @@ class unfmt_block:
         ### Return all data if no argument given
         if index == ():
             index = ((0, self._length),)
-            unwrap = False
+            unwrap_tuple = False
         ### Fix negative positions, and create tuple if not tuple 
         fix_lim = lambda x: x+self._length if x < 0 else x
         index = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in index]
         ### Out of index error
         if any(i>self._length or i<0 for i in flatten_all(index)):
+        #if any(i>self._length or i<0 for i in index):
             raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
         ### List of start-pos for each chunk of data holding self._dtype.max elements
         chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))
-        data_chunks = ()
-        ### Loop over index lists and calculate data-chunk-limit lists
-        tmp1 = flatten(index)
-        _start, _stop = zip(*self.byte_pos(*tmp1))
-        tmp3 = (chain([start-4], islice(chunk_limits, *(1+(i//self._dtype.max) for i in ind)), [stop+4]) for i in range(len(tmp1)))
-        #print(flatten(index))
-        for ind in index:
-            start, stop = self.byte_pos(*ind)
-            ### Use floor division to get start and stop chunk number to use in islice 
-            limits = chain([start-4], islice(chunk_limits, *(1+(i//self._dtype.max) for i in ind)), [stop+4])
-            ### Chain data_chunk generators
-            data_chunks = chain(data_chunks, ([a+4,b-4] for a,b in pairwise(limits)))
+        ### 4 tuples: chunk start (ca), chunk stop (cb), pos start (start), pos stop (stop)
+        ### chunk values calculated using floor division
+        start_stop = zip(*(tuple(1+(i//self._dtype.max) for i in ind)+self.byte_pos(*ind) for ind in index))
+        lims = ([start-4]+chunk_limits[ca:cb]+[stop+4] for ca,cb,start,stop in zip(*start_stop))
+        data_chunks = flatten([[a+4,b-4] for a,b in pairwise(lim)] for lim in lims)
         try:
             N = sum(j-i for i,j in index)*(self._type == b"CHAR" and 8 or 1)
             values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in data_chunks))
@@ -194,7 +188,7 @@ class unfmt_block:
         if self._type == b'CHAR':
             values = tuple(string_chunks(values[0].decode(), 8))
         ### Return value instead of single-value list 
-        if unwrap and len(values) == 1:
+        if unwrap_tuple and len(values) == 1:
             return values[0]
         return values
 

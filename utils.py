@@ -116,6 +116,17 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None): # From Itertools
     else:
         raise ValueError('Expected fill, strict, or ignore')
 
+#-----------------------------------------------------------------------
+def batched(iterable, n): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Batch data into lists of length n. The last batch may be shorter."
+    # batched('ABCDEFG', 3) --> ABC DEF G
+    if n < 1:
+        raise ValueError('n must be at least one')
+    it = iter(iterable)
+    while (batch := list(islice(it, n))):
+        yield batch
+        
 # #--------------------------------------------------------------------------------
 # def flat_list(alist):
 # #--------------------------------------------------------------------------------
