@@ -154,51 +154,38 @@ class unfmt_block:
         return tuple(self._data_start + p*self._dtype.size + 8*(p//self._dtype.max) + 4 for p in pos)
 
     #--------------------------------------------------------------------------------
-    def data(self, *ind, raise_error=False, unwrap=True):                 # unfmt_block
+    def data(self, *index, raise_error=False, unwrap=True):                 # unfmt_block
     #--------------------------------------------------------------------------------
         ### Abort if no data to return
         if self._length == 0:
             return ()
         ### Return all data if no argument given
-        if ind == ():
-            ind = ((0, self._length),)
+        if index == ():
+            index = ((0, self._length),)
             unwrap = False
         ### Fix negative positions, and create tuple if not tuple 
         fix_lim = lambda x: x+self._length if x < 0 else x
-        ind = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in ind]
+        index = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in index]
         ### Out of index error
-        if any(i>self._length or i<0 for i in flatten_all(ind)):
+        if any(i>self._length or i<0 for i in flatten_all(index)):
             raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
-        byte_pos = [self.byte_pos(*i) for i in ind]
-        #chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))+[self._end]
+        ### List of start-pos for each chunk of data holding self._dtype.max elements
         chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))
-        cind = lambda x: 1+(x//self._dtype.max)
-        #print(chunk_limits)
-        size = (self._type == b'CHAR') and 1 or self._dtype.size
-        #pos = []
-        for (start, stop),(ia,ib) in zip(byte_pos, ind):
-            data_chunks = chain([start-4], islice(chunk_limits, cind(ia), cind(ib)), [stop+4])
-            #([a+4,b-4] for a,b in pairwise(data_chunks)) ))
-            #print(list( ([a+4,b-4] for a,b in pairwise(data_chunks)) ))
-        # for bp in byte_pos:
-        #     ### Get (start,end) byte-positions of data-chunks
-        #     data_chunks = ([a+4,b-4] for a,b in pairwise(chunk_limits))
-        #     #print('data_chunks', list(data_chunks))
-        #     ### Drop chunks with upper limits less than data start, and
-        #     ### keep chunks with lower limits less than or equal to data end
-        #     tmp = list( takewhile(lambda x: x[0]<=bp[1], dropwhile(lambda x: x[1]<bp[0], data_chunks)) )
-        #     ### Set data start as chunk start, and data end as chunk end 
-        #     tmp[0][0], tmp[-1][-1] = bp[0], bp[-1]
-        #     print(tmp)
-        #     pos.extend(tmp)
+        data_chunks = ()
+        ### Loop over index lists and calculate data-chunk-limit lists
+        tmp1 = flatten(index)
+        _start, _stop = zip(*self.byte_pos(*tmp1))
+        tmp3 = (chain([start-4], islice(chunk_limits, *(1+(i//self._dtype.max) for i in ind)), [stop+4]) for i in range(len(tmp1)))
+        #print(flatten(index))
+        for ind in index:
+            start, stop = self.byte_pos(*ind)
+            ### Use floor division to get start and stop chunk number to use in islice 
+            limits = chain([start-4], islice(chunk_limits, *(1+(i//self._dtype.max) for i in ind)), [stop+4])
+            ### Chain data_chunk generators
+            data_chunks = chain(data_chunks, ([a+4,b-4] for a,b in pairwise(limits)))
         try:
-            # values = (unpack(ENDIAN+f'{(b-a)//size}{self._dtype.unpack}', self._data[a:b]) for a,b in pos)
-            # values = tuple(chain(*values))
-            #N = sum(b-a for a,b in pos)//size
-            N = sum(i[1]-i[0] for i in ind)
-            #print([(b-a)//size for a,b in pos])
-            values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a+4:b-4] for a,b in pairwise(data_chunks)))
-            #values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in pos))
+            N = sum(j-i for i,j in index)*(self._type == b"CHAR" and 8 or 1)
+            values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in data_chunks))
         except struct_error:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
