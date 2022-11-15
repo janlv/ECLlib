@@ -148,10 +148,6 @@ class unfmt_block:
             print()
 
 
-    #--------------------------------------------------------------------------------
-    def byte_pos(self, *pos):                                        # unfmt_block
-    #--------------------------------------------------------------------------------
-        return tuple(self._data_start + p*self._dtype.size + 8*(p//self._dtype.max) + 4 for p in pos)
 
     #--------------------------------------------------------------------------------
     def data(self, *index, raise_error=False, unwrap_tuple=True):                 # unfmt_block
@@ -162,22 +158,22 @@ class unfmt_block:
         ### Return all data if no argument given
         if index == ():
             index = ((0, self._length),)
-            unwrap_tuple = False
         ### Fix negative positions, and create tuple if not tuple 
         fix_lim = lambda x: x+self._length if x < 0 else x
         index = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in index]
         ### Out of index error
         if any(i>self._length or i<0 for i in flatten_all(index)):
-        #if any(i>self._length or i<0 for i in index):
             raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
-        ### List of start-pos for each chunk of data holding self._dtype.max elements
+        ### List of data chunk start positions, including the 4 byte size int before and after 
         chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))
-        ### 4 tuples: chunk start (ca), chunk stop (cb), pos start (start), pos stop (stop)
-        ### chunk values calculated using floor division
-        start_stop = zip(*(tuple(1+(i//self._dtype.max) for i in ind)+self.byte_pos(*ind) for ind in index))
-        lims = ([start-4]+chunk_limits[ca:cb]+[stop+4] for ca,cb,start,stop in zip(*start_stop))
-        data_chunks = flatten([[a+4,b-4] for a,b in pairwise(lim)] for lim in lims)
+        chunk_pos = lambda x: chunk_limits[ slice( *(1+(i//self._dtype.max) for i in x) ) ]
+        byte_pos = lambda x: self._data_start + x*self._dtype.size + 8*(x//self._dtype.max) + 4
+        ### Modify byte_pos by -4/+4 at start/end to match chunk-limits 
+        limits = ([byte_pos(a)-4]+chunk_pos((a,b))+[byte_pos(b)+4] for a,b in index)
+        ### Compensate for the 4-byte size int
+        data_chunks = ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
         try:
+            ### CHAR data is an 8 character string
             N = sum(j-i for i,j in index)*(self._type == b"CHAR" and 8 or 1)
             values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in data_chunks))
         except struct_error:
@@ -187,8 +183,8 @@ class unfmt_block:
         ### Decode string data
         if self._type == b'CHAR':
             values = tuple(string_chunks(values[0].decode(), 8))
-        ### Return value instead of single-value list 
-        if unwrap_tuple and len(values) == 1:
+        ### Return value instead of single-value tuple
+        if unwrap_tuple and N == 1:
             return values[0]
         return values
 
