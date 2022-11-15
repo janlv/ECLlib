@@ -913,14 +913,9 @@ class UNSMRY_file(unfmt_file):
     def __init__(self, file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNSMRY')
-        ### Parameter names given in SMSPEC-file
-        key_name = (b.data(strip=True) for b in SMSPEC_file(file).blocks() if b.key() in ('KEYWORDS','WGNAMES'))
-        var_pos = {'_'.join(a).replace(':+','').rstrip('_'):i for i,a in enumerate(zip(*key_name))} 
-        self.varmap = {var.lower():keypos('PARAMS', pos, var) for var,pos in var_pos}
-        #self.smspec = {b.key():b.data(strip=True) for b in SMSPEC_file(file).blocks() if b.key() in ('KEYWORDS','UNITS')}
-        #time = 'TIME' in self.smspec and self.smspec.index('TIME')
-        #self.varmap = {'time' : keypos('PARAMS',), 
-        #                'step' : keypos(key='MINISTEP')}
+        smspec = SMSPEC_file(file)
+        self.varmap = {'time' : keypos('PARAMS', smspec.pos('TIME'), 'TIME'), 
+                       'step' : keypos('MINISTEP', 0, '')}
 
 
 #====================================================================================
@@ -930,7 +925,17 @@ class SMSPEC_file(unfmt_file):
     def __init__(self, file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.SMSPEC')
+        key_name = (b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS','WGNAMES'))
+        self.var_pos = {(b+'_'+a).replace(':+','').strip('_'):i for i,(a,b) in enumerate(zip(*key_name))}
+        #{'_'.join(a).replace(':+','').rstrip('_'):i for i,a in enumerate(zip(*key_name))} 
+        #self.varmap = {var.lower():keypos('PARAMS', pos, var) for var,pos in var_pos}
+        #self.varmap = {'keywords' : keypos('KEYWORDS',), 
+        #                'step' : keypos(key='MINISTEP')}
 
+    #--------------------------------------------------------------------------------
+    def pos(self, keyword, well=''):
+    #--------------------------------------------------------------------------------
+        return self.var_pos.get(well+keyword)
 
 
 #====================================================================================
