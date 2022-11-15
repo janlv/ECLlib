@@ -158,6 +158,7 @@ class unfmt_block:
         ### Return all data if no argument given
         if index == ():
             index = ((0, self._length),)
+            unwrap_tuple = False
         ### Fix negative positions, and create tuple if not tuple 
         fix_lim = lambda x: x+self._length if x < 0 else x
         index = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in index]
@@ -420,7 +421,8 @@ class unfmt_file(File):
         for b in blocks():
             if b.key() in var_pos.keys():
                 for var, pos in var_pos[b.key()]:
-                    values[var].append( b.data()[pos] )
+                    #values[var].append( b.data()[pos] )
+                    values[var].append( b.data(pos) )
             if N and set(size()) == set([N]): 
                 break
             if stop and stop[1] == values[stop[0]][-1] and len(set(size())) == 1:
