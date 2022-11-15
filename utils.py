@@ -25,9 +25,12 @@ from collections.abc import Iterable
 #    * : 0 or more rep.
 
 #-----------------------------------------------------------------------
-def string_chunks(str, l):
+def string_chunks(str, l, strip=False):
 #-----------------------------------------------------------------------
-    return (str[i:i+l] for i in range(0, len(str), l))
+    strings = (str[i:i+l] for i in range(0, len(str), l))
+    if strip:
+        return (s.strip() for s in strings)
+    return strings
 
 ### pairwise is new in python 3.10, define it for older versions
 # try:

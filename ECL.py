@@ -148,9 +148,8 @@ class unfmt_block:
             print()
 
 
-
     #--------------------------------------------------------------------------------
-    def data(self, *index, raise_error=False, unwrap_tuple=True):                 # unfmt_block
+    def data(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
     #--------------------------------------------------------------------------------
         ### Abort if no data to return
         if self._length == 0:
@@ -165,6 +164,9 @@ class unfmt_block:
         ### Out of index error
         if any(i>self._length or i<0 for i in flatten_all(index)):
             raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
+        ### Fix CHAR data for strings > 8 char (nchar > 1)
+        if nchar > 1 and self._type == b'CHAR':
+            index = [[min(i*nchar,self._length) for i in ind] for ind in index]
         ### List of data chunk start positions, including the 4 byte size int before and after 
         chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))
         chunk_pos = lambda x: chunk_limits[ slice( *(1+(i//self._dtype.max) for i in x) ) ]
@@ -175,7 +177,7 @@ class unfmt_block:
         data_chunks = ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
         try:
             ### CHAR data is an 8 character string
-            N = sum(j-i for i,j in index)*(self._type == b"CHAR" and 8 or 1)
+            N = sum(j-i for i,j in index)*(self._type == b'CHAR' and 8 or 1)
             values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in data_chunks))
         except struct_error:
             if raise_error:
@@ -183,9 +185,9 @@ class unfmt_block:
             return None
         ### Decode string data
         if self._type == b'CHAR':
-            values = tuple(string_chunks(values[0].decode(), 8))
+            values = tuple(string_chunks(values[0].decode(), 8*nchar, strip=strip))
         ### Return value instead of single-value tuple
-        if unwrap_tuple and N == 1:
+        if unwrap_tuple and len(values) == 1:
             return values[0]
         return values
 
@@ -911,8 +913,14 @@ class UNSMRY_file(unfmt_file):
     def __init__(self, file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNSMRY')
-        self.varmap = {'time' : keypos(key='PARAMS'), 
-                       'step' : keypos(key='MINISTEP')}
+        ### Parameter names given in SMSPEC-file
+        key_name = (b.data(strip=True) for b in SMSPEC_file(file).blocks() if b.key() in ('KEYWORDS','WGNAMES'))
+        var_pos = {'_'.join(a).replace(':+','').rstrip('_'):i for i,a in enumerate(zip(*key_name))} 
+        self.varmap = {var.lower():keypos('PARAMS', pos, var) for var,pos in var_pos}
+        #self.smspec = {b.key():b.data(strip=True) for b in SMSPEC_file(file).blocks() if b.key() in ('KEYWORDS','UNITS')}
+        #time = 'TIME' in self.smspec and self.smspec.index('TIME')
+        #self.varmap = {'time' : keypos('PARAMS',), 
+        #                'step' : keypos(key='MINISTEP')}
 
 
 #====================================================================================
