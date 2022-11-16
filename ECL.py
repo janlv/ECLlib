@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from numba import njit, jit
-from .utils import flatten, flatten_all, grouper, list2text, pairwise, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
+from .utils import flatten, flatten_all, grouper, list2text, pairwise, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words, string_chunks, triplewise
 
 #
 #
@@ -194,13 +194,19 @@ class unfmt_block:
 
 
 #====================================================================================
-@dataclass
+@dataclass #(init=False)
 class keypos:
 #====================================================================================
     key: str = ''
-    pos: int = 0
+    #pos: int = 0
+    pos: tuple = (0,)
     name: str = ''
 
+    # def __init__(self, key='', *pos, name=''):
+    #     self.key = key
+    #     self.pos = pos
+    #     self.name = name
+    #     print('pos', self.pos)
 
 #====================================================================================
 class File:
@@ -406,7 +412,7 @@ class unfmt_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def get(self, *var_list, N=0, stop=(), raise_error=True):       # unfmt_file
+    def get(self, *var_list, N=0, stop=(), raise_error=True, **kwargs):  # unfmt_file
     #--------------------------------------------------------------------------------
         blocks = self.blocks
         if N < 0:
@@ -420,11 +426,11 @@ class unfmt_file(File):
         [var_pos[v.key].append( (k, v.pos) ) for k,v in varmap.items()]        
         values = {v:[] for v in var_list}
         size = lambda : (len(v) for v in values.values())
-        for b in blocks():
+        for b in blocks(**kwargs):
             if b.key() in var_pos.keys():
                 for var, pos in var_pos[b.key()]:
                     #values[var].append( b.data()[pos] )
-                    values[var].append( b.data(pos) )
+                    values[var].append( b.data(*pos) )
             if N and set(size()) == set([N]): 
                 break
             if stop and stop[1] == values[stop[0]][-1] and len(set(size())) == 1:
@@ -807,13 +813,13 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNRST')
         self.varmap = {'step'  : keypos(key='SEQNUM'),
-                       'nwell' : keypos('INTEHEAD', 16 , 'NWELLS'), 
-                       'day'   : keypos('INTEHEAD', 64 , 'IDAY'),
-                       'month' : keypos('INTEHEAD', 65 , 'IMON'),
-                       'year'  : keypos('INTEHEAD', 66 , 'IYEAR'),
-                       'hour'  : keypos('INTEHEAD', 206, 'IHOURZ'),
-                       'min'   : keypos('INTEHEAD', 207, 'IMINTS'),
-                       'sec'   : keypos('INTEHEAD', 410, 'ISECND'),
+                       'nwell' : keypos('INTEHEAD', [16] , 'NWELLS'), 
+                       'day'   : keypos('INTEHEAD', [64] , 'IDAY'),
+                       'month' : keypos('INTEHEAD', [65] , 'IMON'),
+                       'year'  : keypos('INTEHEAD', [66] , 'IYEAR'),
+                       'hour'  : keypos('INTEHEAD', [206], 'IHOURZ'),
+                       'min'   : keypos('INTEHEAD', [207], 'IMINTS'),
+                       'sec'   : keypos('INTEHEAD', [410], 'ISECND'),
                        'time'  : keypos(key='DOUBHEAD')}
         self.check = check_blocks(self, start='SEQNUM', end=end, wait_func=wait_func, **kwargs)
 
@@ -914,8 +920,13 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNSMRY')
         smspec = SMSPEC_file(file)
-        self.varmap = {'time' : keypos('PARAMS', smspec.pos('TIME'), 'TIME'), 
-                       'step' : keypos('MINISTEP', 0, '')}
+        self.well_data = smspec.well_data
+        self.wells = tuple(v[0] for v in smspec.well_data.values())
+        self.varmap = {'days'  : keypos('PARAMS', smspec.pos('TIME'), 'TIME'), 
+                       'years' : keypos('PARAMS', smspec.pos('YEARS'), ''),
+                       'step'  : keypos('MINISTEP'),
+                       'welldata': keypos('PARAMS', smspec.well_pos(), '')}
+        #print(self.varmap)
 
 
 #====================================================================================
@@ -925,17 +936,41 @@ class SMSPEC_file(unfmt_file):
     def __init__(self, file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.SMSPEC')
-        key_name = (b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS','WGNAMES'))
-        self.var_pos = {(b+'_'+a).replace(':+','').strip('_'):i for i,(a,b) in enumerate(zip(*key_name))}
-        #{'_'.join(a).replace(':+','').rstrip('_'):i for i,a in enumerate(zip(*key_name))} 
-        #self.varmap = {var.lower():keypos('PARAMS', pos, var) for var,pos in var_pos}
-        #self.varmap = {'keywords' : keypos('KEYWORDS',), 
-        #                'step' : keypos(key='MINISTEP')}
+        varlist = ('WOPR','WWPR','WTPCHEA','WOPT','WWIR','WWIT','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT') #,'FWIT','FWIR') 
+        fluid_type = ({'O':'Oil', 'W':'Water', 'G':'Gas', 'T':'Temp_ecl'}.get(v[1]) for v in varlist)
+        data_type = ({'R':'rate', 'T':'prod', 'C':'rate'}.get(v[3]) for v in varlist)
+        tag = {v:(v,f,m) for v,f,m in zip(varlist, fluid_type, data_type)}
+
+        K, W, M, U = 0, 1, 2, 3    #                                         K=0        W=1       M=2      U=3
+        data = [b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS','WGNAMES','MEASRMNT','UNITS')]
+        ### Fix MEASRMNT by joining substrings (strings in MEASRMNT are multiples of 8)
+        width = len(data[M])//max(len(data[K]), 1)
+        data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
+        
+        ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
+        self.well_data = {i:(w,)+tag[k] for i,(w,k) in enumerate(zip(data[W], data[K])) if k in varlist and w and not '+' in w}
+        self.data = data
+        #print('WELLS:',self.well_data)
 
     #--------------------------------------------------------------------------------
-    def pos(self, keyword, well=''):
+    def ready(self):
     #--------------------------------------------------------------------------------
-        return self.var_pos.get(well+keyword)
+        return all(d for d in self.data)
+
+    #--------------------------------------------------------------------------------
+    def pos(self, keyword):
+    #--------------------------------------------------------------------------------
+        return keyword in self.data[0] and [self.data[0].index(keyword)] or []
+
+    #--------------------------------------------------------------------------------
+    def well_pos(self):
+    #--------------------------------------------------------------------------------
+        pos = tuple(self.well_data.keys())
+        ### Group consecutive indexes into (first, last) limits
+        limits = grouper([pos[0]] + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + [pos[-1]], 2)
+        limits = [(a,b+1)for a,b in limits]
+        return limits
+
 
 
 #====================================================================================

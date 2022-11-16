@@ -46,6 +46,13 @@ def pairwise(iterable): # From Itertools Recipes at docs.python.org
     next(b, None)
     return zip(a, b)
 
+#-----------------------------------------------------------------------
+def triplewise(iterable): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Return overlapping triplets from an iterable"
+    # triplewise('ABCDEFG') --> ABC BCD CDE DEF EFG
+    for (a, _), (b, c) in pairwise(pairwise(iterable)):
+        yield a, b, c
 
 #-----------------------------------------------------------------------
 def nth(iterable, n, default=None): # From Itertools Recipes at docs.python.org
