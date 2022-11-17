@@ -414,6 +414,7 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
     def get(self, *var_list, N=0, stop=(), raise_error=True, **kwargs):  # unfmt_file
     #--------------------------------------------------------------------------------
+        print(var_list, N, kwargs)
         blocks = self.blocks
         if N < 0:
             # Read data from end of file
@@ -424,6 +425,7 @@ class unfmt_file(File):
         #  {'INTEHEAD':[('day',64), ('month',65), ('year',66)]}
         var_pos = {v.key:[] for v in varmap.values()}
         [var_pos[v.key].append( (k, v.pos) ) for k,v in varmap.items()]        
+        print(var_pos)
         values = {v:[] for v in var_list}
         size = lambda : (len(v) for v in values.values())
         for b in blocks(**kwargs):
@@ -935,7 +937,7 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def ready(self):
     #--------------------------------------------------------------------------------
-        return all(d for d in self.spec.data)
+        return self.file.is_file() and self.spec.file.is_file() and all(d for d in self.spec.data)
 
     # #--------------------------------------------------------------------------------
     # def combinations(self):
