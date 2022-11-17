@@ -916,56 +916,102 @@ class RFT_file(unfmt_file):                                                # RFT
 class UNSMRY_file(unfmt_file):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file):
+    def __init__(self, file, keys=(), fluids={}, yaxes={}):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNSMRY')
-        smspec = SMSPEC_file(file)
-        self.well_data = smspec.well_data
-        self.wells = tuple(v[0] for v in smspec.well_data.values())
-        self.varmap = {'days'  : keypos('PARAMS', smspec.pos('TIME'), 'TIME'), 
-                       'years' : keypos('PARAMS', smspec.pos('YEARS'), ''),
+        spec = SMSPEC_file(file, keys=keys)
+        self.keys = spec.keys()
+        self.wells = spec.wells()
+        make_tags = lambda _dict, n: tuple(_dict.get(k[slice(*n)]) for k in self.keys) 
+        self.fluids = make_tags(fluids, (1,2))
+        self.yaxes = make_tags(yaxes, (2,4))
+        self.varmap = {'days'  : keypos('PARAMS', spec.pos('TIME'), 'TIME'), 
+                       'years' : keypos('PARAMS', spec.pos('YEARS'), ''),
                        'step'  : keypos('MINISTEP'),
-                       'welldata': keypos('PARAMS', smspec.well_pos(), '')}
+                       'welldata': keypos('PARAMS', spec.well_pos(), '')}
+        self.spec = spec
         #print(self.varmap)
+
+    #--------------------------------------------------------------------------------
+    def ready(self):
+    #--------------------------------------------------------------------------------
+        return all(d for d in self.spec.data)
+
+    # #--------------------------------------------------------------------------------
+    # def combinations(self):
+    # #--------------------------------------------------------------------------------
+    #     return grouper(flatten_all(product(set(self.wells), product(set(self.fluids), set(self.yaxes)))), 3)
 
 
 #====================================================================================
 class SMSPEC_file(unfmt_file):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file):
+    def __init__(self, file, keys=()):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.SMSPEC')
-        varlist = ('WOPR','WWPR','WTPCHEA','WOPT','WWIR','WWIT','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT') #,'FWIT','FWIR') 
-        fluid_type = ({'O':'Oil', 'W':'Water', 'G':'Gas', 'T':'Temp_ecl'}.get(v[1]) for v in varlist)
-        data_type = ({'R':'rate', 'T':'prod', 'C':'rate'}.get(v[3]) for v in varlist)
-        tag = {v:(v,f,m) for v,f,m in zip(varlist, fluid_type, data_type)}
+        #common_keys = ('WOPR','WWPR','WTPCHEA','WOPT','WWIR','WWIT','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT') #,'FWIT','FWIR') 
+        # make_tags = lambda dct, n: (dct.get(k[n]) for k in keys) 
+        # self.keys = keys
+        # self.fluids = make_tags(fluid_names, 1)
+        # self.yaxis = make_tags(yaxis_names, 3)
+        # tag = {k:(k,f,y) for k,f,y in zip(self.keys, self.fluids, self.yaxis)}
+        self.in_keys = keys
 
         K, W, M, U = 0, 1, 2, 3    #                                         K=0        W=1       M=2      U=3
         data = [b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS','WGNAMES','MEASRMNT','UNITS')]
         ### Fix MEASRMNT by joining substrings (strings in MEASRMNT are multiples of 8)
         width = len(data[M])//max(len(data[K]), 1)
         data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
-        
-        ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
-        self.well_data = {i:(w,)+tag[k] for i,(w,k) in enumerate(zip(data[W], data[K])) if k in varlist and w and not '+' in w}
         self.data = data
-        #print('WELLS:',self.well_data)
+        
+        keys = keys or data[K]
+        ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
+        self.data_index = {i:(w,k) for i,(w,k) in enumerate(zip(data[W], data[K])) if k in keys and w and not '+' in w}
+        #self.index_well_key = {i:(w,)+tag[k] for i,(w,k) in enumerate(zip(data[W], data[K])) if k in keys and w and not '+' in w}
+        #print('WELLS:',self.well_data)            
+
+    # #--------------------------------------------------------------------------------
+    # def make_tags(self, _dict, n):
+    # #--------------------------------------------------------------------------------
+    #     return (_dict.get(k[n]) for k in self.keys)
+
+    # #--------------------------------------------------------------------------------
+    # def index_well_key(self):
+    # #--------------------------------------------------------------------------------
+    #     return {i:(w,k) for i,(w,k) in enumerate(zip(self.data['WGNAMES'], self.data['KEYWORDS'])) if w and not '+' in w}
 
     #--------------------------------------------------------------------------------
-    def ready(self):
+    def __getitem__(self, key:str):
     #--------------------------------------------------------------------------------
-        return all(d for d in self.data)
+        ind = {'K':0, 'W':1, 'M':2, 'U':3}
+        return self.data[ind[key]]
 
     #--------------------------------------------------------------------------------
-    def pos(self, keyword):
+    def missing_keys(self):
+    #--------------------------------------------------------------------------------
+        return [a for a,b in zip(self.in_keys, self.keys()) if a != b]
+
+    #--------------------------------------------------------------------------------
+    def wells(self):
+    #--------------------------------------------------------------------------------
+        return tuple(v[0] for v in self.data_index.values())
+
+    #--------------------------------------------------------------------------------
+    def keys(self):
+    #--------------------------------------------------------------------------------
+        return tuple(v[1] for v in self.data_index.values())
+
+    #--------------------------------------------------------------------------------
+    def pos(self, keyword:int):
     #--------------------------------------------------------------------------------
         return keyword in self.data[0] and [self.data[0].index(keyword)] or []
 
     #--------------------------------------------------------------------------------
     def well_pos(self):
     #--------------------------------------------------------------------------------
-        pos = tuple(self.well_data.keys())
+        #pos = tuple(self.well_data.keys())
+        pos = tuple(self.data_index.keys())
         ### Group consecutive indexes into (first, last) limits
         limits = grouper([pos[0]] + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + [pos[-1]], 2)
         limits = [(a,b+1)for a,b in limits]
