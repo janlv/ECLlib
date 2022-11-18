@@ -951,20 +951,23 @@ class SMSPEC_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.SMSPEC')
         self.smry_keys = keys
+        self.data = None
+        self.index = None
 
         K, W, M, U = 0, 1, 2, 3   
         self._keys = {'KEYWORDS':0, 'WGNAMES':1, 'MEASRMNT':2, 'UNITS':3}
         data = [b.data(strip=True) for b in self.blocks() if b.key() in self._keys.keys()]
         ### Fix MEASRMNT by joining substrings (MEASRMNT data are multiples of 8-strings)
-        width = len(data[M])//max(len(data[K]), 1)
-        data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
-        self.data = data
+        if data:
+            width = len(data[M])//max(len(data[K]), 1)
+            data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
+            self.data = data
         
-        keys = keys or data[K]
-        ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
-        self.index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(zip(data[W], data[K], data[M], data[U])) if k in keys and w and not '+' in w}
-        self._ind = {'wells':0, 'keys':1, 'measures':2, 'units':3}
-        self._val = {k:None for k in self._ind.keys()}
+            keys = keys or data[K]
+            ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
+            self.index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(zip(data[W], data[K], data[M], data[U])) if k in keys and w and not '+' in w}
+            self._ind = {'wells':0, 'keys':1, 'measures':2, 'units':3}
+            self._val = {k:None for k in self._ind.keys()}
 
     #--------------------------------------------------------------------------------
     def __getitem__(self, key:str):
