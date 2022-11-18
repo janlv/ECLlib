@@ -414,7 +414,7 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
     def get(self, *var_list, N=0, stop=(), raise_error=True, **kwargs):  # unfmt_file
     #--------------------------------------------------------------------------------
-        print(var_list, N, kwargs)
+        #print(var_list, N, kwargs)
         blocks = self.blocks
         if N < 0:
             # Read data from end of file
@@ -425,7 +425,7 @@ class unfmt_file(File):
         #  {'INTEHEAD':[('day',64), ('month',65), ('year',66)]}
         var_pos = {v.key:[] for v in varmap.values()}
         [var_pos[v.key].append( (k, v.pos) ) for k,v in varmap.items()]        
-        print(var_pos)
+        #print(var_pos)
         values = {v:[] for v in var_list}
         size = lambda : (len(v) for v in values.values())
         for b in blocks(**kwargs):
@@ -918,20 +918,18 @@ class RFT_file(unfmt_file):                                                # RFT
 class UNSMRY_file(unfmt_file):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, keys=(), fluids={}, yaxes={}):
+    def __init__(self, file, keys=()):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNSMRY')
-        spec = SMSPEC_file(file, keys=keys)
-        self.keys = spec.keys()
-        self.wells = spec.wells()
-        make_tags = lambda _dict, n: tuple(_dict.get(k[slice(*n)]) for k in self.keys) 
-        self.fluids = make_tags(fluids, (1,2))
-        self.yaxes = make_tags(yaxes, (2,4))
-        self.varmap = {'days'  : keypos('PARAMS', spec.pos('TIME'), 'TIME'), 
-                       'years' : keypos('PARAMS', spec.pos('YEARS'), ''),
+        self.spec = SMSPEC_file(file, keys=keys)
+        #self.keys = tuple(spec.keys)
+        #self.wells = tuple(spec.wells)
+        self.varmap = {'days'  : keypos('PARAMS', self.spec.pos('TIME'), 'TIME'), 
+                       'years' : keypos('PARAMS', self.spec.pos('YEARS'), ''),
                        'step'  : keypos('MINISTEP'),
-                       'welldata': keypos('PARAMS', spec.well_pos(), '')}
-        self.spec = spec
+                       'welldata': keypos('PARAMS', self.spec.well_pos(), '')}
+        self.key_names = set(self.keys)
+        self.well_names = set(self.wells)
         #print(self.varmap)
 
     #--------------------------------------------------------------------------------
@@ -939,10 +937,10 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         return self.file.is_file() and self.spec.file.is_file() and all(d for d in self.spec.data)
 
-    # #--------------------------------------------------------------------------------
-    # def combinations(self):
-    # #--------------------------------------------------------------------------------
-    #     return grouper(flatten_all(product(set(self.wells), product(set(self.fluids), set(self.yaxes)))), 3)
+    #--------------------------------------------------------------------------------
+    def __getattr__(self, item):
+    #--------------------------------------------------------------------------------
+        return getattr(self.spec, item) # or self.spec.__getattr__(item)
 
 
 #====================================================================================
@@ -952,57 +950,51 @@ class SMSPEC_file(unfmt_file):
     def __init__(self, file, keys=()):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.SMSPEC')
-        #common_keys = ('WOPR','WWPR','WTPCHEA','WOPT','WWIR','WWIT','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT') #,'FWIT','FWIR') 
-        # make_tags = lambda dct, n: (dct.get(k[n]) for k in keys) 
-        # self.keys = keys
-        # self.fluids = make_tags(fluid_names, 1)
-        # self.yaxis = make_tags(yaxis_names, 3)
-        # tag = {k:(k,f,y) for k,f,y in zip(self.keys, self.fluids, self.yaxis)}
-        self.in_keys = keys
+        self.smry_keys = keys
 
-        K, W, M, U = 0, 1, 2, 3    #                                         K=0        W=1       M=2      U=3
-        data = [b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS','WGNAMES','MEASRMNT','UNITS')]
-        ### Fix MEASRMNT by joining substrings (strings in MEASRMNT are multiples of 8)
+        K, W, M, U = 0, 1, 2, 3   
+        self._keys = {'KEYWORDS':0, 'WGNAMES':1, 'MEASRMNT':2, 'UNITS':3}
+        data = [b.data(strip=True) for b in self.blocks() if b.key() in self._keys.keys()]
+        ### Fix MEASRMNT by joining substrings (MEASRMNT data are multiples of 8-strings)
         width = len(data[M])//max(len(data[K]), 1)
         data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
         self.data = data
         
         keys = keys or data[K]
         ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
-        self.data_index = {i:(w,k) for i,(w,k) in enumerate(zip(data[W], data[K])) if k in keys and w and not '+' in w}
-        #self.index_well_key = {i:(w,)+tag[k] for i,(w,k) in enumerate(zip(data[W], data[K])) if k in keys and w and not '+' in w}
-        #print('WELLS:',self.well_data)            
-
-    # #--------------------------------------------------------------------------------
-    # def make_tags(self, _dict, n):
-    # #--------------------------------------------------------------------------------
-    #     return (_dict.get(k[n]) for k in self.keys)
-
-    # #--------------------------------------------------------------------------------
-    # def index_well_key(self):
-    # #--------------------------------------------------------------------------------
-    #     return {i:(w,k) for i,(w,k) in enumerate(zip(self.data['WGNAMES'], self.data['KEYWORDS'])) if w and not '+' in w}
+        self.index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(zip(data[W], data[K], data[M], data[U])) if k in keys and w and not '+' in w}
+        self._ind = {'wells':0, 'keys':1, 'measures':2, 'units':3}
+        self._val = {k:None for k in self._ind.keys()}
 
     #--------------------------------------------------------------------------------
     def __getitem__(self, key:str):
     #--------------------------------------------------------------------------------
-        ind = {'K':0, 'W':1, 'M':2, 'U':3}
-        return self.data[ind[key]]
+        #ind = {'K':0, 'W':1, 'M':2, 'U':3, 'KEYWORDS':0, 'WGNAMES':1, 'MEASRMNT':2, 'UNITS':3}
+        return self.data[self._keys[key.upper()]]
+
+    #--------------------------------------------------------------------------------
+    def __getattr__(self, item):
+    #--------------------------------------------------------------------------------
+        if (ind:=self._ind.get(item)) is not None:
+            if self._val[item] is None:
+                self._val[item] = [v[ind] for v in self.index.values()]
+            return self._val[item]
+        raise AttributeError(f'{self.__class__.__name__} object has no attribute {item}')
 
     #--------------------------------------------------------------------------------
     def missing_keys(self):
     #--------------------------------------------------------------------------------
-        return [a for a,b in zip(self.in_keys, self.keys()) if a != b]
+        return [a for a in self.smry_keys if not a in self.keys()]
 
-    #--------------------------------------------------------------------------------
-    def wells(self):
-    #--------------------------------------------------------------------------------
-        return tuple(v[0] for v in self.data_index.values())
+    # #--------------------------------------------------------------------------------
+    # def wells(self):
+    # #--------------------------------------------------------------------------------
+    #     return tuple(v[0] for v in self.index.values())
 
-    #--------------------------------------------------------------------------------
-    def keys(self):
-    #--------------------------------------------------------------------------------
-        return tuple(v[1] for v in self.data_index.values())
+    # #--------------------------------------------------------------------------------
+    # def keys(self):
+    # #--------------------------------------------------------------------------------
+    #     return tuple(v[1] for v in self.index.values())
 
     #--------------------------------------------------------------------------------
     def pos(self, keyword:int):
@@ -1013,7 +1005,7 @@ class SMSPEC_file(unfmt_file):
     def well_pos(self):
     #--------------------------------------------------------------------------------
         #pos = tuple(self.well_data.keys())
-        pos = tuple(self.data_index.keys())
+        pos = tuple(self.index.keys())
         ### Group consecutive indexes into (first, last) limits
         limits = grouper([pos[0]] + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + [pos[-1]], 2)
         limits = [(a,b+1)for a,b in limits]
