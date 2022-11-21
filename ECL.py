@@ -538,7 +538,7 @@ class DATA_file(File):
                         'INCLUDE' : getter([''],    self._convert_file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                         'GDFILE'  : getter([''],    self._convert_file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                         'RESTART' : getter(['', 0], self._convert_file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
-                        'SUMMARY' : getter([],      self._convert_pass,  r"\bSUMMARY\b\s+([a-zA-Z0-9,'\s/\\]+)\bSCHEDULE\b")}
+                        'SUMMARY' : getter([],      self._convert_string,  r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b')}
         (check or include) and self.check() 
         include and self.with_includes(section=include)
         # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
@@ -672,9 +672,10 @@ class DATA_file(File):
             last_date = dt
             
     #--------------------------------------------------------------------------------
-    def _convert_pass(self, values, key, raise_error=False):             # Input_file
+    def _convert_string(self, values, key, raise_error=False):             # Input_file
     #--------------------------------------------------------------------------------
-        return values
+        ret = [v for val in values for v in val.split() if v != '/']
+        return [ret]
 
     #--------------------------------------------------------------------------------
     def _convert_float(self, values, key, raise_error=False):            # Input_file
@@ -722,7 +723,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _get(self, keyword, raise_error=False, pos=False):               # Input_file
     #--------------------------------------------------------------------------------
-        # print(f'get {keyword} from {self.file.name}')
+        #print(f'get {keyword} from {self.file.name}')
         keyword = keyword.upper()
         error_msg = f'ERROR Keyword {keyword} not found in {self.file}'
         if not keyword in self._getter.keys():
@@ -770,8 +771,8 @@ class DATA_file(File):
                 return self 
             a, b = sections[section]
             head = self._data[:a]
-            self._data = self._data[a:b]
             tail = self._data[b:]
+            self._data = self._data[a:b]
         while 'INCLUDE' in self._data:
             self._data = self._append_include_files()
         self._data = head + self._data + tail
