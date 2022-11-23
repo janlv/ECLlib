@@ -531,14 +531,15 @@ class DATA_file(File):
         self._reread = reread
         if read or include:
             self._data = self.without_comments()
-        getter = namedtuple('getter', 'default convert pattern')
-        self._getter = {'TSTEP'   : getter([],      self._convert_float, r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
-                        'START'   : getter([0],     self._convert_date,  r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                        'DATES'   : getter([],      self._convert_date,  r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
-                        'INCLUDE' : getter([''],    self._convert_file,  r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                        'GDFILE'  : getter([''],    self._convert_file,  r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                        'RESTART' : getter(['', 0], self._convert_file,  r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
-                        'SUMMARY' : getter([],      self._convert_string,  r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b')}
+        getter = namedtuple('getter', 'section default convert pattern')
+        self._getter = {'TSTEP'   : getter('SCHEDULE', [],      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
+                        'START'   : getter('RUNSPEC',  [0],     self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+                        'DATES'   : getter('SCHEDULE', [],      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
+                        'INCLUDE' : getter(None,       [''],    self._convert_file,   r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                        'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+                        'RESTART' : getter('SOLUTION', ['', 0], self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
+                        'SUMMARY' : getter('SUMMARY',  [],      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
+                        'WELSPECS': getter('SCHEDULE', [],      self._convert_string, r'\bWELSPECS\b((\s+\'*[A-Za-z0-9_/-]+?.*/\s*)+/)')}
         (check or include) and self.check() 
         include and self.with_includes(section=include)
         # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
@@ -570,13 +571,13 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def check(self, include=True):                                       # Input_file
     #--------------------------------------------------------------------------------
+        self._checked = True
         ### Check if file exists
         self.exists(raise_error=True)        
         ### Check if included files exists
         #if include and not all((file:=f).is_file() for f in self.include_files()):
         if include and (missing := [f for f in self.include_files() if not f.is_file()]):
             raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
-        self._checked = True
         return True
 
     #--------------------------------------------------------------------------------
@@ -639,7 +640,7 @@ class DATA_file(File):
     def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # Input_file
     #--------------------------------------------------------------------------------
         'Return timesteps, if DATES are present they are converted to timesteps'
-        self.with_includes(section='SCHEDULE', raise_error=False)
+        #self.with_includes(section='SCHEDULE', raise_error=False)
         dates = self.get('DATES', pos=True)
         tsteps = []
         if skiprest:
@@ -674,7 +675,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _convert_string(self, values, key, raise_error=False):             # Input_file
     #--------------------------------------------------------------------------------
-        ret = [v for val in values for v in val.split() if v != '/']
+        ret = [v for val in values for v in val.split('\n') if v and v != '/']
         return [ret]
 
     #--------------------------------------------------------------------------------
@@ -715,64 +716,90 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def get(self, *keywords, **kwargs):                                  # Input_file
     #--------------------------------------------------------------------------------
+        #print('get', keywords, kwargs)
+        [self.with_includes(section) for key in keywords if (section :=self._getter[key].section)]
         ret = [self._get(key, **kwargs) for key in keywords]
         if len(ret) == 1:
             return ret[0]
         return ret
 
     #--------------------------------------------------------------------------------
-    def _get(self, keyword, raise_error=False, pos=False):               # Input_file
+    def _get(self, keyword, raise_error=False, pos=False, include=True): # Input_file
     #--------------------------------------------------------------------------------
-        #print(f'get {keyword} from {self.file.name}')
+        #print('_get', keyword)
         keyword = keyword.upper()
         error_msg = f'ERROR Keyword {keyword} not found in {self.file}'
         if not keyword in self._getter.keys():
             if raise_error:
                 raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
             return []
-        default = self._getter[keyword].default
+        key = self._getter[keyword]
         if not self._data or self._reread:
             if not self.exists(raise_error=raise_error):
-                return default
+                return key.default
             if keyword.encode() in self.binarydata(): 
                 self._data = self.without_comments()
             else:
                 if raise_error:
                     raise SystemError(error_msg)
-                return default
-        key = self._getter[keyword]
+                return key.default
         match_list = compile(key.pattern).finditer(self._data)
         val_span = tuple((m.group(1), m.span()) for m in match_list) 
         if not val_span:
-            return default
+            return key.default
         values, span = zip(*val_span)
         values = key.convert(values, keyword, raise_error=raise_error)
         if pos:
             values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
         if raise_error and not values:
             raise SystemError(error_msg)
-        return flatten(values) #key.convert(values, keyword, raise_error=raise_error)
-
+        return flatten(values) 
 
     #--------------------------------------------------------------------------------
-    def with_includes(self, section=None, raise_error=True):                               # Input_file
+    def section(self, name, raise_error=True):
     #--------------------------------------------------------------------------------
+        print('section',name, )
+        name = name.upper()
+        i = self.section_names.index(name)
+        # if binary:
+        #     data = self.binarydata()
+        # else:
+        data = self.data()
+        ab = [(a,b) for name,a,b in split_by_words(data, self.section_names[i:i+2])]
+        if not ab:
+            if raise_error:
+                raise SystemError(f'ERROR Section {name} not found in {self}')
+            return None
+        a, b = ab[0]
+        section = namedtuple('section','name data pos')
+        return section(name, data[a:b], (a,b))
+
+    #--------------------------------------------------------------------------------
+    def with_includes(self, section=None):             # Input_file
+    #--------------------------------------------------------------------------------
+        #print('with_includes', section)
+        if section is None:
+            return self
         self._checked or self.check()
         if not 'INCLUDE' in self.data():
             return self
         ### Create dict of section names and positions
-        sections = {name.upper():(a,b) for name, a, b in split_by_words(self._data, self.section_names)}
-        head = tail = ''
-        if isinstance(section,str):
-            section = section.upper()
-            if section not in sections.keys():
-                if raise_error:
-                    raise SystemError(f'ERROR Section {section} not found in {self}')
-                return self 
-            a, b = sections[section]
-            head = self._data[:a]
-            tail = self._data[b:]
-            self._data = self._data[a:b]
+        # sections = {name.upper():(a,b) for name, a, b in split_by_words(self._data, self.section_names)}
+        #head = tail = ''
+        #if isinstance(section,str):
+        # section = section.upper()
+        # if section not in sections.keys():
+        #     if raise_error:
+        #         raise SystemError(f'ERROR Section {section} not found in {self}')
+        #     return self 
+        # a, b = sections[section]
+        sect = self.section(section)
+        if not 'INCLUDE' in sect.data:
+            return self
+        a, b = sect.pos
+        head = self._data[:a]
+        tail = self._data[b:]
+        self._data = self._data[a:b]
         while 'INCLUDE' in self._data:
             self._data = self._append_include_files()
         self._data = head + self._data + tail
@@ -782,6 +809,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _append_include_files(self):                                     # Input_file
     #--------------------------------------------------------------------------------
+        #print('_append')
         matches = self.get('INCLUDE', pos=True)
         out = []
         n = 0

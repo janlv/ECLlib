@@ -146,14 +146,16 @@ def batched(iterable, n): # From Itertools Recipes at docs.python.org
 def split_by_words(string, words, comment=None): #, wb=r'\b'):
 #-----------------------------------------------------------------------
     '''
-    Split a string, with comments, into sections based on a list of unique words.
+    Split a string (possibly bytes-like), with comments, into sections based on a list of unique words.
     Returns a dict with words as keys and a tuple of begin and end positins
     '''
-    regex =  (comment and rf'(?<!{comment})' or '') + r'\s*\b' + r'\b|\b'.join(words) + r'\b'
-    #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*' + wb + rf'{wb}|{wb}'.join(words) + wb
+    #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*\b' + r'\b|\b'.join(words) + r'\b'
+    regex =  (comment and rf'(?<!{comment})' or '') + r'\s*(\b' + r'\b|\b'.join(words) + r'\b)'
+    if isinstance(string, bytes):
+        regex = regex.encode()
     matches = compile(regex, flags=IGNORECASE).finditer(string)
     ### Append string end pos as tuple of tuple
-    tag_pos = chain( ((m.group(), m.start()) for m in matches), (('', len(string)),) )
+    tag_pos = chain( ((m.group(), m.start()) for m in matches), [('', len(string))] )
     return ((tag, a, b) for (tag, a), (_, b) in pairwise(tag_pos))
     #return [(a[0],a[1],b[1]) for a,b in pairwise(tag_pos)]
 
