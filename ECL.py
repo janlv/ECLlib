@@ -794,8 +794,8 @@ class DATA_file(File):
                 return self 
             a, b = sections[section]
             head = self._data[:a]
-            self._data = self._data[a:b]
             tail = self._data[b:]
+            self._data = self._data[a:b]
         while 'INCLUDE' in self._data:
             self._data = self._append_include_files()
         self._data = head + self._data + tail
