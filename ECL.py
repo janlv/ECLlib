@@ -260,6 +260,11 @@ class File:
     #--------------------------------------------------------------------------------
         return self.file.is_file()
 
+    #--------------------------------------------------------------------------------
+    def with_name(self, file):                                                 # File
+    #--------------------------------------------------------------------------------
+        return (self.file.parent/file).resolve()
+
         
     #--------------------------------------------------------------------------------
     def exists(self, raise_error=False):                                       # File
@@ -535,14 +540,14 @@ class DATA_file(File):
         self._getter = {'TSTEP'   : getter('SCHEDULE', [],      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
                         'START'   : getter('RUNSPEC',  [0],     self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
                         'DATES'   : getter('SCHEDULE', [],      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
-                        'INCLUDE' : getter(None,       [''],    self._convert_file,   r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-                        'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
                         'RESTART' : getter('SOLUTION', ['', 0], self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
                         'SUMMARY' : getter('SUMMARY',  [],      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
                         'WELSPECS': getter('SCHEDULE', [],      self._convert_string, r'\bWELSPECS\b((\s+\'*[A-Za-z0-9_/-]+?.*/\s*)+/)')}
         (check or include) and self.check() 
         include and self.with_includes(section=include)
         # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
+        # 'INCLUDE' : getter(None,       [''],    self._convert_file,   r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+        # 'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # Input_file
@@ -593,6 +598,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def data(self):                                                     # Input_file
     #--------------------------------------------------------------------------------
+        print('data',self)
         if not self._data or self._reread:
             if self.is_file():
                 self._data = self.without_comments()
@@ -607,52 +613,64 @@ class DATA_file(File):
         return (line for line in self.data().split('\n') if line)
 
     #--------------------------------------------------------------------------------
-    def _includes(self, data):
+    def files_with_key(self, key:str):
     #--------------------------------------------------------------------------------
-        regex = r"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
-        decode = lambda x: x
-        if isinstance(data, bytes):
-            regex = regex.encode()
-            decode = lambda x: x.decode()
-        return (decode(m.group('file')) for m in compile(regex).finditer(data))
+        data = self.binarydata()
+        key = key.encode()
+        if key in data:
+            yield self.file
+        for file in self.include_files(data):
+            if key in File(file,'').binarydata():
+                yield file
+
+    # #--------------------------------------------------------------------------------
+    # def _includes(self, data:bytes):
+    # #--------------------------------------------------------------------------------
+    #     regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
+    #     return (m.group('file').decode() for m in compile(regex).finditer(data))
 
     #--------------------------------------------------------------------------------
-    def includes(self, data):                           # Input_file
+    def include_files(self, data:bytes=None):                           # Input_file
     #--------------------------------------------------------------------------------
-        #new_files = (f for f in self._includes(File(file).binarydata()) if f != '')
-        for new_file in self._includes(data):
+        data = data or self.binarydata()
+        regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
+        files = (m.group('file').decode() for m in compile(regex).finditer(data))
+        for file in files:
+            new_file = self.with_name(file)
             yield new_file
-            for inc in self.includes(File(self.file.with_name(new_file),'').binarydata()):
-                yield inc
+            file_data = File(new_file,'').binarydata()
+            if b'INCLUDE' in file_data:
+                for inc in self.include_files(file_data):
+                    yield inc
 
-    #--------------------------------------------------------------------------------
-    def include_file(self, suffix):                                      # Input_file
-    #--------------------------------------------------------------------------------
-        ''' Return first included file with given suffix (case-insensitive) or None '''
-        return next((f for f in self.get('INCLUDE') if suffix in str(f).lower()), None)
-
-
-    #--------------------------------------------------------------------------------
-    def include_files(self):                                             # Input_file
-    #--------------------------------------------------------------------------------
-        '''
-        Search recursively for include files in the .DATA-file
-        Return list of full paths
-        '''
-        for file in self._include_files_recursive(self.file):
-            yield file
-        for file in (f for f in self.get('GDFILE') if f != ''):
-            yield file
+    # #--------------------------------------------------------------------------------
+    # def include_file(self, suffix):                                      # Input_file
+    # #--------------------------------------------------------------------------------
+    #     ''' Return first included file with given suffix (case-insensitive) or None '''
+    #     return next((f for f in self.get('INCLUDE') if suffix in str(f).lower()), None)
 
 
-    #--------------------------------------------------------------------------------
-    def _include_files_recursive(self, file):                           # Input_file
-    #--------------------------------------------------------------------------------
-        new_files = (f for f in DATA_file(file).get('INCLUDE') if f != '')
-        for new_file in new_files:
-            yield new_file
-            for inc in self._include_files_recursive(new_file):
-                yield inc
+    # #--------------------------------------------------------------------------------
+    # def include_files(self):                                             # Input_file
+    # #--------------------------------------------------------------------------------
+    #     '''
+    #     Search recursively for include files in the .DATA-file
+    #     Return list of full paths
+    #     '''
+    #     for file in self._include_files_recursive(self.file):
+    #         yield file
+    #     for file in (f for f in self.get('GDFILE') if f != ''):
+    #         yield file
+
+
+    # #--------------------------------------------------------------------------------
+    # def _include_files_recursive(self, file):                           # Input_file
+    # #--------------------------------------------------------------------------------
+    #     new_files = (f for f in DATA_file(file).get('INCLUDE') if f != '')
+    #     for new_file in new_files:
+    #         yield new_file
+    #         for inc in self._include_files_recursive(new_file):
+    #             yield inc
 
     #--------------------------------------------------------------------------------
     def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # Input_file
