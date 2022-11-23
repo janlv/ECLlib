@@ -151,11 +151,12 @@ def split_by_words(string, words, comment=None): #, wb=r'\b'):
     '''
     #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*\b' + r'\b|\b'.join(words) + r'\b'
     regex =  (comment and rf'(?<!{comment})' or '') + r'\s*(\b' + r'\b|\b'.join(words) + r'\b)'
+    #print(regex)
     if isinstance(string, bytes):
         regex = regex.encode()
     matches = compile(regex, flags=IGNORECASE).finditer(string)
     ### Append string end pos as tuple of tuple
-    tag_pos = chain( ((m.group(), m.start()) for m in matches), [('', len(string))] )
+    tag_pos = chain( ((m.group(1), m.start()) for m in matches), [('', len(string))] )
     return ((tag, a, b) for (tag, a), (_, b) in pairwise(tag_pos))
     #return [(a[0],a[1],b[1]) for a,b in pairwise(tag_pos)]
 

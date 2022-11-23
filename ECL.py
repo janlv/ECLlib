@@ -606,6 +606,24 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         return (line for line in self.data().split('\n') if line)
 
+    #--------------------------------------------------------------------------------
+    def _includes(self, data):
+    #--------------------------------------------------------------------------------
+        regex = r"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
+        decode = lambda x: x
+        if isinstance(data, bytes):
+            regex = regex.encode()
+            decode = lambda x: x.decode()
+        return (decode(m.group('file')) for m in compile(regex).finditer(data))
+
+    #--------------------------------------------------------------------------------
+    def includes(self, data):                           # Input_file
+    #--------------------------------------------------------------------------------
+        #new_files = (f for f in self._includes(File(file).binarydata()) if f != '')
+        for new_file in self._includes(data):
+            yield new_file
+            for inc in self.includes(File(self.file.with_name(new_file),'').binarydata()):
+                yield inc
 
     #--------------------------------------------------------------------------------
     def include_file(self, suffix):                                      # Input_file
@@ -775,9 +793,25 @@ class DATA_file(File):
         return section(name, data[a:b], (a,b))
 
     #--------------------------------------------------------------------------------
+    def section_v2(self, name, raise_error=True):
+    #--------------------------------------------------------------------------------
+        print('section_v2',name, )
+        name = name.upper()
+        i = self.section_names.index(name)
+        data = self.binarydata()
+        ab = [(a,b) for name,a,b in split_by_words(data, self.section_names[i:i+2], comment='--')]
+        if not ab:
+            if raise_error:
+                raise SystemError(f'ERROR Section {name} not found in {self}')
+            return None
+        a, b = ab[0]
+        section = namedtuple('section','name data pos')
+        return section(name, data[a:b], (a,b))
+
+    #--------------------------------------------------------------------------------
     def with_includes(self, section=None):             # Input_file
     #--------------------------------------------------------------------------------
-        #print('with_includes', section)
+        print('with_includes', section)
         if section is None:
             return self
         self._checked or self.check()
@@ -809,7 +843,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _append_include_files(self):                                     # Input_file
     #--------------------------------------------------------------------------------
-        #print('_append')
+        print('_append')
         matches = self.get('INCLUDE', pos=True)
         out = []
         n = 0
