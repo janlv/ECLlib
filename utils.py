@@ -814,6 +814,7 @@ class Progress:
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
     #--------------------------------------------------------------------------------
+        time = timedelta(0)
         if self.prev_n < self.min:
             self.start_time = datetime.now()
         if n>self.prev_n and n>self.min and n>self.n0:
@@ -829,7 +830,7 @@ class Progress:
             time = self.eta-(datetime.now()-self.time_last_eta)
             #self.time_str = f'{max(timedelta(0), td)}'.split('.')[0]
         time = max(timedelta(0), time)
-        self.time_str = time.split('.')[0]
+        self.time_str = str(time).split('.')[0]
         return time        
 
     # #--------------------------------------------------------------------------------
