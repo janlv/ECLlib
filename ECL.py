@@ -527,7 +527,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file', **kwargs)
-        self._data = None
+        self.data = None
         self._checked = False
         getter = namedtuple('getter', 'section default convert pattern')
         self._getter = {'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
@@ -549,8 +549,20 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def __call__(self):                                                  # Input_file
     #--------------------------------------------------------------------------------
-        self._data = self.binarydata()
+        self.data = self.binarydata()
         return self
+
+    # #--------------------------------------------------------------------------------
+    # def data(self):                                                  # Input_file
+    # #--------------------------------------------------------------------------------
+    #     return self.remove_comments()
+        
+
+    #--------------------------------------------------------------------------------
+    def __contains__(self, key):                                         # Input_file
+    #--------------------------------------------------------------------------------
+        self.data = None
+        return any(m for m in self.matching(key))
 
     #--------------------------------------------------------------------------------
     def remove_comments(self, data=None):                                    # Input_file
@@ -573,16 +585,16 @@ class DATA_file(File):
         return True
 
     #--------------------------------------------------------------------------------
-    def contains(self, key, regex, comments=False):                         # Input_file
+    def search(self, key, regex, comments=False):                         # Input_file
     #--------------------------------------------------------------------------------
         #print(list(self.include_files(self._data)))        
         data = self.matching(key)
         if not comments:
-            self._data = self.remove_comments(data)
+            self.data = self.remove_comments(data)
         else:
-            self._data = b''.join(data).decode()
+            self.data = b''.join(data).decode()
         #print(self._data)
-        return compile(regex).search(self._data)
+        return compile(regex).search(self.data)
 
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # Input_file
@@ -598,10 +610,11 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def matching(self, *keys):                                           # Input_file
     #--------------------------------------------------------------------------------
+        self.data = self.data or self.binarydata()
         keys = [key.encode() for key in keys]
-        if any(key in self._data for key in keys):
-            yield self._data
-        for file in self.include_files(self._data):
+        if any(key in self.data for key in keys):
+            yield self.data
+        for file in self.include_files(self.data):
             inc_data = File(file,'').binarydata() 
             if any(key in inc_data for key in keys):
                 yield inc_data
@@ -709,15 +722,15 @@ class DATA_file(File):
                 raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
             return FAIL
         names = set([g.section for g in getters])
-        self._data = data or self.remove_comments(self.section(*names).matching(*keywords))
+        self.data = data or self.remove_comments(self.section(*names).matching(*keywords))
         error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.file}'
-        if not self._data:
+        if not self.data:
             if raise_error:
                 raise SystemError(error_msg)
             return FAIL 
         result = ()
         for keyword, getter in zip(keywords, getters):
-            match_list = compile(getter.pattern).finditer(self._data)
+            match_list = compile(getter.pattern).finditer(self.data)
             val_span = tuple((m.group(1), m.span()) for m in match_list) 
             if not val_span:
                 result += (getter.default,)
@@ -743,7 +756,7 @@ class DATA_file(File):
             if raise_error:
                 raise SystemError(f'ERROR Section {list2text(sections)} not found in {self}')
             return None
-        self._data = b''.join(data[a:b] for a,b in sorted(pos))
+        self.data = b''.join(data[a:b] for a,b in sorted(pos))
         return self
 
     #--------------------------------------------------------------------------------
@@ -755,7 +768,7 @@ class DATA_file(File):
             _, pos = match[0] # Get first match
         else:
             raise SystemError(f'ERROR Missing {keyword} in {self}')
-        out = self._data[:pos[0]] + new_string + self._data[pos[1]:]
+        out = self.data[:pos[0]] + new_string + self.data[pos[1]:]
         with open(self.file, 'w') as f:
             f.write(out)
 
