@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from pathlib import Path
-from re import RegexFlag, findall, compile, DOTALL, search, sub, IGNORECASE
+from re import RegexFlag, findall, compile, DOTALL, search, sub, IGNORECASE, MULTILINE
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
@@ -90,13 +90,17 @@ def prepend(value, iterator): # From Itertools Recipes at docs.python.org
     return chain([value], iterator)
 
 #-----------------------------------------------------------------------
-def flatten(list_of_lists): # From Itertools Recipes at docs.python.org
+def flatten(list_or_tuple): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
     "Flatten one level of nesting"
     try:
-        return list(chain.from_iterable(list_of_lists))
+        flat = chain.from_iterable(list_or_tuple)
+        if isinstance(list_or_tuple, list):
+            return list(flat)
+        else:
+            return tuple(flat)
     except TypeError:
-        return list_of_lists
+        return list_or_tuple
 
 #-----------------------------------------------------------------------
 def flatten_all(list_of_lists):  #https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists        
@@ -149,12 +153,12 @@ def split_by_words(string, words, comment=None): #, wb=r'\b'):
     Split a string (possibly bytes-like), with comments, into sections based on a list of unique words.
     Returns a dict with words as keys and a tuple of begin and end positins
     '''
-    #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*\b' + r'\b|\b'.join(words) + r'\b'
-    regex =  (comment and rf'(?<!{comment})' or '') + r'\s*(\b' + r'\b|\b'.join(words) + r'\b)'
+    #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*(\b' + r'\b|\b'.join(words) + r'\b)' #(--)*[\s=]*(--)*'
+    regex =  r'^\s*(\b' + r'\b|\b'.join(words) + r'\b)'
     #print(regex)
     if isinstance(string, bytes):
         regex = regex.encode()
-    matches = compile(regex, flags=IGNORECASE).finditer(string)
+    matches = compile(regex, flags=IGNORECASE|MULTILINE).finditer(string)
     ### Append string end pos as tuple of tuple
     tag_pos = chain( ((m.group(1), m.start()) for m in matches), [('', len(string))] )
     return ((tag, a, b) for (tag, a), (_, b) in pairwise(tag_pos))

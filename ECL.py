@@ -10,7 +10,7 @@ from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
-from re import IGNORECASE, finditer, compile
+from re import IGNORECASE, MULTILINE, finditer, compile
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime, timedelta
@@ -81,7 +81,7 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        return f'<unfmt_block, {self}>'
+        return f'<ECL.unfmt_block, {self}>'
 
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                        # unfmt_block
@@ -225,7 +225,7 @@ class File:
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
     #--------------------------------------------------------------------------------
-        return f'<File, file={self.file}, role={self.role}>'
+        return f'<ECL.File, file={self.file}, role={self.role}>'
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                         # File
@@ -238,11 +238,15 @@ class File:
         DEBUG and print(f'Deleting {repr(self)}')
 
     #--------------------------------------------------------------------------------
-    def binarydata(self):                                                      # File
+    def binarydata(self, raise_error=False):                                    # File
     #--------------------------------------------------------------------------------
         ### Open as binary file to avoid encoding errors
-        with open(self.file, 'rb') as f:
-            return f.read()
+        if self.is_file():
+            with open(self.file, 'rb') as f:
+                return f.read()
+        if raise_error:
+            raise SystemError(f'File {self} does not exist')
+        return b''
  
     #--------------------------------------------------------------------------------
     def delete(self, raise_error=False, echo=False):                           # File
@@ -303,7 +307,7 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_file
     #--------------------------------------------------------------------------------
-        return f'<unfmt_file, {self}, endpos={self.endpos}>'
+        return f'<ECL.unfmt_file, {self}, endpos={self.endpos}>'
 
     #--------------------------------------------------------------------------------
     def at_end(self, raise_error=False):                                 # unfmt_file
@@ -526,25 +530,26 @@ class DATA_file(File):
                 'COPY','MULTIPLY']
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=False, read=False, reread=False, include=False, **kwargs):      # Input_file
+    def __init__(self, file, check=False, **kwargs):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file', **kwargs)
         self._data = None
         # self._sections = None
         self._checked = False
-        self._reread = reread
-        if read or include:
-            self._data = self.without_comments()
+        #self._reread = reread
+        #if read or include:
+        #    self._data = self.without_comments()
         getter = namedtuple('getter', 'section default convert pattern')
-        self._getter = {'TSTEP'   : getter('SCHEDULE', [],      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
-                        'START'   : getter('RUNSPEC',  [0],     self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                        'DATES'   : getter('SCHEDULE', [],      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
-                        'RESTART' : getter('SOLUTION', ['', 0], self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
-                        'SUMMARY' : getter('SUMMARY',  [],      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
-                        'WELSPECS': getter('SCHEDULE', [],      self._convert_string, r'\bWELSPECS\b((\s+\'*[A-Za-z0-9_/-]+?.*/\s*)+/)')}
-        (check or include) and self.check() 
-        include and self.with_includes(section=include)
+        self._getter = {'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
+                        'START'   : getter('RUNSPEC',  (0,),     self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+                        'DATES'   : getter('SCHEDULE', (),      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
+                        'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
+                        'SUMMARY' : getter('SUMMARY',  (),      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
+                        'WELSPECS': getter('SCHEDULE', (),      self._convert_string, r'\bWELSPECS\b((\s+\'*[A-Za-z0-9_/-]+?.*/\s*)+/)')}
+        check and self.check() 
+        #(check or include) and self.check() 
+        #include and self.with_includes(section=include)
         # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
         # 'INCLUDE' : getter(None,       [''],    self._convert_file,   r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
         # 'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
@@ -552,26 +557,44 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # Input_file
     #--------------------------------------------------------------------------------
-        return f'<Input_file {self.file}>'
+        return f'<ECL.DATA_file {self.file}>'
 
-    #--------------------------------------------------------------------------------
-    def __add__(self, other):                                            # Input_file
-    #--------------------------------------------------------------------------------
-        for obj in (self, other):
-            if not obj._data:
-                obj._data = obj.without_comments()
-        self._data += other._data
-        return self
+    # #--------------------------------------------------------------------------------
+    # def __add__(self, other):                                            # Input_file
+    # #--------------------------------------------------------------------------------
+    #     for obj in (self, other):
+    #         if not obj._data:
+    #             obj._data = obj.without_comments()
+    #     self._data += other._data
+    #     return self
 
     # #--------------------------------------------------------------------------------
     # def __len__(self):                                                   # Input_file
     # #--------------------------------------------------------------------------------
     #     return self._data and len(self._data) or 0
 
+    # #--------------------------------------------------------------------------------
+    # def without_comments(self):                                          # Input_file
+    # #--------------------------------------------------------------------------------
+    #     return remove_comments(self.file, comment='--', end='END')
+
     #--------------------------------------------------------------------------------
-    def without_comments(self):                                          # Input_file
+    def __call__(self):                                                  # Input_file
     #--------------------------------------------------------------------------------
-        return remove_comments(self.file, comment='--', end='END')
+        self._data = self.binarydata()
+        return self
+
+    #--------------------------------------------------------------------------------
+    def remove_comments(self, data=None):                                    # Input_file
+    #--------------------------------------------------------------------------------
+        #print(list(data))
+        data = data or self.binarydata()
+        #print([d.split(b'\n') for d in data])
+        lines = (l for d in data for l in d.split(b'\n'))
+        text = (l.split(b'--')[0].strip() for l in lines)
+        text = b'\n'.join(t for t in text if t).decode()
+        self._data = text and text+'\n' or ''
+        return self
 
     #--------------------------------------------------------------------------------
     def check(self, include=True):                                       # Input_file
@@ -580,32 +603,45 @@ class DATA_file(File):
         ### Check if file exists
         self.exists(raise_error=True)        
         ### Check if included files exists
-        #if include and not all((file:=f).is_file() for f in self.include_files()):
         if include and (missing := [f for f in self.include_files() if not f.is_file()]):
             raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
         return True
 
     #--------------------------------------------------------------------------------
-    def contains(self, regex):                                           # Input_file
+    def contains(self, key, regex, comments=False):                         # Input_file
     #--------------------------------------------------------------------------------
-        return compile(regex).search(self.data())
+        #print(list(self.include_files(self._data)))        
+        data = self.matching(key)
+        if not comments:
+            self.remove_comments(data)
+        else:
+            self._data = b''.join(data).decode()
+        #print(self._data)
+        return compile(regex).search(self._data)
 
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # Input_file
     #--------------------------------------------------------------------------------
-        return self.data().strip() == ''
+        return self.without_comments() == b''
+        #return self.data().strip() == ''
 
-    #--------------------------------------------------------------------------------
-    def data(self):                                                     # Input_file
-    #--------------------------------------------------------------------------------
-        print('data',self)
-        if not self._data or self._reread:
-            if self.is_file():
-                self._data = self.without_comments()
-            else:
-                return ()
-        return self._data
+    # #--------------------------------------------------------------------------------
+    # def data(self):                                                     # Input_file
+    # #--------------------------------------------------------------------------------
+    #     #print('data',self)
+    #     if not self._data or self._reread:
+    #         if self.is_file():
+    #             self._data = self.without_comments()
+    #         else:
+    #             return ()
+    #     return self._data
 
+    # #--------------------------------------------------------------------------------
+    # def without_comments(self):                                                     # Input_file
+    # #--------------------------------------------------------------------------------
+    #     if self.is_file():
+    #         return self.remove_comments(self.binarydata())
+    #     return ()
 
     #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
@@ -613,15 +649,15 @@ class DATA_file(File):
         return (line for line in self.data().split('\n') if line)
 
     #--------------------------------------------------------------------------------
-    def files_with_key(self, key:str):
+    def matching(self, *keys):
     #--------------------------------------------------------------------------------
-        data = self.binarydata()
-        key = key.encode()
-        if key in data:
-            yield self.file
-        for file in self.include_files(data):
-            if key in File(file,'').binarydata():
-                yield file
+        keys = [key.encode() for key in keys]
+        if any(key in self._data for key in keys):
+            yield self._data
+        for file in self.include_files(self._data):
+            inc_data = File(file,'').binarydata() 
+            if any(key in inc_data for key in keys):
+                yield inc_data
 
     # #--------------------------------------------------------------------------------
     # def _includes(self, data:bytes):
@@ -633,8 +669,9 @@ class DATA_file(File):
     def include_files(self, data:bytes=None):                           # Input_file
     #--------------------------------------------------------------------------------
         data = data or self.binarydata()
-        regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
-        files = (m.group('file').decode() for m in compile(regex).finditer(data))
+        #regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
+        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
+        files = (m.group(1).decode() for m in compile(regex, flags=MULTILINE).finditer(data))
         for file in files:
             new_file = self.with_name(file)
             yield new_file
@@ -677,23 +714,29 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         'Return timesteps, if DATES are present they are converted to timesteps'
         #self.with_includes(section='SCHEDULE', raise_error=False)
-        dates = self.get('DATES', pos=True)
-        tsteps = []
+        #dates = self.get('DATES', pos=True)
+        _start, tsteps, dates = self.get('START','TSTEP','DATES', pos=True)
+        #tsteps = []
         if skiprest:
+            tsteps = []
             negative_ok = True
-        else:
-            tsteps = self.get('TSTEP', pos=True)
+        #else:
+        #    tsteps = self.get('TSTEP', pos=True)
         times = sorted(dates+tsteps, key=itemgetter(1))
-        start = start or self.get('START')[0]
+        #start = start or self.get('START')[0]
+        start = start or _start[0][0]
         if not start:
             raise SystemError('ERROR Missing start-date in DATA_file.tsteps()')
-        tsteps = list(self._days(times, start=start))
+        #tsteps = list(self._days(times, start=start))
+        tsteps = tuple(self._days(times, start=start))
         ## Checks
         if not negative_ok and any(t<=0 for t,_ in tsteps):
             raise SystemError(f'ERROR Zero or negative timestep in {self} (check if TSTEP or RESTART oversteps a DATES keyword)')
-        if not missing_ok and tsteps == []:
+        #if not missing_ok and tsteps == []:
+        if not missing_ok and not tsteps:
             raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
-        return pos and tsteps or [t for t,_ in tsteps]
+        return pos and tsteps or tuple(next(zip(*tsteps))) # Do not return positions
+        #return pos and tsteps or [t for t,_ in tsteps]
 
     #--------------------------------------------------------------------------------
     def _days(self, time_pos, start=None):                           # Input_file
@@ -712,14 +755,15 @@ class DATA_file(File):
     def _convert_string(self, values, key, raise_error=False):             # Input_file
     #--------------------------------------------------------------------------------
         ret = [v for val in values for v in val.split('\n') if v and v != '/']
-        return [ret]
+        return (ret,)
+        #return [ret]
 
     #--------------------------------------------------------------------------------
     def _convert_float(self, values, key, raise_error=False):            # Input_file
     #--------------------------------------------------------------------------------
         mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
         values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
-        values = [flatten(v) for v in values]
+        values = tuple(flatten(v) for v in values)
         return values or self._getter[key].default
 
 
@@ -729,7 +773,7 @@ class DATA_file(File):
         ### Remove possible quotes
         ### Extract groups of 3 from the dates strings 
         dates = (grouper(remove_chars("'/\n", v).split(), 3) for v in dates)
-        dates = [[datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates]
+        dates = tuple([datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates)
         return dates or self._getter[key].default
 
 
@@ -741,137 +785,187 @@ class DATA_file(File):
         values = (val.replace("'",'').replace('\\','/').split() for val in values)
         ### Unzip values in a files (always) and numbers lists (only for RESTART)
         unzip = zip(*values)
-        files = [[(self.file.parent/file).resolve()] for file in next(unzip)]
+        files = ([(self.file.parent/file).resolve()] for file in next(unzip))
         numbers = [[float(num)] for num in next(unzip, ())]
-        files = numbers and [[f[0],n[0]] for f,n in zip(files, numbers)] or files
+        files = numbers and tuple([f[0],n[0]] for f,n in zip(files, numbers)) or tuple(files)
         ### Add suffix for RESTART keyword
         if key == 'RESTART' and files:
             files[0][0] = files[0][0].with_suffix('.UNRST')
         return files or self._getter[key].default
 
-    #--------------------------------------------------------------------------------
-    def get(self, *keywords, **kwargs):                                  # Input_file
-    #--------------------------------------------------------------------------------
-        #print('get', keywords, kwargs)
-        [self.with_includes(section) for key in keywords if (section :=self._getter[key].section)]
-        ret = [self._get(key, **kwargs) for key in keywords]
-        if len(ret) == 1:
-            return ret[0]
-        return ret
+    # #--------------------------------------------------------------------------------
+    # def get(self, *keywords, **kwargs):                                  # Input_file
+    # #--------------------------------------------------------------------------------
+    #     #print('get', keywords, kwargs)
+    #     #[self.with_includes(section) for key in keywords if (section :=self._getter[key].section)]
+    #     ret = [self._get(key, **kwargs) for key in keywords]
+    #     if len(ret) == 1:
+    #         return ret[0]
+    #     return ret
+
+    # #--------------------------------------------------------------------------------
+    # def _get(self, keyword, raise_error=False, pos=False, include=True): # Input_file
+    # #--------------------------------------------------------------------------------
+    #     #print('_get', keyword)
+    #     keyword = keyword.upper()
+    #     error_msg = f'ERROR Keyword {keyword} not found in {self.file}'
+    #     if not keyword in self._getter.keys():
+    #         if raise_error:
+    #             raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
+    #         return []
+    #     key = self._getter[keyword]
+    #     if not self._data or self._reread:
+    #         if not self.exists(raise_error=raise_error):
+    #             return key.default
+    #         if keyword.encode() in self.binarydata(): 
+    #             self._data = self.without_comments()
+    #         else:
+    #             if raise_error:
+    #                 raise SystemError(error_msg)
+    #             return key.default
+    #     match_list = compile(key.pattern).finditer(self._data)
+    #     val_span = tuple((m.group(1), m.span()) for m in match_list) 
+    #     if not val_span:
+    #         return key.default
+    #     values, span = zip(*val_span)
+    #     values = key.convert(values, keyword, raise_error=raise_error)
+    #     if pos:
+    #         values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
+    #     if raise_error and not values:
+    #         raise SystemError(error_msg)
+    #     return flatten(values) 
 
     #--------------------------------------------------------------------------------
-    def _get(self, keyword, raise_error=False, pos=False, include=True): # Input_file
+    def get(self, *keywords, raise_error=False, pos=False): # Input_file
     #--------------------------------------------------------------------------------
-        #print('_get', keyword)
-        keyword = keyword.upper()
-        error_msg = f'ERROR Keyword {keyword} not found in {self.file}'
-        if not keyword in self._getter.keys():
+        #print('get', keywords)
+        FAIL = len(keywords)*((),)
+        if not self.exists(raise_error=raise_error):
+            return FAIL
+        keywords = [key.upper() for key in keywords]
+        getters = [self._getter.get(key) for key in keywords]
+        if missing:=[k for g,k in zip(getters, keywords) if not g]:
             if raise_error:
-                raise SystemError(f'ERROR Missing get-pattern for {keyword} in Input_file')
-            return []
-        key = self._getter[keyword]
-        if not self._data or self._reread:
-            if not self.exists(raise_error=raise_error):
-                return key.default
-            if keyword.encode() in self.binarydata(): 
-                self._data = self.without_comments()
-            else:
-                if raise_error:
-                    raise SystemError(error_msg)
-                return key.default
-        match_list = compile(key.pattern).finditer(self._data)
-        val_span = tuple((m.group(1), m.span()) for m in match_list) 
-        if not val_span:
-            return key.default
-        values, span = zip(*val_span)
-        values = key.convert(values, keyword, raise_error=raise_error)
-        if pos:
-            values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
-        if raise_error and not values:
-            raise SystemError(error_msg)
-        return flatten(values) 
-
-    #--------------------------------------------------------------------------------
-    def section(self, name, raise_error=True):
-    #--------------------------------------------------------------------------------
-        print('section',name, )
-        name = name.upper()
-        i = self.section_names.index(name)
-        # if binary:
-        #     data = self.binarydata()
-        # else:
-        data = self.data()
-        ab = [(a,b) for name,a,b in split_by_words(data, self.section_names[i:i+2])]
-        if not ab:
+                raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
+            return FAIL
+        names = set([g.section for g in getters])
+        self.remove_comments( self.section(*names).matching(*keywords) )
+        error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.file}'
+        if not self._data:
             if raise_error:
-                raise SystemError(f'ERROR Section {name} not found in {self}')
-            return None
-        a, b = ab[0]
-        section = namedtuple('section','name data pos')
-        return section(name, data[a:b], (a,b))
+                raise SystemError(error_msg)
+            return FAIL 
+        result = ()
+        for keyword, getter in zip(keywords, getters):
+            #key = self._getter[keyword]
+            match_list = compile(getter.pattern).finditer(self._data)
+            val_span = tuple((m.group(1), m.span()) for m in match_list) 
+            if not val_span:
+                result += (getter.default,)
+                continue
+            values, span = zip(*val_span)
+            values = getter.convert(values, keyword, raise_error=raise_error)
+            if pos:
+                values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
+            result += (flatten(values),)
+        if len(result) == 1:
+            return result[0]
+        return result 
+
+    # #--------------------------------------------------------------------------------
+    # def section(self, name, raise_error=True):
+    # #--------------------------------------------------------------------------------
+    #     print('section',name, )
+    #     name = name.upper()
+    #     i = self.section_names.index(name)
+    #     # if binary:
+    #     #     data = self.binarydata()
+    #     # else:
+    #     data = self.data()
+    #     ab = [(a,b) for name,a,b in split_by_words(data, self.section_names[i:i+2])]
+    #     if not ab:
+    #         if raise_error:
+    #             raise SystemError(f'ERROR Section {name} not found in {self}')
+    #         return None
+    #     a, b = ab[0]
+    #     section = namedtuple('section','name data pos')
+    #     return section(name, data[a:b], (a,b))
 
     #--------------------------------------------------------------------------------
-    def section_v2(self, name, raise_error=True):
+    def section(self, *sections, raise_error=True):
     #--------------------------------------------------------------------------------
-        print('section_v2',name, )
-        name = name.upper()
-        i = self.section_names.index(name)
-        data = self.binarydata()
-        ab = [(a,b) for name,a,b in split_by_words(data, self.section_names[i:i+2], comment='--')]
-        if not ab:
-            if raise_error:
-                raise SystemError(f'ERROR Section {name} not found in {self}')
-            return None
-        a, b = ab[0]
-        section = namedtuple('section','name data pos')
-        return section(name, data[a:b], (a,b))
-
-    #--------------------------------------------------------------------------------
-    def with_includes(self, section=None):             # Input_file
-    #--------------------------------------------------------------------------------
-        print('with_includes', section)
-        if section is None:
-            return self
         self._checked or self.check()
-        if not 'INCLUDE' in self.data():
-            return self
-        ### Create dict of section names and positions
-        # sections = {name.upper():(a,b) for name, a, b in split_by_words(self._data, self.section_names)}
-        #head = tail = ''
-        #if isinstance(section,str):
-        # section = section.upper()
-        # if section not in sections.keys():
-        #     if raise_error:
-        #         raise SystemError(f'ERROR Section {section} not found in {self}')
-        #     return self 
-        # a, b = sections[section]
-        sect = self.section(section)
-        if not 'INCLUDE' in sect.data:
-            return self
-        a, b = sect.pos
-        head = self._data[:a]
-        tail = self._data[b:]
-        self._data = self._data[a:b]
-        while 'INCLUDE' in self._data:
-            self._data = self._append_include_files()
-        self._data = head + self._data + tail
+        ### Get section-names 
+        #sections = tuple(set([self._getter[key.upper()].section for key in keys]))
+        #print(sections)
+        data = self.binarydata()
+        #ind = sorted(self.section_names.index(section) for section in sections)
+        #print(ind)
+        #print([self.section_names[i:i+2] for i in ind])
+        section_pos = {name.upper():(a,b) for name,a,b in split_by_words(data, self.section_names)}
+        #ab = [(a,b) for i in ind for name,a,b in split_by_words(data, self.section_names[i:i+2])]
+        #print(section_pos)
+        pos = [section_pos[sec.encode()] for sec in sections]
+        #print(pos)
+        #print(sorted(pos))
+        if not pos:
+            if raise_error:
+                raise SystemError(f'ERROR Section {list2text(sections)} not found in {self}')
+            return None
+        #a, b = ab[0]
+        self._data = b''.join(data[a:b] for a,b in sorted(pos))
         return self
+        #return b''.join(data[a:b] for a,b in sorted(pos))
+        #return (data[a:b] for a,b in sorted(pos))
+        #section = namedtuple('section','name data pos')
+        #return section(name, data[a:b], (a,b))
+
+    # #--------------------------------------------------------------------------------
+    # def with_includes(self, section=None):             # Input_file
+    # #--------------------------------------------------------------------------------
+    #     print('with_includes', section)
+    #     if section is None:
+    #         return self
+    #     self._checked or self.check()
+    #     if not 'INCLUDE' in self.data():
+    #         return self
+    #     ### Create dict of section names and positions
+    #     # sections = {name.upper():(a,b) for name, a, b in split_by_words(self._data, self.section_names)}
+    #     #head = tail = ''
+    #     #if isinstance(section,str):
+    #     # section = section.upper()
+    #     # if section not in sections.keys():
+    #     #     if raise_error:
+    #     #         raise SystemError(f'ERROR Section {section} not found in {self}')
+    #     #     return self 
+    #     # a, b = sections[section]
+    #     sect = self.section(section)
+    #     if not 'INCLUDE' in sect.data:
+    #         return self
+    #     a, b = sect.pos
+    #     head = self._data[:a]
+    #     tail = self._data[b:]
+    #     self._data = self._data[a:b]
+    #     while 'INCLUDE' in self._data:
+    #         self._data = self._append_include_files()
+    #     self._data = head + self._data + tail
+    #     return self
 
 
-    #--------------------------------------------------------------------------------
-    def _append_include_files(self):                                     # Input_file
-    #--------------------------------------------------------------------------------
-        print('_append')
-        matches = self.get('INCLUDE', pos=True)
-        out = []
-        n = 0
-        for file,(a,b) in matches:
-            out.append(self._data[n:a])
-            inc_file = self.file.parent/file
-            out.append(remove_comments(inc_file, comment='--', end='END'))
-            n = b
-        out.append(self._data[n:])
-        return ''.join(out)
+    # #--------------------------------------------------------------------------------
+    # def _append_include_files(self):                                     # Input_file
+    # #--------------------------------------------------------------------------------
+    #     print('_append')
+    #     matches = self.get('INCLUDE', pos=True)
+    #     out = []
+    #     n = 0
+    #     for file,(a,b) in matches:
+    #         out.append(self._data[n:a])
+    #         inc_file = self.file.parent/file
+    #         out.append(remove_comments(inc_file, comment='--', end='END'))
+    #         n = b
+    #     out.append(self._data[n:])
+    #     return ''.join(out)
 
     #--------------------------------------------------------------------------------
     def replace_keyword(self, keyword, new_string):                      # Input_file
@@ -910,7 +1004,7 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
-        return f'<UNRST_file, {self}>'
+        return f'<ECL.UNRST_file, {self}>'
 
     #--------------------------------------------------------------------------------
     def last_day(self):                                                # UNRST_file
@@ -1167,7 +1261,7 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                 # check_blocks
     #--------------------------------------------------------------------------------
-        return f'<check_blocks(file={self._unfmt}>'
+        return f'<ECL.check_blocks(file={self._unfmt}>'
 
     #--------------------------------------------------------------------------------
     def __del__(self):                                                 # check_blocks
@@ -1285,7 +1379,7 @@ class fmt_block:                                                         # fmt_b
     #--------------------------------------------------------------------------------                                                            
     def __repr__(self):                                                   # fmt_block                                                           
     #--------------------------------------------------------------------------------                                                            
-        return f'<fmt_block(key={self.keyword:8s}, type={self._dtype.name}, length={self.length:8d}>'
+        return f'<ECL.fmt_block(key={self.keyword:8s}, type={self._dtype.name}, length={self.length:8d}>'
 
     #--------------------------------------------------------------------------------
     def key(self):                                                        # fmt_block
