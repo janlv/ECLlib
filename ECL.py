@@ -198,15 +198,8 @@ class unfmt_block:
 class keypos:
 #====================================================================================
     key: str = ''
-    #pos: int = 0
     pos: tuple = (0,)
     name: str = ''
-
-    # def __init__(self, key='', *pos, name=''):
-    #     self.key = key
-    #     self.pos = pos
-    #     self.name = name
-    #     print('pos', self.pos)
 
 #====================================================================================
 class File:
@@ -538,7 +531,7 @@ class DATA_file(File):
         self._checked = False
         getter = namedtuple('getter', 'section default convert pattern')
         self._getter = {'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
-                        'START'   : getter('RUNSPEC',  (0,),     self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+                        'START'   : getter('RUNSPEC',  (0,),    self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
                         'DATES'   : getter('SCHEDULE', (),      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
                         'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
                         'SUMMARY' : getter('SUMMARY',  (),      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
@@ -562,14 +555,11 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def remove_comments(self, data=None):                                    # Input_file
     #--------------------------------------------------------------------------------
-        #print(list(data))
-        data = data or self.binarydata()
-        #print([d.split(b'\n') for d in data])
+        data = data or (self.binarydata(),)
         lines = (l for d in data for l in d.split(b'\n'))
         text = (l.split(b'--')[0].strip() for l in lines)
         text = b'\n'.join(t for t in text if t).decode()
-        self._data = text and text+'\n' or ''
-        return self
+        return text and text+'\n' or ''
 
     #--------------------------------------------------------------------------------
     def check(self, include=True):                                       # Input_file
@@ -588,7 +578,7 @@ class DATA_file(File):
         #print(list(self.include_files(self._data)))        
         data = self.matching(key)
         if not comments:
-            self.remove_comments(data)
+            self._data = self.remove_comments(data)
         else:
             self._data = b''.join(data).decode()
         #print(self._data)
@@ -606,7 +596,7 @@ class DATA_file(File):
         return (line for line in self.data().split('\n') if line)
 
     #--------------------------------------------------------------------------------
-    def matching(self, *keys):
+    def matching(self, *keys):                                           # Input_file
     #--------------------------------------------------------------------------------
         keys = [key.encode() for key in keys]
         if any(key in self._data for key in keys):
@@ -706,7 +696,7 @@ class DATA_file(File):
         return files or self._getter[key].default
 
     #--------------------------------------------------------------------------------
-    def get(self, *keywords, raise_error=False, pos=False): # Input_file
+    def get(self, *keywords, raise_error=False, pos=False, data=None): # Input_file
     #--------------------------------------------------------------------------------
         #print('get', keywords)
         FAIL = len(keywords)*((),)
@@ -719,7 +709,7 @@ class DATA_file(File):
                 raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
             return FAIL
         names = set([g.section for g in getters])
-        self.remove_comments( self.section(*names).matching(*keywords) )
+        self._data = data or self.remove_comments(self.section(*names).matching(*keywords))
         error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.file}'
         if not self._data:
             if raise_error:
@@ -748,7 +738,7 @@ class DATA_file(File):
         data = self.binarydata()
         ### Get section-names and file positions
         section_pos = {name.upper():(a,b) for name,a,b in split_by_words(data, self.section_names)}
-        pos = [section_pos[sec.encode()] for sec in sections]
+        pos = [p for sec in sections if (p := section_pos.get(sec.encode()))]
         if not pos:
             if raise_error:
                 raise SystemError(f'ERROR Section {list2text(sections)} not found in {self}')
@@ -760,7 +750,7 @@ class DATA_file(File):
     def replace_keyword(self, keyword, new_string):                      # Input_file
     #--------------------------------------------------------------------------------
         ### Get keyword value and position in file
-        match = self.get(keyword, pos=True) 
+        match = self.get(keyword, pos=True, data=self.remove_comments()) 
         if match:
             _, pos = match[0] # Get first match
         else:
