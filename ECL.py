@@ -10,7 +10,7 @@ from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import ACCESS_WRITE, mmap, ACCESS_READ
-from re import IGNORECASE, MULTILINE, finditer, compile
+from re import IGNORECASE, MULTILINE, finditer, compile, search
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime, timedelta
@@ -568,6 +568,15 @@ class DATA_file(File):
         self.data = None
         return bool(self.search(key, regex=rf'^[ \t]*{key}', comments=True))
         
+    #--------------------------------------------------------------------------------
+    def binarydata(self, raise_error=False):
+    #--------------------------------------------------------------------------------
+        self.data = super().binarydata(raise_error)
+        if b'END' in self.data:
+            end = search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
+            if end:
+                self.data = self.data[:end.end()]
+        return self.data
 
     #--------------------------------------------------------------------------------
     def remove_comments(self, data=None):                                    # Input_file
@@ -599,7 +608,8 @@ class DATA_file(File):
         else:
             self.data = b''.join(data).decode()
         #print(self._data)
-        return compile(regex, flags=MULTILINE).search(self.data)
+        return search(regex, self.data, flags=MULTILINE)
+        #return compile(regex, flags=MULTILINE).search(self.data)
 
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # Input_file
