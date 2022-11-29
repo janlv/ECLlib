@@ -572,11 +572,13 @@ class DATA_file(File):
     def binarydata(self, raise_error=False):
     #--------------------------------------------------------------------------------
         self.data = super().binarydata(raise_error)
-        if b'END' in self.data:
-            end = search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
-            if end:
-                self.data = self.data[:end.end()]
-        return self.data
+        end = b'END' in self.data and search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
+        return end and self.data[:end.end()] or self.data
+        #if b'END' in self.data:
+        #    end = 
+        #    if end:
+        #        self.data = self.data[:end.end()]
+        #return self.data
 
     #--------------------------------------------------------------------------------
     def remove_comments(self, data=None):                                    # Input_file
@@ -614,8 +616,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # Input_file
     #--------------------------------------------------------------------------------
-        return self.without_comments() == b''
-        #return self.data().strip() == ''
+        return self.remove_comments() == ''
 
     #--------------------------------------------------------------------------------
     def lines(self):                                                     # Input_file
