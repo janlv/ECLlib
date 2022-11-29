@@ -574,11 +574,6 @@ class DATA_file(File):
         self.data = super().binarydata(raise_error)
         end = b'END' in self.data and search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
         return end and self.data[:end.end()] or self.data
-        #if b'END' in self.data:
-        #    end = 
-        #    if end:
-        #        self.data = self.data[:end.end()]
-        #return self.data
 
     #--------------------------------------------------------------------------------
     def remove_comments(self, data=None):                                    # Input_file
@@ -609,9 +604,7 @@ class DATA_file(File):
             self.data = self.remove_comments(data)
         else:
             self.data = b''.join(data).decode()
-        #print(self._data)
         return search(regex, self.data, flags=MULTILINE)
-        #return compile(regex, flags=MULTILINE).search(self.data)
 
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # Input_file
