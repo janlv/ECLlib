@@ -503,12 +503,12 @@ class unfmt_file(File):
 class DATA_file(File):
 #====================================================================================
     # Sections
-    section_names = ['RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE']
+    section_names = ('RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE')
     # Global keywords
-    global_kw = ['COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
-                'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN']
+    global_kw = ('COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
+                'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN')
     # Common keywords
-    common_kw = ['TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
+    common_kw = ('TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
                 'FMTOUT','UNIFOUT','UNIFIN','OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS','REGDIMS','TRACERS',
                 'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO','BOX','PERMX','PERMY','PERMZ','TOPS',
                 'INIT','RPTGRID','PVCDO','PVTW','DENSITY','PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP',
@@ -520,15 +520,17 @@ class DATA_file(File):
                 'SEPARATE','WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD','WCONHIST','WTEMP','RPTSCHED',
                 'RPTRST','TUNING','READDATA', 'ROCKTABH','GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP',
                 'GRIDOPTS','VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS','MINPV',
-                'COPY','MULTIPLY']
+                'COPY','MULTIPLY')
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=False, **kwargs):      # Input_file
+    def __init__(self, file, check=False, sections=True, **kwargs):      # Input_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file', **kwargs)
         self.data = None
         self._checked = False
+        if not sections:
+            self.section_names = ()
         getter = namedtuple('getter', 'section default convert pattern')
         self._getter = {'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
                         'START'   : getter('RUNSPEC',  (0,),    self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
@@ -537,6 +539,8 @@ class DATA_file(File):
                         'SUMMARY' : getter('SUMMARY',  (),      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
                         'WELSPECS': getter('SCHEDULE', (),      self._convert_string, r'\bWELSPECS\b((\s+\'*[A-Za-z0-9_/-]+?.*/\s*)+/)')}
         check and self.check() 
+        # Extract whole record: r"^[ \t]*EQUALS(?:.|[\r\n])*?^[ \t]*/"
+        # Remove comments and empty lines: r"^(?:(?!--).)*[\w/']+"
         # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
         # 'INCLUDE' : getter(None,       [''],    self._convert_file,   r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
         # 'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
@@ -562,7 +566,8 @@ class DATA_file(File):
     def __contains__(self, key):                                         # Input_file
     #--------------------------------------------------------------------------------
         self.data = None
-        return any(m for m in self.matching(key))
+        return bool(self.search(key, regex=rf'^[ \t]*{key}', comments=True))
+        
 
     #--------------------------------------------------------------------------------
     def remove_comments(self, data=None):                                    # Input_file
@@ -594,7 +599,7 @@ class DATA_file(File):
         else:
             self.data = b''.join(data).decode()
         #print(self._data)
-        return compile(regex).search(self.data)
+        return compile(regex, flags=MULTILINE).search(self.data)
 
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # Input_file
@@ -709,7 +714,7 @@ class DATA_file(File):
         return files or self._getter[key].default
 
     #--------------------------------------------------------------------------------
-    def get(self, *keywords, raise_error=False, pos=False, data=None): # Input_file
+    def get(self, *keywords, raise_error=False, pos=False): # Input_file
     #--------------------------------------------------------------------------------
         #print('get', keywords)
         FAIL = len(keywords)*((),)
@@ -722,7 +727,7 @@ class DATA_file(File):
                 raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
             return FAIL
         names = set([g.section for g in getters])
-        self.data = data or self.remove_comments(self.section(*names).matching(*keywords))
+        self.data = self.remove_comments(self.section(*names).matching(*keywords))
         error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.file}'
         if not self.data:
             if raise_error:
@@ -748,22 +753,24 @@ class DATA_file(File):
     def section(self, *sections, raise_error=True):
     #--------------------------------------------------------------------------------
         self._checked or self.check()
-        data = self.binarydata()
+        self.data = self.binarydata()
         ### Get section-names and file positions
-        section_pos = {name.upper():(a,b) for name,a,b in split_by_words(data, self.section_names)}
+        if not self.section_names:
+            return self
+        section_pos = {name.upper():(a,b) for name,a,b in split_by_words(self.data, self.section_names)}
         pos = [p for sec in sections if (p := section_pos.get(sec.encode()))]
         if not pos:
             if raise_error:
                 raise SystemError(f'ERROR Section {list2text(sections)} not found in {self}')
             return None
-        self.data = b''.join(data[a:b] for a,b in sorted(pos))
+        self.data = b''.join(self.data[a:b] for a,b in sorted(pos))
         return self
 
     #--------------------------------------------------------------------------------
     def replace_keyword(self, keyword, new_string):                      # Input_file
     #--------------------------------------------------------------------------------
         ### Get keyword value and position in file
-        match = self.get(keyword, pos=True, data=self.remove_comments()) 
+        match = self.get(keyword, pos=True) 
         if match:
             _, pos = match[0] # Get first match
         else:
