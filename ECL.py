@@ -1,7 +1,7 @@
 
 # -*- coding: utf-8 -*-
 
-DEBUG = False 
+DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
@@ -81,7 +81,7 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        return f'<ECL.unfmt_block, {self}>'
+        return f'<{type(self)}, {self}>'
 
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                        # unfmt_block
@@ -213,12 +213,12 @@ class File:
             pattern = '*.'+'['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
             self.file = next(filename.parent.glob(pattern), self.file)
         self.role = role.rstrip().lstrip()
-        DEBUG and print(f'Creating {repr(self)}')
+        DEBUG and self.__class__.__name__ == File.__name__ and print(f'Creating {repr(self)}')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
     #--------------------------------------------------------------------------------
-        return f'<ECL.File, file={self.file}, role={self.role}>'
+        return f'<{type(self)}, file={self.file}, role={self.role}>'
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                         # File
@@ -295,12 +295,12 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         super().__init__(filename, suffix, **kwargs)
         self.endpos = 0
-        DEBUG and print(f'Creating {self}')
+        DEBUG and print(f'Creating {unfmt_file.__repr__(self)}')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_file
     #--------------------------------------------------------------------------------
-        return f'<ECL.unfmt_file, {self}, endpos={self.endpos}>'
+        return f'<{type(self)}, {self}, endpos={self.endpos}>'
 
     #--------------------------------------------------------------------------------
     def at_end(self, raise_error=False):                                 # unfmt_file
@@ -548,7 +548,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # Input_file
     #--------------------------------------------------------------------------------
-        return f'<ECL.DATA_file {self.file}>'
+        return f'<{type(self)}, {self.file}>'
 
     #--------------------------------------------------------------------------------
     def __call__(self):                                                  # Input_file
@@ -578,7 +578,9 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def remove_comments(self, data=None):                                    # Input_file
     #--------------------------------------------------------------------------------
-        data = data or (self.binarydata(),)
+        data = data or self.data or (self.binarydata(),)
+        #if not isinstance(data, tuple):
+        #    data = (data,)
         lines = (l for d in data for l in d.split(b'\n'))
         text = (l.split(b'--')[0].strip() for l in lines)
         text = b'\n'.join(t for t in text if t).decode()
@@ -623,25 +625,30 @@ class DATA_file(File):
         keys = [key.encode() for key in keys]
         if any(key in self.data for key in keys):
             yield self.data
-        for file in self.include_files(self.data):
-            inc_data = File(file,'').binarydata() 
-            if any(key in inc_data for key in keys):
-                yield inc_data
+        for file, data in self.included_file_data(self.data):
+            if any(key in data for key in keys):
+                yield data
 
     #--------------------------------------------------------------------------------
-    def include_files(self, data:bytes=None):                           # Input_file
+    def included_file_data(self, data:bytes=None):                           # Input_file
     #--------------------------------------------------------------------------------
+        #print('include_files')
         data = data or self.binarydata()
         #regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
         regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
         files = (m.group(1).decode() for m in compile(regex, flags=MULTILINE).finditer(data))
         for file in files:
             new_file = self.with_name(file)
-            yield new_file
             file_data = File(new_file,'').binarydata()
+            yield (new_file, file_data)
             if b'INCLUDE' in file_data:
-                for inc in self.include_files(file_data):
+                for inc in self.included_file_data(file_data):
                     yield inc
+
+    #--------------------------------------------------------------------------------
+    def include_files(self, data:bytes=None):                           # Input_file
+    #--------------------------------------------------------------------------------
+        return (f[0] for f in self.included_file_data(data))
 
     #--------------------------------------------------------------------------------
     def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # Input_file
@@ -807,7 +814,7 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
-        return f'<ECL.UNRST_file, {self}>'
+        return f'<{type(self)}, {self}>'
 
     #--------------------------------------------------------------------------------
     def last_day(self):                                                # UNRST_file
@@ -1064,7 +1071,7 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                 # check_blocks
     #--------------------------------------------------------------------------------
-        return f'<ECL.check_blocks(file={self._unfmt}>'
+        return f'<{type(self)}, file={self._unfmt}>'
 
     #--------------------------------------------------------------------------------
     def __del__(self):                                                 # check_blocks
@@ -1182,7 +1189,7 @@ class fmt_block:                                                         # fmt_b
     #--------------------------------------------------------------------------------                                                            
     def __repr__(self):                                                   # fmt_block                                                           
     #--------------------------------------------------------------------------------                                                            
-        return f'<ECL.fmt_block(key={self.keyword:8s}, type={self._dtype.name}, length={self.length:8d}>'
+        return f'<{type(self)}, key={self.keyword:8s}, type={self._dtype.name}, length={self.length:8d}>'
 
     #--------------------------------------------------------------------------------
     def key(self):                                                        # fmt_block
