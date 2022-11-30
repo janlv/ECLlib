@@ -671,6 +671,11 @@ class DATA_file(File):
         return pos and tsteps or tuple(next(zip(*tsteps))) # Do not return positions
 
     #--------------------------------------------------------------------------------
+    def wellnames(self):
+    #--------------------------------------------------------------------------------
+        return tuple(set(w.split()[0].replace("'",'') for w in self.get('WELSPECS')))
+
+    #--------------------------------------------------------------------------------
     def _days(self, time_pos, start=None):                           # Input_file
     #--------------------------------------------------------------------------------
         'Return relative timestep in days given a timestep or a datetime'
