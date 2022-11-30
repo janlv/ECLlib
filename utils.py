@@ -831,7 +831,7 @@ class Progress:
             #self.time_str = f'{max(timedelta(0), td)}'.split('.')[0]
         time = max(timedelta(0), time)
         self.time_str = str(time).split('.')[0]
-        return time        
+        return self.time_str        
 
     # #--------------------------------------------------------------------------------
     # def remaining_time(self, n):
