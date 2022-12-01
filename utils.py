@@ -841,25 +841,48 @@ class Progress:
     def print(self, n, text=None):
     #--------------------------------------------------------------------------------
         #print(n, self)
+        # if self.prev_n < self.min:
+        #     self.start_time = datetime.now()
+        # if n>self.prev_n and n>self.min and n>self.n0:
+        #     #self.remaining_time(n)
+        #     ### Calculate estimated time of arrival, eta
+        #     nn = n-self.n0
+        #     eta = max( int( (self.N-n) * (datetime.now()-self.start_time).total_seconds()/nn ) , 0)
+        #     self.eta = timedelta(seconds=eta)
+        #     ### Time of this estimate (used if progress printed more often than estimated)
+        #     self.time_last_eta = datetime.now()
+        #     self.time_str = f'{self.eta}'.split('.')[0]
+        # elif self.eta:
+        #     td = self.eta-(datetime.now()-self.time_last_eta)
+        #     self.time_str = f'{max(timedelta(0), td)}'.split('.')[0]
+        self.remaining_time(n)
+        line = self.format(n)
+        trail_space = max(1, self.length - len(line))
+        self.length = len(line)
+        print(f'\r' + self.indent + line + (text and ' '+text or '') + trail_space*' ', end='', flush=True)
+        self.prev_n = n
+
+    #--------------------------------------------------------------------------------
+    def remaining_time(self, n):
+    #--------------------------------------------------------------------------------
+        time = timedelta(0)
         if self.prev_n < self.min:
             self.start_time = datetime.now()
         if n>self.prev_n and n>self.min and n>self.n0:
-            #self.remaining_time(n)
             ### Calculate estimated time of arrival, eta
             nn = n-self.n0
             eta = max( int( (self.N-n) * (datetime.now()-self.start_time).total_seconds()/nn ) , 0)
             self.eta = timedelta(seconds=eta)
             ### Time of this estimate (used if progress printed more often than estimated)
             self.time_last_eta = datetime.now()
-            self.time_str = f'{self.eta}'.split('.')[0]
+            #self.time_str = f'{self.eta}'.split('.')[0]
+            time = self.eta
         elif self.eta:
-            td = self.eta-(datetime.now()-self.time_last_eta)
-            self.time_str = f'{max(timedelta(0), td)}'.split('.')[0]
-        line = self.format(n)
-        trail_space = max(1, self.length - len(line))
-        self.length = len(line)
-        print(f'\r' + self.indent + line + (text and ' '+text or '') + trail_space*' ', end='', flush=True)
-        self.prev_n = n
+            time = self.eta-(datetime.now()-self.time_last_eta)
+            #self.time_str = f'{max(timedelta(0), td)}'.split('.')[0]
+        time = max(timedelta(0), time)
+        self.time_str = str(time).split('.')[0]
+        return self.time_str        
 
     # #--------------------------------------------------------------------------------
     # def remaining_time(self, n):
