@@ -523,7 +523,7 @@ class DATA_file(File):
                 'COPY','MULTIPLY')
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=False, sections=True, **kwargs):      # Input_file
+    def __init__(self, file, check=False, sections=True, **kwargs):      # DATA_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file', **kwargs)
@@ -546,24 +546,24 @@ class DATA_file(File):
         # 'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
 
     #--------------------------------------------------------------------------------
-    def __repr__(self):                                                   # Input_file
+    def __repr__(self):                                                   # DATA_file
     #--------------------------------------------------------------------------------
         return f'<{type(self)}, {self.file}>'
 
     #--------------------------------------------------------------------------------
-    def __call__(self):                                                  # Input_file
+    def __call__(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
         self.data = self.binarydata()
         return self
 
     # #--------------------------------------------------------------------------------
-    # def data(self):                                                  # Input_file
+    # def data(self):                                                  # DATA_file
     # #--------------------------------------------------------------------------------
     #     return self.remove_comments()
         
 
     #--------------------------------------------------------------------------------
-    def __contains__(self, key):                                         # Input_file
+    def __contains__(self, key):                                         # DATA_file
     #--------------------------------------------------------------------------------
         self.data = None
         return bool(self.search(key, regex=rf'^[ \t]*{key}', comments=True))
@@ -576,18 +576,7 @@ class DATA_file(File):
         return end and self.data[:end.end()] or self.data
 
     #--------------------------------------------------------------------------------
-    def remove_comments(self, data=None):                                    # Input_file
-    #--------------------------------------------------------------------------------
-        data = data or self.data or (self.binarydata(),)
-        #if not isinstance(data, tuple):
-        #    data = (data,)
-        lines = (l for d in data for l in d.split(b'\n'))
-        text = (l.split(b'--')[0].strip() for l in lines)
-        text = b'\n'.join(t for t in text if t).decode()
-        return text and text+'\n' or ''
-
-    #--------------------------------------------------------------------------------
-    def check(self, include=True):                                       # Input_file
+    def check(self, include=True):                                       # DATA_file
     #--------------------------------------------------------------------------------
         self._checked = True
         ### Check if file exists
@@ -598,60 +587,34 @@ class DATA_file(File):
         return True
 
     #--------------------------------------------------------------------------------
-    def search(self, key, regex, comments=False):                         # Input_file
+    def search(self, key, regex, comments=False):                         # DATA_file
     #--------------------------------------------------------------------------------
         #print(list(self.include_files(self._data)))        
-        data = self.matching(key)
+        data = self._matching(key)
         if not comments:
-            self.data = self.remove_comments(data)
+            self.data = self._remove_comments(data)
         else:
             self.data = b''.join(data).decode()
         return search(regex, self.data, flags=MULTILINE)
 
     #--------------------------------------------------------------------------------
-    def is_empty(self):                                                  # Input_file
+    def is_empty(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
-        return self.remove_comments() == ''
+        return self._remove_comments() == ''
+
+    # #--------------------------------------------------------------------------------
+    # def lines(self):                                                     # DATA_file
+    # #--------------------------------------------------------------------------------
+    #     return (line for line in self.data().split('\n') if line)
+
 
     #--------------------------------------------------------------------------------
-    def lines(self):                                                     # Input_file
+    def include_files(self, data:bytes=None):                           # DATA_file
     #--------------------------------------------------------------------------------
-        return (line for line in self.data().split('\n') if line)
+        return (f[0] for f in self._included_file_data(data))
 
     #--------------------------------------------------------------------------------
-    def matching(self, *keys):                                           # Input_file
-    #--------------------------------------------------------------------------------
-        self.data = self.data or self.binarydata()
-        keys = [key.encode() for key in keys]
-        if any(key in self.data for key in keys):
-            yield self.data
-        for file, data in self.included_file_data(self.data):
-            if any(key in data for key in keys):
-                yield data
-
-    #--------------------------------------------------------------------------------
-    def included_file_data(self, data:bytes=None):                           # Input_file
-    #--------------------------------------------------------------------------------
-        #print('include_files')
-        data = data or self.binarydata()
-        #regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
-        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
-        files = (m.group(1).decode() for m in compile(regex, flags=MULTILINE).finditer(data))
-        for file in files:
-            new_file = self.with_name(file)
-            file_data = File(new_file,'').binarydata()
-            yield (new_file, file_data)
-            if b'INCLUDE' in file_data:
-                for inc in self.included_file_data(file_data):
-                    yield inc
-
-    #--------------------------------------------------------------------------------
-    def include_files(self, data:bytes=None):                           # Input_file
-    #--------------------------------------------------------------------------------
-        return (f[0] for f in self.included_file_data(data))
-
-    #--------------------------------------------------------------------------------
-    def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # Input_file
+    def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
     #--------------------------------------------------------------------------------
         'Return timesteps, if DATES are present they are converted to timesteps'
         _start, tsteps, dates = self.get('START','TSTEP','DATES', pos=True)
@@ -676,61 +639,7 @@ class DATA_file(File):
         return tuple(set(w.split()[0].replace("'",'') for w in self.get('WELSPECS')))
 
     #--------------------------------------------------------------------------------
-    def _days(self, time_pos, start=None):                           # Input_file
-    #--------------------------------------------------------------------------------
-        'Return relative timestep in days given a timestep or a datetime'
-        last_date = start
-        for t,p in time_pos:
-            if isinstance(t, datetime):
-                dt = t
-            else:
-                dt = last_date + timedelta(hours=t*24)
-            yield (dt-last_date).total_seconds()/86400, p
-            last_date = dt
-            
-    #--------------------------------------------------------------------------------
-    def _convert_string(self, values, key, raise_error=False):             # Input_file
-    #--------------------------------------------------------------------------------
-        ret = [v for val in values for v in val.split('\n') if v and v != '/']
-        return (ret,)
-
-    #--------------------------------------------------------------------------------
-    def _convert_float(self, values, key, raise_error=False):            # Input_file
-    #--------------------------------------------------------------------------------
-        mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
-        values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
-        values = tuple(flatten(v) for v in values)
-        return values or self._getter[key].default
-
-
-    #--------------------------------------------------------------------------------
-    def _convert_date(self, dates, key, raise_error=False):              # Input_file
-    #--------------------------------------------------------------------------------
-        ### Remove possible quotes
-        ### Extract groups of 3 from the dates strings 
-        dates = (grouper(remove_chars("'/\n", v).split(), 3) for v in dates)
-        dates = tuple([datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates)
-        return dates or self._getter[key].default
-
-
-    #--------------------------------------------------------------------------------
-    def _convert_file(self, values, key, raise_error=True):              # Input_file
-    #--------------------------------------------------------------------------------
-        'Return full path of file'
-        ### Remove quotes and backslash
-        values = (val.replace("'",'').replace('\\','/').split() for val in values)
-        ### Unzip values in a files (always) and numbers lists (only for RESTART)
-        unzip = zip(*values)
-        files = ([(self.file.parent/file).resolve()] for file in next(unzip))
-        numbers = [[float(num)] for num in next(unzip, ())]
-        files = numbers and tuple([f[0],n[0]] for f,n in zip(files, numbers)) or tuple(files)
-        ### Add suffix for RESTART keyword
-        if key == 'RESTART' and files:
-            files[0][0] = files[0][0].with_suffix('.UNRST')
-        return files or self._getter[key].default
-
-    #--------------------------------------------------------------------------------
-    def get(self, *keywords, raise_error=False, pos=False): # Input_file
+    def get(self, *keywords, raise_error=False, pos=False):                # DATA_file
     #--------------------------------------------------------------------------------
         #print('get', keywords)
         FAIL = len(keywords)*((),)
@@ -743,7 +652,7 @@ class DATA_file(File):
                 raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
             return FAIL
         names = set([g.section for g in getters])
-        self.data = self.remove_comments(self.section(*names).matching(*keywords))
+        self.data = self._remove_comments(self.section(*names)._matching(*keywords))
         error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.file}'
         if not self.data:
             if raise_error:
@@ -766,7 +675,17 @@ class DATA_file(File):
         return result 
 
     #--------------------------------------------------------------------------------
-    def section(self, *sections, raise_error=True):
+    def lines(self):                                                       # DATA_file
+    #--------------------------------------------------------------------------------
+        return (line for line in self._remove_comments(self._matching()).split('\n') if line)
+
+    #--------------------------------------------------------------------------------
+    def text(self):                                                       # DATA_file
+    #--------------------------------------------------------------------------------
+        return self._remove_comments(self._matching())
+
+    #--------------------------------------------------------------------------------
+    def section(self, *sections, raise_error=True):                       # DATA_file
     #--------------------------------------------------------------------------------
         self._checked or self.check()
         self.data = self.binarydata()
@@ -778,12 +697,14 @@ class DATA_file(File):
         if not pos:
             if raise_error:
                 raise SystemError(f'ERROR Section {list2text(sections)} not found in {self}')
-            return None
+            return self
+            #return None
         self.data = b''.join(self.data[a:b] for a,b in sorted(pos))
+        #self.data = (self.data[a:b] for a,b in sorted(pos))
         return self
 
     #--------------------------------------------------------------------------------
-    def replace_keyword(self, keyword, new_string):                      # Input_file
+    def replace_keyword(self, keyword, new_string):                      # DATA_file
     #--------------------------------------------------------------------------------
         ### Get keyword value and position in file
         match = self.get(keyword, pos=True) 
@@ -794,6 +715,100 @@ class DATA_file(File):
         out = self.data[:pos[0]] + new_string + self.data[pos[1]:]
         with open(self.file, 'w') as f:
             f.write(out)
+
+    #--------------------------------------------------------------------------------
+    def _remove_comments(self, data=None):                   # DATA_file
+    #--------------------------------------------------------------------------------
+        data = data or self.data or (self.binarydata(),)
+        #if not isinstance(data, tuple):
+        #    data = (data,)
+        lines = (l for d in data for l in d.split(b'\n'))
+        text = (l.split(b'--')[0].strip() for l in lines)
+        text = b'\n'.join(t for t in text if t).decode()
+        return text and text+'\n' or ''
+
+    #--------------------------------------------------------------------------------
+    def _matching(self, *keys):                                           # DATA_file
+    #--------------------------------------------------------------------------------
+        self.data = self.data or self.binarydata()
+        keys = [key.encode() for key in keys]
+        if keys == [] or any(key in self.data for key in keys):
+            yield self.data
+        for file, data in self._included_file_data(self.data):
+            if keys == [] or any(key in data for key in keys):
+                yield data
+
+    #--------------------------------------------------------------------------------
+    def _included_file_data(self, data:bytes=None):                           # DATA_file
+    #--------------------------------------------------------------------------------
+        'Return tuple of filename and binary-data for each include file'
+        #print('include_files')
+        data = data or self.binarydata()
+        #regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
+        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
+        files = (m.group(1).decode() for m in compile(regex, flags=MULTILINE).finditer(data))
+        for file in files:
+            new_file = self.with_name(file)
+            file_data = File(new_file,'').binarydata()
+            yield (new_file, file_data)
+            if b'INCLUDE' in file_data:
+                for inc in self._included_file_data(file_data):
+                    yield inc
+
+    #--------------------------------------------------------------------------------
+    def _days(self, time_pos, start=None):                           # DATA_file
+    #--------------------------------------------------------------------------------
+        'Return relative timestep in days given a timestep or a datetime'
+        last_date = start
+        for t,p in time_pos:
+            if isinstance(t, datetime):
+                dt = t
+            else:
+                dt = last_date + timedelta(hours=t*24)
+            yield (dt-last_date).total_seconds()/86400, p
+            last_date = dt
+            
+    #--------------------------------------------------------------------------------
+    def _convert_string(self, values, key, raise_error=False):             # DATA_file
+    #--------------------------------------------------------------------------------
+        ret = [v for val in values for v in val.split('\n') if v and v != '/']
+        return (ret,)
+
+    #--------------------------------------------------------------------------------
+    def _convert_float(self, values, key, raise_error=False):            # DATA_file
+    #--------------------------------------------------------------------------------
+        mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
+        values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
+        values = tuple(flatten(v) for v in values)
+        return values or self._getter[key].default
+
+
+    #--------------------------------------------------------------------------------
+    def _convert_date(self, dates, key, raise_error=False):              # DATA_file
+    #--------------------------------------------------------------------------------
+        ### Remove possible quotes
+        ### Extract groups of 3 from the dates strings 
+        dates = (grouper(remove_chars("'/\n", v).split(), 3) for v in dates)
+        dates = tuple([datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates)
+        return dates or self._getter[key].default
+
+
+    #--------------------------------------------------------------------------------
+    def _convert_file(self, values, key, raise_error=True):              # DATA_file
+    #--------------------------------------------------------------------------------
+        'Return full path of file'
+        ### Remove quotes and backslash
+        values = (val.replace("'",'').replace('\\','/').split() for val in values)
+        ### Unzip values in a files (always) and numbers lists (only for RESTART)
+        unzip = zip(*values)
+        files = ([(self.file.parent/file).resolve()] for file in next(unzip))
+        numbers = [[float(num)] for num in next(unzip, ())]
+        files = numbers and tuple([f[0],n[0]] for f,n in zip(files, numbers)) or tuple(files)
+        ### Add suffix for RESTART keyword
+        if key == 'RESTART' and files:
+            files[0][0] = files[0][0].with_suffix('.UNRST')
+        return files or self._getter[key].default
+
 
 
 #====================================================================================
