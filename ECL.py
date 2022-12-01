@@ -9,14 +9,15 @@ from itertools import repeat
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
-from mmap import ACCESS_WRITE, mmap, ACCESS_READ
-from re import IGNORECASE, MULTILINE, finditer, compile, search
+from mmap import mmap, ACCESS_READ
+from re import MULTILINE, finditer, compile as re_compile, search
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
+from locale import getpreferredencoding
 #from numba import njit, jit
-from .utils import flatten, flatten_all, grouper, list2text, pairwise, remove_chars, remove_comments, safezip, list2str, float_or_str, matches, split_by_words, string_chunks, triplewise
+from .utils import flatten, flatten_all, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
 #
 #
@@ -207,13 +208,16 @@ class File:
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix, role='', ignore_case=False):          # File
     #--------------------------------------------------------------------------------
-        self.file = suffix and Path(filename).with_suffix(suffix) or Path(filename)
+        #self.file = suffix and Path(filename).with_suffix(suffix) or Path(filename)
+        self.file = Path(filename).with_suffix(suffix) if suffix else Path(filename)
         if ignore_case and not self.file.is_file():
             ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
             pattern = '*.'+'['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
             self.file = next(filename.parent.glob(pattern), self.file)
         self.role = role.rstrip().lstrip()
-        DEBUG and self.__class__.__name__ == File.__name__ and print(f'Creating {repr(self)}')
+        self.debug = DEBUG and self.__class__.__name__ == File.__name__
+        if self.debug:
+            print(f'Creating {repr(self)}')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
@@ -228,7 +232,8 @@ class File:
     #--------------------------------------------------------------------------------
     def __del__(self):                                                         # File
     #--------------------------------------------------------------------------------
-        DEBUG and print(f'Deleting {repr(self)}')
+        if self.debug:
+            print(f'Deleting {repr(self)}')
 
     #--------------------------------------------------------------------------------
     def binarydata(self, raise_error=False):                                    # File
@@ -246,10 +251,11 @@ class File:
     #--------------------------------------------------------------------------------
         try:
             self.file.unlink(missing_ok=True)
-        except (PermissionError, FileNotFoundError) as e:
+        except (PermissionError, FileNotFoundError) as error:
             if raise_error:
-                raise SystemError(f'Unable to delete {self}: {e}')
-            echo and print(f'Deleted {self}')
+                raise SystemError(f'Unable to delete {self}: {error}') from error
+            if echo:
+                print(f'Deleted {self}')
 
 
     #--------------------------------------------------------------------------------
@@ -295,7 +301,9 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         super().__init__(filename, suffix, **kwargs)
         self.endpos = 0
-        DEBUG and print(f'Creating {unfmt_file.__repr__(self)}')
+        self.varmap = {}
+        if DEBUG:
+            print(f'Creating {unfmt_file.__repr__(self)}')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_file
@@ -660,7 +668,7 @@ class DATA_file(File):
             return FAIL 
         result = ()
         for keyword, getter in zip(keywords, getters):
-            match_list = compile(getter.pattern).finditer(self.data)
+            match_list = re_compile(getter.pattern).finditer(self.data)
             val_span = tuple((m.group(1), m.span()) for m in match_list) 
             if not val_span:
                 result += (getter.default,)
@@ -746,7 +754,7 @@ class DATA_file(File):
         data = data or self.binarydata()
         #regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
         regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
-        files = (m.group(1).decode() for m in compile(regex, flags=MULTILINE).finditer(data))
+        files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
         for file in files:
             new_file = self.with_name(file)
             file_data = File(new_file,'').binarydata()
@@ -1080,7 +1088,7 @@ class check_blocks:                                                    # check_b
         if isinstance(file, unfmt_file):
             self._unfmt = file
         else:
-            self._unfmt = unfmt_file(file)
+            self._unfmt = unfmt_file(file, '')
         self._keys = [start.ljust(8).encode(), [], end.ljust(8).encode(),  0]
         self._data = None
         self._wait_func = wait_func
@@ -1265,9 +1273,10 @@ class fmt_file(File):                                                      # fmt
     #--------------------------------------------------------------------------------
     def blocks(self, warn_missing=False):                                  # fmt_file
     #--------------------------------------------------------------------------------
+        keyword = ''
         if not self.is_file():
              return
-        with open(self.file) as self.fh:
+        with open(self.file, encoding=getpreferredencoding) as self.fh:
             for line in self.fh:
                 try:
                     keyword, length, dtype = self.read_header(line)
