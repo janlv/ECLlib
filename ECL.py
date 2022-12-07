@@ -654,9 +654,9 @@ class DATA_file(File):
         return pos and tsteps or tuple(next(zip(*tsteps))) # Do not return positions
 
     #--------------------------------------------------------------------------------
-    def wellnames(self):
+    def wellnames(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
-        return tuple(set(w.split()[0].replace("'",'') for w in self.get('WELSPECS')))
+        return tuple(set(w.split()[0].replace("'",'') for w in self.get('WELSPECS') if w))
 
     #--------------------------------------------------------------------------------
     def get(self, *keywords, raise_error=False, pos=False):                # DATA_file
@@ -960,6 +960,7 @@ class UNSMRY_file(unfmt_file):
             self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
             self.key_names = set(self.keys)
             self.well_names = set(self.wells)
+            #print(self, self.well_names)
             return True
         return False
 
@@ -1020,9 +1021,10 @@ class SMSPEC_file(unfmt_file):
     def well_pos(self):
     #--------------------------------------------------------------------------------
         pos = tuple(self._index.keys())
-        ### Group consecutive indexes into (first, last) limits
-        limits = grouper([pos[0]] + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + [pos[-1]], 2)
-        limits = [(a,b+1)for a,b in limits]
+        # Group consecutive indexes into (first, last) limits, 
+        # i.e. (1,2,3,4,8,9,10) become (1,5),(8,11)
+        index = (pos[0],) + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + (pos[-1],)
+        limits = [(a,b+1) for a,b in grouper(index, 2)]
         return limits
 
 
