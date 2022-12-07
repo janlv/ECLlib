@@ -311,12 +311,12 @@ class unfmt_file(File):
         return f'<{type(self)}, {self}, endpos={self.endpos}>'
 
     #--------------------------------------------------------------------------------
-    def at_end(self, raise_error=False):                                 # unfmt_file
+    def at_end(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
         return self.endpos == self.size()
 
     #--------------------------------------------------------------------------------
-    def offset(self, raise_error=False):                                 # unfmt_file
+    def offset(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
 
@@ -434,28 +434,31 @@ class unfmt_file(File):
         # Create dict of keywords with varname and position:
         #  {'INTEHEAD':[('day',64), ('month',65), ('year',66)]}
         var_pos = {v.key:[] for v in varmap.values()}
-        [var_pos[v.key].append( (k, v.pos) ) for k,v in varmap.items()]        
+        for k,v in varmap.items():
+            var_pos[v.key].append( (k, v.pos) )
         #print(var_pos)
         values = {v:[] for v in var_list}
-        size = lambda : (len(v) for v in values.values())
-        for b in blocks(**kwargs):
-            if b.key() in var_pos.keys():
-                for var, pos in var_pos[b.key()]:
+        def size():
+            return (len(v) for v in values.values())
+        for block in blocks(**kwargs):
+            if block.key() in var_pos.keys():
+                for var, pos in var_pos[block.key()]:
                     #values[var].append( b.data()[pos] )
-                    values[var].append( b.data(*pos) )
-            if N and set(size()) == set([N]): 
+                    values[var].append( block.data(*pos) )
+            if N and set(size()) == set([N]):
                 break
             if stop and stop[1] == values[stop[0]][-1] and len(set(size())) == 1:
                 break
         if not all(values.values()):
             if raise_error:
-                raise SystemError('ERROR Unable to read ' + list2str(var_pos.keys(), sep="'") + f' from {self.file.name}')
+                raise SystemError(
+                    'ERROR Unable to read ' + list2str(var_pos.keys(), sep="'") + f' from {self}')
             return []
-        return list(values.values())        
+        return list(values.values())
 
 
     #--------------------------------------------------------------------------------
-    def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None, 
+    def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
                  start_after=None, end_before=None, end_after=None):    # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.exists():
@@ -499,7 +502,8 @@ class unfmt_file(File):
                     out_file.write(data)
                     steps.append(step)
                 if len(set(steps)) > 1:
-                    raise SystemError(f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
+                    raise SystemError(
+                        f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
                 progress(steps[0])
                 cancel()
             return_value = self.file
@@ -511,24 +515,30 @@ class unfmt_file(File):
 class DATA_file(File):
 #====================================================================================
     # Sections
-    section_names = ('RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION','SUMMARY','SCHEDULE','OPTIMIZE')
+    section_names = ('RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION', 'SUMMARY',
+                     'SCHEDULE','OPTIMIZE')
     # Global keywords
-    global_kw = ('COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP','SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA',
-                'INCLUDE','MESSAGES','NOECHO','NOWARN','WARN')
+    global_kw = ('COLUMNS','DEBUG','DEBUG3','ECHO','END', 'ENDINC','ENDSKIP','SKIP',
+                 'SKIP100','SKIP300','EXTRAPMS','FORMFEED','GETDATA', 'INCLUDE','MESSAGES',
+                 'NOECHO','NOWARN','WARN')
     # Common keywords
-    common_kw = ('TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE',
-                'FMTOUT','UNIFOUT','UNIFIN','OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS','REGDIMS','TRACERS',
-                'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO','BOX','PERMX','PERMY','PERMZ','TOPS',
-                'INIT','RPTGRID','PVCDO','PVTW','DENSITY','PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP',
-                'TRDIFPAR','TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
-                'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT','FWPR','FWPT','FWCT','FWIR',
-                'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR','WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1',
-                'WTIRA1','WTITA1','WTICA1','CTPRA1','CTIRA1','FOIP','ROIP','FPR','TCPU','TCPUTS','WNEWTON','ZIPEFF','STEPTYPE',
-                'NEWTON','NLINEARP','NLINEARS','MSUMLINS','MSUMNEWT','MSUMPROB','WTPRPAR','WTPRIDE','WTPCPAR','WTPCIDE','RUNSUM',
-                'SEPARATE','WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD','WCONHIST','WTEMP','RPTSCHED',
-                'RPTRST','TUNING','READDATA', 'ROCKTABH','GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP',
-                'GRIDOPTS','VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS','MINPV',
-                'COPY','MULTIPLY')
+    common_kw = ('TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE', 'FMTOUT','UNIFOUT','UNIFIN',
+                 'OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS',
+                 'REGDIMS','TRACERS', 'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO',
+                 'BOX','PERMX','PERMY','PERMZ','TOPS', 'INIT','RPTGRID','PVCDO','PVTW','DENSITY',
+                 'PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP', 'TRDIFPAR','TRDIFIDE',
+                 'SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
+                 'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT',
+                 'FWPR','FWPT','FWCT','FWIR', 'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR',
+                 'WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1', 'WTIRA1','WTITA1',
+                 'WTICA1','CTPRA1','CTIRA1','FOIP','ROIP','FPR','TCPU','TCPUTS','WNEWTON',
+                 'ZIPEFF','STEPTYPE','NEWTON','NLINEARP','NLINEARS','MSUMLINS','MSUMNEWT',
+                 'MSUMPROB','WTPRPAR','WTPRIDE','WTPCPAR','WTPCIDE','RUNSUM', 'SEPARATE',
+                 'WELSPECS','COMPDAT','WRFTPLT','TSTEP','DATES','SKIPREST','WCONINJE','WCONPROD',
+                 'WCONHIST','WTEMP','RPTSCHED', 'RPTRST','TUNING','READDATA', 'ROCKTABH',
+                 'GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP', 'GRIDOPTS',
+                 'VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS',
+                 'MINPV','COPY','MULTIPLY')
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, check=False, sections=True, **kwargs):      # DATA_file
@@ -540,18 +550,20 @@ class DATA_file(File):
         if not sections:
             self.section_names = ()
         getter = namedtuple('getter', 'section default convert pattern')
-        self._getter = {'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
-                        'START'   : getter('RUNSPEC',  (0,),    self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-                        'DATES'   : getter('SCHEDULE', (),      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
-                        'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
-                        'SUMMARY' : getter('SUMMARY',  (),      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
-                        'WELSPECS': getter('SCHEDULE', (),      self._convert_string, r'\bWELSPECS\b((\s+\'*[A-Za-z0-9_/-]+?.*/\s*)+/)')}
-        check and self.check() 
+        self._getter = {
+            'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
+            'START'   : getter('RUNSPEC',  (0,),    self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+            'DATES'   : getter('SCHEDULE', (),      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
+            'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
+            'WELSPECS': getter('SCHEDULE', (),      self._convert_string, r'\bWELSPECS\b((\s+\'*[A-Za-z0-9_/-]+?.*/\s*)+/)')}
+        if check:
+            self.check()
         # Extract whole record: r"^[ \t]*EQUALS(?:.|[\r\n])*?^[ \t]*/"
         # Remove comments and empty lines: r"^(?:(?!--).)*[\w/']+"
         # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
         # 'INCLUDE' : getter(None,       [''],    self._convert_file,   r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
         # 'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
+        # 'SUMMARY' : getter('SUMMARY',  (),      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # DATA_file
