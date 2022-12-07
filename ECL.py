@@ -739,7 +739,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _remove_comments(self, data=None):                   # DATA_file
     #--------------------------------------------------------------------------------
-        data = data or self.data or (self.binarydata(),)
+        data = data or (self.binarydata(),)
         #if not isinstance(data, tuple):
         #    data = (data,)
         lines = (l for d in data for l in d.split(b'\n'))
@@ -1288,7 +1288,7 @@ class fmt_file(File):                                                      # fmt
         keyword = ''
         if not self.is_file():
              return
-        with open(self.file, encoding=getpreferredencoding) as self.fh:
+        with open(self.file, encoding=getpreferredencoding()) as self.fh:
             for line in self.fh:
                 try:
                     keyword, length, dtype = self.read_header(line)
