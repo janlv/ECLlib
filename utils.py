@@ -99,6 +99,25 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None): # From Itertools
 #     return [item for sublist in alist for item in sublist]
 
 #-----------------------------------------------------------------------
+def get_tuple(tuple_list_or_val):
+#-----------------------------------------------------------------------
+    if isinstance(tuple_list_or_val, (tuple, list)):
+        return tuple_list_or_val
+    # Is a value, create tuple
+    return (tuple_list_or_val,)
+
+#-----------------------------------------------------------------------
+def unique_names(names, sep='-'):
+#-----------------------------------------------------------------------
+    """ Append number to identical names """
+    new_names = []
+    for i, name in enumerate(names):
+        tot = names.count(name)
+        count = names[:i+1].count(name)
+        new_names.append(f'{name}{sep}{count-1}' if tot > 1 and count > 1 else name)
+    return new_names
+
+#-----------------------------------------------------------------------
 def split_by_words(string, words, comment=None): #, wb=r'\b'):
 #-----------------------------------------------------------------------
     '''
@@ -151,7 +170,7 @@ def convert_float_or_str(words):
         try:
             v = float(w)
         except ValueError:
-            v = str(w)
+            v = str(w).strip()
         yield v
 
 #-----------------------------------------------------------------------
