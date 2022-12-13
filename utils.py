@@ -154,7 +154,7 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     if end == slash:
         slash = ''
     ### Lookahead used at the end to mark end without consuming
-    regex = compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)   
+    regex = compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)
     #values = [v.split() for v in regex.findall(data)]
     #values = (v.split() for v in regex.findall(data))
     #print(keyword, values)
