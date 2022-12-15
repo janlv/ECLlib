@@ -6,13 +6,14 @@ from re import RegexFlag, findall, compile, DOTALL, search, sub, IGNORECASE
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
-from mmap import mmap, ACCESS_READ, ACCESS_WRITE
-from numpy import array, sum as npsum
-from psutil import Process, NoSuchProcess, wait_procs
+from mmap import mmap, ACCESS_READ
 from signal import SIGTERM
 from contextlib import contextmanager
 from itertools import chain, islice, takewhile, tee, zip_longest
 from collections import deque
+from shutil import copy2
+from numpy import array, sum as npsum
+from psutil import Process, NoSuchProcess, wait_procs
 
 # Short Python regexp guide:
 #   \s : whitespace, [ \t\n\r\f\v]
@@ -22,6 +23,27 @@ from collections import deque
 #    ? : 0 or 1 repetitions
 #    + : 1 or more rep.
 #    * : 0 or more rep.
+
+
+#-----------------------------------------------------------------------
+def copy_recursive(src, dst, log=None):
+#-----------------------------------------------------------------------
+    """ Copy a src file or a src folder recursively to the dst folder """
+    src = Path(src)
+    dst = Path(dst)
+    dst.mkdir(exist_ok=True)
+    if src.is_file():
+        items = (src,)
+    else:
+        items = src.iterdir()
+    for item in items:
+        new_path = dst/item.name
+        if item.is_file():
+            copy2(item, new_path)
+            if log:
+                log(f'Copied {item} -> {new_path}')
+        else:
+            copy_recursive(item, new_path, log=log)
 
 
 ### pairwise is new in python 3.10, define it for older versions
@@ -126,9 +148,9 @@ def split_by_words(string, words, comment=None): #, wb=r'\b'):
     '''
     regex =  (comment and rf'(?<!{comment})' or '') + r'\s*\b' + r'\b|\b'.join(words) + r'\b'
     #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*' + wb + rf'{wb}|{wb}'.join(words) + wb
-    matches = compile(regex, flags=IGNORECASE).finditer(string)
+    matches_ = compile(regex, flags=IGNORECASE).finditer(string)
     ### Append string end pos as tuple of tuple
-    tag_pos = chain( ((m.group(), m.start()) for m in matches), (('', len(string)),) )
+    tag_pos = chain( ((m.group(), m.start()) for m in matches_), (('', len(string)),) )
     return ((tag, a, b) for (tag, a), (_, b) in pairwise(tag_pos))
     #return [(a[0],a[1],b[1]) for a,b in pairwise(tag_pos)]
 
