@@ -216,10 +216,10 @@ def try_except_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, fu
         try:
             result = func(*args, **kwargs)
             break
-        except error as e:
+        except error:
             sleep(pause)
     if i==limit-1 and raise_error:
-        raise SystemError(f'Unable to complete {func.__qualname__} within {limit} tries during {limit*pause} seconds: {e}')
+        raise SystemError(f'Unable to complete {func.__qualname__} within {limit} tries during {limit*pause} seconds: {error}')
     return result
 
 #-----------------------------------------------------------------------
