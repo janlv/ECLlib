@@ -247,7 +247,7 @@ def remove_leading_nondigits(txt):
 def try_except_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, func=None, **kwargs):
 #-----------------------------------------------------------------------
     for i in range(limit):
-        print(f'{func.__qualname__}({args},{kwargs}): {i}')
+        #print(f'{func.__qualname__}({args},{kwargs}): {i}')
         try:
             result = func(*args, **kwargs)
             break
