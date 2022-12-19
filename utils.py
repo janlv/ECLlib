@@ -44,9 +44,9 @@ def copy_recursive(src, dst, log=None) -> None:
         # dst is folder
         dst_items = (dst/item.name for item in src_items)
     dst.mkdir(exist_ok=True, parents=True)
-    print(dst)
-    print(src_items)
-    print(dst_items)
+    #print(dst)
+    #print(src_items)
+    #print(dst_items)
     for _src, _dst in zip(src_items, dst_items):
         #new_file = dst/item.name
         if _src.is_file():
@@ -226,7 +226,9 @@ def safezip(*gen):
     try:
         yield zip(*gen)
     finally:
-        [g.close() for g in gen]
+        for g in gen:
+            g.close()
+        #[g.close() for g in gen]
 
 #-----------------------------------------------------------------------
 def remove_chars(chars, text):
