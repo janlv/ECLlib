@@ -26,24 +26,35 @@ from psutil import Process, NoSuchProcess, wait_procs
 
 
 #-----------------------------------------------------------------------
-def copy_recursive(src, dst, log=None):
+def copy_recursive(src, dst, log=None) -> None:
 #-----------------------------------------------------------------------
-    """ Copy a src file or a src folder recursively to the dst folder """
+    """ Copy a src file or a src folder recursively to the
+        dst file or dst folder """
     src = Path(src)
     dst = Path(dst)
-    dst.mkdir(exist_ok=True)
     if src.is_file():
-        items = (src,)
+        src_items = (src,)
     else:
-        items = src.iterdir()
-    for item in items:
-        new_path = dst/item.name
-        if item.is_file():
-            copy2(item, new_path)
+        # src is folder
+        src_items = tuple(src.iterdir())
+    if dst.is_file():
+        dst_items = (dst,)
+        dst = dst.parent
+    else:
+        # dst is folder
+        dst_items = (dst/item.name for item in src_items)
+    dst.mkdir(exist_ok=True, parents=True)
+    print(dst)
+    print(src_items)
+    print(dst_items)
+    for _src, _dst in zip(src_items, dst_items):
+        #new_file = dst/item.name
+        if _src.is_file():
+            copy2(_src, _dst)
             if log:
-                log(f'Copied {item} -> {new_path}')
+                log(f'Copied {_src} -> {_dst}')
         else:
-            copy_recursive(item, new_path, log=log)
+            copy_recursive(_src, _dst, log=log)
 
 
 ### pairwise is new in python 3.10, define it for older versions
@@ -259,7 +270,7 @@ def kill_process(pid, signal=SIGTERM, children=False, timeout=5, on_terminate=No
             pass
     gone, alive = wait_procs(procs, timeout=timeout, callback=on_terminate)
     for p in alive:
-        p.kill()        
+        p.kill()
     return gone + alive
 
 #-----------------------------------------------------------------------
