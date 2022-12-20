@@ -232,7 +232,7 @@ class File:
     #--------------------------------------------------------------------------------
     def __del__(self):                                                         # File
     #--------------------------------------------------------------------------------
-        if self.debug:
+        if self.__class__.__name__ == File.__name__ and self.debug:
             print(f'Deleting {repr(self)}')
 
     #--------------------------------------------------------------------------------
@@ -656,7 +656,14 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
-        return tuple(set(w.split()[0].replace("'",'') for w in self.get('WELSPECS') if w))
+        welspecs = self.get('WELSPECS')
+        # Look for WELSPECS in separate SCH-file not included. This is the case
+        # for backward runs
+        if not welspecs[0]:
+            sch_file = next(self.file.parent.glob('*.[Ss][Cc][Hh]'), None)
+            if sch_file:
+                welspecs = DATA_file(sch_file, sections=False).get('WELSPECS')
+        return tuple(set(w.split()[0].replace("'",'') for w in welspecs if w))
 
     #--------------------------------------------------------------------------------
     def get(self, *keywords, raise_error=False, pos=False):                # DATA_file
@@ -703,6 +710,11 @@ class DATA_file(File):
     def text(self):                                                       # DATA_file
     #--------------------------------------------------------------------------------
         return self._remove_comments(self._matching())
+
+    #--------------------------------------------------------------------------------
+    def summary_keys(self):                                               # DATA_file
+    #--------------------------------------------------------------------------------
+        return [k for k in self.section('SUMMARY').text().split() if k[0] in ('W','G','F')]
 
     #--------------------------------------------------------------------------------
     def section(self, *sections, raise_error=True):                       # DATA_file
@@ -943,38 +955,57 @@ class RFT_file(unfmt_file):                                                # RFT
 class UNSMRY_file(unfmt_file):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file):
+    def __init__(self, file):                                           # UNSMRY_file
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNSMRY')
         self.spec = SMSPEC_file(file)
-        self.key_names = ()
-        self.well_names = ()
-        self.varmap = {'days'  : keypos('PARAMS'  , [0], 'TIME'), 
+        #self.key_names = ()
+        #self.well_names = ()
+        self.varmap = {'days'  : keypos('PARAMS'  , [0], 'TIME'),
                        'years' : keypos('PARAMS'  , [1], ''),
                        'step'  : keypos('MINISTEP', [0], '')}
+        fields = ('days', 'welldata', 'keys', 'wells')
+        self._data = namedtuple('data', fields, defaults=((),)*len(fields))
+
+    # #--------------------------------------------------------------------------------
+    # def init_welldata(self, keys=()):
+    # #--------------------------------------------------------------------------------
+    #     if self.is_file() and self.spec.read(keys=keys):
+    #         self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
+    #         self.key_names = set(self.keys)
+    #         self.well_names = set(self.wells)
+    #         #print(self, self.well_names)
+    #         #print(self.wells)
+    #         return True
+    #     return False
 
     #--------------------------------------------------------------------------------
-    def init_welldata(self, keys=()):
+    def data(self, keys=()):                                            # UNSMRY_file
     #--------------------------------------------------------------------------------
         if self.is_file() and self.spec.read(keys=keys):
             self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
-            self.key_names = set(self.keys)
-            self.well_names = set(self.wells)
+            #self.key_names = set(self.keys)
+            #self.well_names = set(self.wells)
             #print(self, self.well_names)
-            return True
-        return False
+            #print(self.wells)
+            days = welldata = ()
+            data = self.get('days', 'welldata', only_new=True, raise_error=False)
+            if data:
+                days, welldata = data #[:2]
+            return self._data(days, welldata, self.keys, self.wells)
+        return self._data()
 
     #--------------------------------------------------------------------------------
-    def __getattr__(self, item):
+    def __getattr__(self, item):                                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        return self.spec and getattr(self.spec, item) 
+        return self.spec and getattr(self.spec, item)
 
 
 #====================================================================================
-class SMSPEC_file(unfmt_file):
+class SMSPEC_file(unfmt_file):                                          # SMSPEC_file
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file):
+    def __init__(self, file):                                           # SMSPEC_file
     #--------------------------------------------------------------------------------
         super().__init__(file, '.SMSPEC')
         self._inkeys = ()
@@ -982,7 +1013,7 @@ class SMSPEC_file(unfmt_file):
         self._attr = {}
 
     #--------------------------------------------------------------------------------
-    def read(self, keys=()):
+    def read(self, keys=()):                                            # SMSPEC_file
     #--------------------------------------------------------------------------------
         self._inkeys = keys
         if not self.is_file():
@@ -1001,24 +1032,24 @@ class SMSPEC_file(unfmt_file):
         return False
 
     #--------------------------------------------------------------------------------
-    def __getattr__(self, item):
+    def __getattr__(self, item):                                        # SMSPEC_file
     #--------------------------------------------------------------------------------
         if (val := self._attr.get(item)) is not None:
             return val
         raise AttributeError(f'{self.__class__.__name__} object has no attribute {item}')
 
     #--------------------------------------------------------------------------------
-    def missing_keys(self):
+    def missing_keys(self):                                             # SMSPEC_file
     #--------------------------------------------------------------------------------
         return [a for a in self._inkeys if not a in self.keys]
 
     #--------------------------------------------------------------------------------
-    def pos(self, keyword:int):
+    def pos(self, keyword:int):                                         # SMSPEC_file
     #--------------------------------------------------------------------------------
         return keyword in self.data[0] and [self.data[0].index(keyword)] or []
 
     #--------------------------------------------------------------------------------
-    def well_pos(self):
+    def well_pos(self):                                                 # SMSPEC_file
     #--------------------------------------------------------------------------------
         pos = tuple(self._index.keys())
         # Group consecutive indexes into (first, last) limits, 
