@@ -2,18 +2,19 @@
 # -*- coding: utf-8 -*-
 
 from pathlib import Path
-from re import RegexFlag, findall, compile, DOTALL, search, sub, IGNORECASE, MULTILINE
+from re import RegexFlag, findall, compile as re_compile, DOTALL, search, sub, IGNORECASE, MULTILINE
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
-from mmap import mmap, ACCESS_READ, ACCESS_WRITE
-from numpy import array, sum as npsum
-from psutil import Process, NoSuchProcess, wait_procs
+from mmap import mmap, ACCESS_READ
 from signal import SIGTERM
 from contextlib import contextmanager
 from itertools import chain, islice, takewhile, tee, zip_longest
 from collections import deque
 from collections.abc import Iterable
+from shutil import copy2
+from numpy import array, sum as npsum
+from psutil import Process, NoSuchProcess, wait_procs
 
 # Short Python regexp guide:
 #   \s : whitespace, [ \t\n\r\f\v]
@@ -31,6 +32,38 @@ def string_chunks(str, l, strip=False):
     if strip:
         return (s.strip() for s in strings)
     return strings
+
+#-----------------------------------------------------------------------
+def copy_recursive(src, dst, log=None) -> None:
+#-----------------------------------------------------------------------
+    """ Copy a src file or a src folder recursively to the
+        dst file or dst folder """
+    src = Path(src)
+    dst = Path(dst)
+    if src.is_file():
+        src_items = (src,)
+    else:
+        # src is folder
+        src_items = tuple(src.iterdir())
+    if dst.is_file():
+        dst_items = (dst,)
+        dst = dst.parent
+    else:
+        # dst is folder
+        dst_items = (dst/item.name for item in src_items)
+    dst.mkdir(exist_ok=True, parents=True)
+    #print(dst)
+    #print(src_items)
+    #print(dst_items)
+    for _src, _dst in zip(src_items, dst_items):
+        #new_file = dst/item.name
+        if _src.is_file():
+            copy2(_src, _dst)
+            if log:
+                log(f'Copied {_src} -> {_dst}')
+        else:
+            copy_recursive(_src, _dst, log=log)
+
 
 ### pairwise is new in python 3.10, define it for older versions
 # try:
@@ -147,7 +180,26 @@ def batched(iterable, n): # From Itertools Recipes at docs.python.org
 #     return [item for sublist in alist for item in sublist]
 
 #-----------------------------------------------------------------------
-def split_by_words(string, words, comment=None): #, wb=r'\b'):
+def get_tuple(tuple_list_or_val):
+#-----------------------------------------------------------------------
+    if isinstance(tuple_list_or_val, (tuple, list)):
+        return tuple_list_or_val
+    # Is a value, create tuple
+    return (tuple_list_or_val,)
+
+#-----------------------------------------------------------------------
+def unique_names(names, sep='-'):
+#-----------------------------------------------------------------------
+    """ Append number to identical names """
+    new_names = []
+    for i, name in enumerate(names):
+        tot = names.count(name)
+        count = names[:i+1].count(name)
+        new_names.append(f'{name}{sep}{count-1}' if tot > 1 and count > 1 else name)
+    return new_names
+
+#-----------------------------------------------------------------------
+def split_by_words(string, words): #, wb=r'\b'):
 #-----------------------------------------------------------------------
     '''
     Split a string (possibly bytes-like), with comments, into sections based on a list of unique words.
@@ -158,9 +210,9 @@ def split_by_words(string, words, comment=None): #, wb=r'\b'):
     #print(regex)
     if isinstance(string, bytes):
         regex = regex.encode()
-    matches = compile(regex, flags=IGNORECASE|MULTILINE).finditer(string)
+    matches_ = re_compile(regex, flags=IGNORECASE|MULTILINE).finditer(string)
     ### Append string end pos as tuple of tuple
-    tag_pos = chain( ((m.group(1), m.start()) for m in matches), [('', len(string))] )
+    tag_pos = chain( ((m.group(1), m.start()) for m in matches_), [('', len(string))] )
     return ((tag, a, b) for (tag, a), (_, b) in pairwise(tag_pos))
     #return [(a[0],a[1],b[1]) for a,b in pairwise(tag_pos)]
 
@@ -186,7 +238,7 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     if end == slash:
         slash = ''
     ### Lookahead used at the end to mark end without consuming
-    regex = compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)   
+    regex = re_compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)
     #values = [v.split() for v in regex.findall(data)]
     #values = (v.split() for v in regex.findall(data))
     #print(keyword, values)
@@ -202,7 +254,7 @@ def convert_float_or_str(words):
         try:
             v = float(w)
         except ValueError:
-            v = str(w)
+            v = str(w).strip()
         yield v
 
 #-----------------------------------------------------------------------
@@ -225,7 +277,9 @@ def safezip(*gen):
     try:
         yield zip(*gen)
     finally:
-        [g.close() for g in gen]
+        for g in gen:
+            g.close()
+        #[g.close() for g in gen]
 
 #-----------------------------------------------------------------------
 def remove_chars(chars, text):
@@ -248,10 +302,10 @@ def try_except_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, fu
         try:
             result = func(*args, **kwargs)
             break
-        except error as e:
+        except error:
             sleep(pause)
     if i==limit-1 and raise_error:
-        raise SystemError(f'Unable to complete {func.__qualname__} within {limit} tries during {limit*pause} seconds: {e}')
+        raise SystemError(f'Unable to complete {func.__qualname__} within {limit} tries during {limit*pause} seconds: {error}')
     return result
 
 #-----------------------------------------------------------------------
@@ -269,7 +323,7 @@ def kill_process(pid, signal=SIGTERM, children=False, timeout=5, on_terminate=No
             pass
     gone, alive = wait_procs(procs, timeout=timeout, callback=on_terminate)
     for p in alive:
-        p.kill()        
+        p.kill()
     return gone + alive
 
 #-----------------------------------------------------------------------
@@ -493,15 +547,18 @@ def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=T
     return False
 
 #--------------------------------------------------------------------------------
-def delete_all(folder, keep_folder=False):
+def delete_all(folder, keep_folder=False, ignore_error=()):
 #--------------------------------------------------------------------------------
     if not Path(folder).is_dir():
         return
     for child in Path(folder).iterdir():
-        if child.is_file():
-            child.unlink()
-        else:
-            delete_all(child)
+        try:
+            if child.is_file():
+                child.unlink()
+            else:
+                delete_all(child)
+        except ignore_error:
+            pass
     if not keep_folder:
         Path(folder).rmdir()
     
@@ -693,7 +750,7 @@ def matches(file=None, pattern=None, length=0, multiline=False, pos=None, check=
     flags = 0
     if multiline:
         flags = DOTALL
-    regexp = compile(pattern.encode(), flags=flags)
+    regexp = re_compile(pattern.encode(), flags=flags)
     with open(file) as f:
         with mmap(f.fileno(), length=length, access=ACCESS_READ) as data:
             if pos:
