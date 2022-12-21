@@ -622,12 +622,6 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         return self._remove_comments() == ''
 
-    # #--------------------------------------------------------------------------------
-    # def lines(self):                                                     # DATA_file
-    # #--------------------------------------------------------------------------------
-    #     return (line for line in self.data().split('\n') if line)
-
-
     #--------------------------------------------------------------------------------
     def include_files(self, data:bytes=None):                           # DATA_file
     #--------------------------------------------------------------------------------
@@ -657,13 +651,18 @@ class DATA_file(File):
     def wellnames(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
         welspecs = self.get('WELSPECS')
-        # Look for WELSPECS in separate SCH-file not included. This is the case
-        # for backward runs
+        # Look for WELSPECS in a separate SCH-file that is not included in the DATA-file. 
+        # This is the case for backward runs
         if not welspecs[0]:
             sch_file = next(self.file.parent.glob('*.[Ss][Cc][Hh]'), None)
             if sch_file:
                 welspecs = DATA_file(sch_file, sections=False).get('WELSPECS')
-        return tuple(set(w.split()[0].replace("'",'') for w in welspecs if w))
+        # The wellname is the first value, but it might contain spaces. If so, it is quoted
+        # and we need to check if the first char is a quote or not. If the line starts with  
+        # a quote, we split on quote+space, otherwise we just split on space
+        splits = (w.split("' ") if w.startswith("'") else w.split() for w in welspecs if w)
+        return tuple(set(s[0].replace("'","") for s in splits))
+        #return tuple(set(w.split()[0].replace("'",'') for w in welspecs if w))
 
     #--------------------------------------------------------------------------------
     def get(self, *keywords, raise_error=False, pos=False):                # DATA_file
@@ -712,9 +711,9 @@ class DATA_file(File):
         return self._remove_comments(self._matching())
 
     #--------------------------------------------------------------------------------
-    def summary_keys(self):                                               # DATA_file
+    def summary_keys(self, startswith=()):                                               # DATA_file
     #--------------------------------------------------------------------------------
-        return [k for k in self.section('SUMMARY').text().split() if k[0] in ('W','G','F')]
+        return [k for k in self.section('SUMMARY').text().split() if k[0] in startswith]
 
     #--------------------------------------------------------------------------------
     def section(self, *sections, raise_error=True):                       # DATA_file
@@ -959,35 +958,17 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNSMRY')
         self.spec = SMSPEC_file(file)
-        #self.key_names = ()
-        #self.well_names = ()
         self.varmap = {'days'  : keypos('PARAMS'  , [0], 'TIME'),
                        'years' : keypos('PARAMS'  , [1], ''),
                        'step'  : keypos('MINISTEP', [0], '')}
         fields = ('days', 'welldata', 'keys', 'wells')
         self._data = namedtuple('data', fields, defaults=((),)*len(fields))
 
-    # #--------------------------------------------------------------------------------
-    # def init_welldata(self, keys=()):
-    # #--------------------------------------------------------------------------------
-    #     if self.is_file() and self.spec.read(keys=keys):
-    #         self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
-    #         self.key_names = set(self.keys)
-    #         self.well_names = set(self.wells)
-    #         #print(self, self.well_names)
-    #         #print(self.wells)
-    #         return True
-    #     return False
-
     #--------------------------------------------------------------------------------
     def data(self, keys=()):                                            # UNSMRY_file
     #--------------------------------------------------------------------------------
         if self.is_file() and self.spec.read(keys=keys):
             self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
-            #self.key_names = set(self.keys)
-            #self.well_names = set(self.wells)
-            #print(self, self.well_names)
-            #print(self.wells)
             days = welldata = ()
             data = self.get('days', 'welldata', only_new=True, raise_error=False)
             if data:
