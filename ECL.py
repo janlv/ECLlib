@@ -583,20 +583,20 @@ class DATA_file(File):
         
 
     #--------------------------------------------------------------------------------
-    def __contains__(self, key):                                         # DATA_file
+    def __contains__(self, key):                                          # DATA_file
     #--------------------------------------------------------------------------------
         self.data = None
         return bool(self.search(key, regex=rf'^[ \t]*{key}', comments=True))
         
     #--------------------------------------------------------------------------------
-    def binarydata(self, raise_error=False):
+    def binarydata(self, raise_error=False):                              # DATA_file
     #--------------------------------------------------------------------------------
         self.data = super().binarydata(raise_error)
         end = b'END' in self.data and search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
         return end and self.data[:end.end()] or self.data
 
     #--------------------------------------------------------------------------------
-    def check(self, include=True):                                       # DATA_file
+    def check(self, include=True):                                        # DATA_file
     #--------------------------------------------------------------------------------
         self._checked = True
         ### Check if file exists
@@ -677,7 +677,7 @@ class DATA_file(File):
             if raise_error:
                 raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
             return FAIL
-        names = set([g.section for g in getters])
+        names = set(g.section for g in getters)
         self.data = self._remove_comments(self.section(*names)._matching(*keywords))
         error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.file}'
         if not self.data:
@@ -780,7 +780,8 @@ class DATA_file(File):
         files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
         for file in files:
             new_file = self.with_name(file)
-            file_data = File(new_file,'').binarydata()
+            #file_data = File(new_file,'').binarydata()
+            file_data = DATA_file(new_file).binarydata()
             yield (new_file, file_data)
             if b'INCLUDE' in file_data:
                 for inc in self._included_file_data(file_data):
