@@ -388,7 +388,7 @@ class unfmt_file(File):
     def tail_blocks(self):                                               # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file() or self.size() < 24: # Header is 24 bytes
-            return
+            return ()
         with open(self.file, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 # Goto end of file
@@ -413,7 +413,7 @@ class unfmt_file(File):
                             else:
                                 data.seek(-4, 1)
                         except (ValueError, struct_error):
-                            return None
+                            return ()
                     ### Value array
                     #data_start = data.tell()
                     data.seek(start, 0)
@@ -711,9 +711,11 @@ class DATA_file(File):
         return self._remove_comments(self._matching())
 
     #--------------------------------------------------------------------------------
-    def summary_keys(self, startswith=()):                                               # DATA_file
+    #def summary_keys(self, startswith=()):                                # DATA_file
+    def summary_keys(self, matching=()):                                # DATA_file
     #--------------------------------------------------------------------------------
-        return [k for k in self.section('SUMMARY').text().split() if k[0] in startswith]
+        return [k for k in self.section('SUMMARY').text().split() if k in matching]
+        #return [k for k in self.section('SUMMARY').text().split() if k[0] in startswith]
 
     #--------------------------------------------------------------------------------
     def section(self, *sections, raise_error=True):                       # DATA_file
@@ -871,7 +873,8 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def last_day(self):                                                # UNRST_file
     #--------------------------------------------------------------------------------
-        return (t := self.get('time', N=-1, raise_error=False)) and t[0][0] or 0
+        time = self.get('time', N=-1, raise_error=False)
+        return time[0][0] if time else 0
 
     #--------------------------------------------------------------------------------
     def dates(self, N=0):                                                # UNRST_file
@@ -1006,11 +1009,14 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         if all(d for d in data):
             width = len(data[M])//max(len(data[K]), 1)
             data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
-            keys = keys or data[K]
+            keys = keys or set(data[K])
+            #print('keys', keys)
+            #print('data',data)
             ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
             self._index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(zip(data[W], data[K], data[M], data[U])) if k in keys and w and not '+' in w}
+            #print('index',self._index)
             self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(('wells', 'keys', 'measures', 'units'))}
-            return True
+            return bool(self._index)
         return False
 
     #--------------------------------------------------------------------------------
@@ -1034,6 +1040,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     def well_pos(self):                                                 # SMSPEC_file
     #--------------------------------------------------------------------------------
         pos = tuple(self._index.keys())
+        #print('pos', pos)
         # Group consecutive indexes into (first, last) limits, 
         # i.e. (1,2,3,4,8,9,10) become (1,5),(8,11)
         index = (pos[0],) + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + (pos[-1],)
