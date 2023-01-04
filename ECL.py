@@ -1006,7 +1006,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         K, W, M, U = 0, 1, 2, 3   
         data = [b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS')]
         ### Fix MEASRMNT by joining substrings (MEASRMNT strings are multiples of 8 chars)
-        if all(d for d in data):
+        #if all(d for d in data):
+        if len(data) == 4:
             width = len(data[M])//max(len(data[K]), 1)
             data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
             keys = keys or set(data[K])

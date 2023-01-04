@@ -9,7 +9,7 @@ from datetime import timedelta, datetime, time as dt_time
 from mmap import mmap, ACCESS_READ
 from signal import SIGTERM
 from contextlib import contextmanager
-from itertools import chain, islice, takewhile, tee, zip_longest
+from itertools import chain, groupby, islice, takewhile, tee, zip_longest
 from collections import deque
 from collections.abc import Iterable
 from shutil import copy2
@@ -178,6 +178,20 @@ def batched(iterable, n): # From Itertools Recipes at docs.python.org
 # def flat_list(alist):
 # #--------------------------------------------------------------------------------
 #     return [item for sublist in alist for item in sublist]
+
+#-----------------------------------------------------------------------
+def groupby_sorted(iterable, key=None):
+#-----------------------------------------------------------------------
+    """ Sort before applying groupby and remove key from result """
+    groups = []
+    for tag, group in ((k, list(g)) for k,g in groupby(sorted(iterable, key=key), key)):
+        out = []
+        for g in group:
+            g.remove(tag)
+            out.append(g)
+        yield tag, out
+        #groups.append((tag, out))
+    #return groups
 
 #-----------------------------------------------------------------------
 def get_tuple(tuple_list_or_val):
@@ -954,7 +968,7 @@ class Timer:
             f.write(f'{self.counter:d}\t{time()-self.starttime:.3e}\n')
 
 #====================================================================================
-class timer_thread:
+class TimerThread:
 #====================================================================================
     DEBUG = False
     
@@ -976,7 +990,7 @@ class timer_thread:
     #--------------------------------------------------------------------------------    
     def __str__(self):
     #--------------------------------------------------------------------------------    
-        return f'<timer_thread(limit={self._limit}, prec={self._idle}, func={self._func.__qualname__}, thread={self._thread})>'
+        return f'<TimerThread (limit={self._limit}, prec={self._idle}, func={self._func.__qualname__}, thread={self._thread})>'
 
     #--------------------------------------------------------------------------------    
     def __del__(self):
