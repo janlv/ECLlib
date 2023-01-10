@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import repeat
+from itertools import chain, repeat
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -547,6 +547,7 @@ class DATA_file(File):
         super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file', **kwargs)
         self.data = None
         self._checked = False
+        self._added_files = ()
         if not sections:
             self.section_names = ()
         getter = namedtuple('getter', 'section default convert pattern')
@@ -628,9 +629,15 @@ class DATA_file(File):
         return (f[0] for f in self._included_file_data(data))
 
     #--------------------------------------------------------------------------------
+    def including(self, *files):
+    #--------------------------------------------------------------------------------
+        self._added_files = files
+        return self
+
+    #--------------------------------------------------------------------------------
     def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
     #--------------------------------------------------------------------------------
-        'Return timesteps, if DATES are present they are converted to timesteps'
+        ''' Return timesteps, if DATES are present they are converted to timesteps '''
         _start, tsteps, dates = self.get('START','TSTEP','DATES', pos=True)
         if skiprest:
             tsteps = []
@@ -645,7 +652,8 @@ class DATA_file(File):
             raise SystemError(f'ERROR Zero or negative timestep in {self} (check if TSTEP or RESTART oversteps a DATES keyword)')
         if not missing_ok and not tsteps:
             raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
-        return pos and tsteps or tuple(next(zip(*tsteps))) # Do not return positions
+        return tsteps if pos else tuple(next(zip(*tsteps)))
+        #return pos and tsteps or tuple(next(zip(*tsteps))) # Do not return positions
 
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                  # DATA_file
@@ -683,7 +691,7 @@ class DATA_file(File):
         if not self.data:
             if raise_error:
                 raise SystemError(error_msg)
-            return FAIL 
+            return FAIL
         result = ()
         for keyword, getter in zip(keywords, getters):
             match_list = re_compile(getter.pattern).finditer(self.data)
@@ -698,7 +706,7 @@ class DATA_file(File):
             result += (flatten(values),)
         if len(result) == 1:
             return result[0]
-        return result 
+        return result
 
     #--------------------------------------------------------------------------------
     def lines(self):                                                       # DATA_file
@@ -711,28 +719,38 @@ class DATA_file(File):
         return self._remove_comments(self._matching())
 
     #--------------------------------------------------------------------------------
-    #def summary_keys(self, startswith=()):                                # DATA_file
     def summary_keys(self, matching=()):                                # DATA_file
     #--------------------------------------------------------------------------------
         return [k for k in self.section('SUMMARY').text().split() if k in matching]
-        #return [k for k in self.section('SUMMARY').text().split() if k[0] in startswith]
+
+    #--------------------------------------------------------------------------------
+    def section_positions(self, *sections):
+    #--------------------------------------------------------------------------------
+        data = self.data or self.binarydata()
+        sec_pos = {sec.upper().decode():(a,b) for sec,a,b in split_by_words(data, self.section_names)}
+        if not sections:
+            return sec_pos
+        return  {sec:pos for sec in sections if (pos := sec_pos.get(sec))}
+
 
     #--------------------------------------------------------------------------------
     def section(self, *sections, raise_error=True):                       # DATA_file
     #--------------------------------------------------------------------------------
-        self._checked or self.check()
+        if not self._checked:
+            self.check()
         self.data = self.binarydata()
         ### Get section-names and file positions
         if not self.section_names:
             return self
-        section_pos = {name.upper():(a,b) for name,a,b in split_by_words(self.data, self.section_names)}
-        pos = [p for sec in sections if (p := section_pos.get(sec.encode()))]
-        if not pos:
+        # section_pos = {name.upper():(a,b) for name,a,b in split_by_words(self.data, self.section_names)}
+        # pos = [p for sec in sections if (p := section_pos.get(sec.encode()))]
+        sec_pos = self.section_positions(*sections)
+        if not sec_pos:
             if raise_error:
                 raise SystemError(f'ERROR Section {list2text(sections)} not found in {self}')
             return self
             #return None
-        self.data = b''.join(self.data[a:b] for a,b in sorted(pos))
+        self.data = b''.join(self.data[a:b] for a,b in sorted(sec_pos.values()))
         #self.data = (self.data[a:b] for a,b in sorted(pos))
         return self
 
@@ -758,7 +776,7 @@ class DATA_file(File):
         lines = (l for d in data for l in d.split(b'\n'))
         text = (l.split(b'--')[0].strip() for l in lines)
         text = b'\n'.join(t for t in text if t).decode()
-        return text and text+'\n' or ''
+        return text+'\n' if text else ''
 
     #--------------------------------------------------------------------------------
     def _matching(self, *keys):                                           # DATA_file
@@ -774,17 +792,16 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _included_file_data(self, data:bytes=None):                           # DATA_file
     #--------------------------------------------------------------------------------
-        'Return tuple of filename and binary-data for each include file'
+        ''' Return tuple of filename and binary-data for each include file '''
         #print('include_files')
         data = data or self.binarydata()
         #regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
         regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
         files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
-        for file in files:
-            new_file = self.with_name(file)
-            #file_data = File(new_file,'').binarydata()
-            file_data = DATA_file(new_file).binarydata()
-            yield (new_file, file_data)
+        for file in chain(files, self._added_files):
+            new_filename = self.with_name(file)
+            file_data = DATA_file(new_filename).binarydata()
+            yield (new_filename, file_data)
             if b'INCLUDE' in file_data:
                 for inc in self._included_file_data(file_data):
                     yield inc
@@ -792,7 +809,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _days(self, time_pos, start=None):                           # DATA_file
     #--------------------------------------------------------------------------------
-        'Return relative timestep in days given a timestep or a datetime'
+        ''' Return relative timestep in days given a timestep or a datetime '''
         last_date = start
         for t,p in time_pos:
             if isinstance(t, datetime):
@@ -811,11 +828,13 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def _convert_float(self, values, key, raise_error=False):            # DATA_file
     #--------------------------------------------------------------------------------
-        mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
+        #mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
+        def mult(x,y):
+            # Process x*y statements
+            return list(repeat(float(y),int(x)))
         values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
         values = tuple(flatten(v) for v in values)
         return values or self._getter[key].default
-
 
     #--------------------------------------------------------------------------------
     def _convert_date(self, dates, key, raise_error=False):              # DATA_file
@@ -825,7 +844,6 @@ class DATA_file(File):
         dates = (grouper(remove_chars("'/\n", v).split(), 3) for v in dates)
         dates = tuple([datetime.strptime(' '.join(d), '%d %b %Y') for d in date] for date in dates)
         return dates or self._getter[key].default
-
 
     #--------------------------------------------------------------------------------
     def _convert_file(self, values, key, raise_error=True):              # DATA_file
@@ -1003,7 +1021,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         self._inkeys = keys
         if not self.is_file():
             return False
-        K, W, M, U = 0, 1, 2, 3   
+        K, W, M, U = 0, 1, 2, 3
         data = [b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS')]
         ### Fix MEASRMNT by joining substrings (MEASRMNT strings are multiples of 8 chars)
         #if all(d for d in data):
@@ -1041,9 +1059,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     def well_pos(self):                                                 # SMSPEC_file
     #--------------------------------------------------------------------------------
         pos = tuple(self._index.keys())
-        #print('pos', pos)
-        # Group consecutive indexes into (first, last) limits, 
-        # i.e. (1,2,3,4,8,9,10) become (1,5),(8,11)
+        # Group consecutive indexes into (first, last) limits,
+        # i.e. (1,2,3,4,8,9,10) becomes (1,5),(8,11)
         index = (pos[0],) + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + (pos[-1],)
         limits = [(a,b+1) for a,b in grouper(index, 2)]
         return limits

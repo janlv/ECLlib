@@ -180,11 +180,11 @@ def batched(iterable, n): # From Itertools Recipes at docs.python.org
 #     return [item for sublist in alist for item in sublist]
 
 #-----------------------------------------------------------------------
-def groupby_sorted(iterable, key=None):
+def groupby_sorted(iterable, key=None, reverse=False):
 #-----------------------------------------------------------------------
     """ Sort before applying groupby and remove key from result """
-    groups = []
-    for tag, group in ((k, list(g)) for k,g in groupby(sorted(iterable, key=key), key)):
+    #groups = []
+    for tag, group in ((k, list(g)) for k,g in groupby(sorted(iterable, key=key, reverse=reverse), key)):
         out = []
         for g in group:
             g.remove(tag)
@@ -407,25 +407,20 @@ def read_file(file, raise_error=True):
     if not file.is_file():
         if raise_error:
             raise SystemError(f'ERROR {file} not found in read_file()')
-        else:   
-            return ''    
-    lines = ''
-    try:
-        with open(file, encoding='utf-8') as f:
-        #with open(file, encoding='ascii', errors='surrogateescape') as f:
-            lines = f.readlines()
-    except UnicodeDecodeError as e:
-        #print(e)
-        #with open(file, encoding='ISO-8859-1') as f:
-        with open(file, encoding='latin-1') as f:
-        #with open(file, encoding=getdefaultlocale()[1]) as f:
-            lines = f.readlines()
-    except OSError as err:
-        raise SystemError(f'Unable to read {file}: {err}')
-    # except:
-    #     e = exc_info()
-    #     print(e)
-    return ''.join(lines)
+        return ''
+    with open(file, 'rb') as fileobj:
+        return fileobj.read().decode()
+    
+    # try:
+    #     with open(file, encoding='utf-8') as f:
+    #     #with open(file, encoding='ascii', errors='surrogateescape') as f:
+    #         lines = f.readlines()
+    # except UnicodeDecodeError as e:
+    #     with open(file, encoding='latin-1') as f:
+    #         lines = f.readlines()
+    # except OSError as err:
+    #     raise SystemError(f'Unable to read {file}: {err}')
+    # return ''.join(lines)
 
 #--------------------------------------------------------------------------------
 def write_file(file, text):
