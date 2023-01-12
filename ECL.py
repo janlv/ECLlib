@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
 #from numba import njit, jit
-from .utils import flatten, flatten_all, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
+from .utils import flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
 #
 #
@@ -295,6 +295,8 @@ class File:
 #====================================================================================
 class unfmt_file(File):
 #====================================================================================
+    start = None
+    var_pos = {}
 
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix, **kwargs):                      # unfmt_file
@@ -419,6 +421,43 @@ class unfmt_file(File):
                     data.seek(start, 0)
                     yield unfmt_block(key=key, length=length, type=type, start=start, end=end, 
                                     data=data, file=self.file)
+
+
+    #--------------------------------------------------------------------------------
+    def read(self, *values, start=0, stop=None, step=None, drop=None, **kwargs):    # unfmt_file
+    #--------------------------------------------------------------------------------
+        read_order = [key for key in self.var_pos if key in values]
+        if missing := [val for val in values if val not in self.var_pos]:
+            err = f'ERROR! Invalid variable names in {self.__class__.__name__}.read() call: {missing}'
+            raise SystemError(err)
+        out_order = [read_order.index(v) for v in values]
+        blocks = self.blocks
+        if start < 0:
+            stop = -start
+            start = 0
+            blocks = self.tail_blocks
+            out_order = out_order[::-1]
+        key_pos = [self.var_pos[v] for v in values]
+        # Group positions
+        key_pos = {k:flatten(g) for k,g in groupby_sorted(key_pos, key=itemgetter(0))}
+        section = []
+        n = -1
+        for block in blocks(**kwargs):
+            if self.start in block:
+                n += 1
+                if section:
+                    data = [section[i] for i in out_order]
+                    if not drop or not drop(data):
+                        yield data
+                    section = []
+            if stop and n >= stop:
+                return
+            if n < start:
+                continue
+            if step and n%step > 0:
+                continue
+            if (key:=block.key()) in key_pos:
+                section.extend(block.data(*key_pos[key], unwrap_tuple=False))
 
 
     #--------------------------------------------------------------------------------
@@ -659,9 +698,9 @@ class DATA_file(File):
     def wellnames(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
         welspecs = self.get('WELSPECS')
-        # Look for WELSPECS in a separate SCH-file that is not included in the DATA-file. 
-        # This is the case for backward runs
-        if not welspecs[0]:
+        if not welspecs or not welspecs[0]:
+            # If no WELSPECS in DATA-file, look for WELSPECS in a separate SCH-file 
+            # This is the case for backward runs
             sch_file = next(self.file.parent.glob('*.[Ss][Cc][Hh]'), None)
             if sch_file:
                 welspecs = DATA_file(sch_file, sections=False).get('WELSPECS')
@@ -866,13 +905,23 @@ class DATA_file(File):
 #====================================================================================
 class UNRST_file(unfmt_file):
 #====================================================================================
+    start = 'SEQNUM'
+    var_pos =  {'step'  : ('SEQNUM',   0),
+                'nwell' : ('INTEHEAD', 16),
+                'day'   : ('INTEHEAD', 64),
+                'month' : ('INTEHEAD', 65),
+                'year'  : ('INTEHEAD', 66),
+                'hour'  : ('INTEHEAD', 206),
+                'min'   : ('INTEHEAD', 207),
+                'sec'   : ('INTEHEAD', 410),
+                'time'  : ('DOUBHEAD', 0)}
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, end='ENDSOL', **kwargs):    # UNRST_file
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNRST')
         self.varmap = {'step'  : keypos(key='SEQNUM'),
-                       'nwell' : keypos('INTEHEAD', [16] , 'NWELLS'), 
+                       'nwell' : keypos('INTEHEAD', [16] , 'NWELLS'),
                        'day'   : keypos('INTEHEAD', [64] , 'IDAY'),
                        'month' : keypos('INTEHEAD', [65] , 'IMON'),
                        'year'  : keypos('INTEHEAD', [66] , 'IYEAR'),
@@ -880,7 +929,7 @@ class UNRST_file(unfmt_file):
                        'min'   : keypos('INTEHEAD', [207], 'IMINTS'),
                        'sec'   : keypos('INTEHEAD', [410], 'ISECND'),
                        'time'  : keypos(key='DOUBHEAD')}
-        self.check = check_blocks(self, start='SEQNUM', end=end, wait_func=wait_func, **kwargs)
+        self.check = check_blocks(self, start=self.start, end=end, wait_func=wait_func, **kwargs)
 
 
     #--------------------------------------------------------------------------------
@@ -952,11 +1001,15 @@ class UNRST_file(unfmt_file):
 #====================================================================================
 class RFT_file(unfmt_file):                                                # RFT_file
 #====================================================================================
+    start = 'TIME'
+    var_pos =  {'time'     : ('TIME', 0),
+                'wellname' : ('WELLETC', 1)}
+
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, '.RFT')
-        self.check = check_blocks(self, start='TIME', end='CONNXT', wait_func=wait_func, **kwargs)
+        self.check = check_blocks(self, start=self.start, end='CONNXT', wait_func=wait_func, **kwargs)
 
     #--------------------------------------------------------------------------------
     def not_in_sync(self, time, prec=0.1):                                 # RFT_file

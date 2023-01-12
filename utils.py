@@ -179,19 +179,28 @@ def batched(iterable, n): # From Itertools Recipes at docs.python.org
 # #--------------------------------------------------------------------------------
 #     return [item for sublist in alist for item in sublist]
 
+
+#-----------------------------------------------------------------------
+def iter_index(iterable, value, start=0): # From https://docs.python.org/3/library/itertools.html
+#-----------------------------------------------------------------------
+    "Return indices where a value occurs in a sequence or iterable."
+    # iter_index('AABCADEAF', 'A') --> 0 1 4 7
+    seq_index = iterable.index
+    i = start - 1
+    try:
+        while True:
+            yield (i := seq_index(value, i+1))
+    except ValueError:
+        pass
+
 #-----------------------------------------------------------------------
 def groupby_sorted(iterable, key=None, reverse=False):
 #-----------------------------------------------------------------------
     """ Sort before applying groupby and remove key from result """
     #groups = []
-    for tag, group in ((k, list(g)) for k,g in groupby(sorted(iterable, key=key, reverse=reverse), key)):
-        out = []
-        for g in group:
-            g.remove(tag)
-            out.append(g)
-        yield tag, out
-        #groups.append((tag, out))
-    #return groups
+    ordered = sorted(iterable, key=key, reverse=reverse)
+    for tag, group in ((k, flatten(g)) for k,g in groupby(ordered, key)):
+        yield tag, [g for g in group if g != tag]
 
 #-----------------------------------------------------------------------
 def get_tuple(tuple_list_or_val):
