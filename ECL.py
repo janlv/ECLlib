@@ -729,7 +729,9 @@ class DATA_file(File):
             # Look for wellnames in a restart-file
             restart, step = self.get('RESTART')
             unrst = UNRST_file(restart)
-            rft = RFT_file(self.file)
+            #rft = RFT_file(self.file)
+            rft = RFT_file(unrst.file)
+            #print(unrst, rft)
             if unrst.is_file() and rft.is_file():
                 data = next(unrst.read('time', 'step', drop=lambda x:x[1] != step), None)
                 if data:
