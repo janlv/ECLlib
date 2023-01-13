@@ -731,10 +731,10 @@ class DATA_file(File):
             unrst = UNRST_file(restart)
             rft = RFT_file(self.file)
             if unrst.is_file() and rft.is_file():
-                data = list(unrst.read('time', 'step', drop=lambda x:x[1] != step))
+                data = next(unrst.read('time', 'step', drop=lambda x:x[1] != step), None)
                 if data:
                     time, n = data
-                    names = [name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1] != time)]
+                    names = tuple(name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1] != time))
         return names
 
     #--------------------------------------------------------------------------------
