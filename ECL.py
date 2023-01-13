@@ -159,7 +159,7 @@ class unfmt_block:
         if index == ():
             index = ((0, self._length),)
             unwrap_tuple = False
-        ### Fix negative positions, and create tuple if not tuple 
+        ### Fix negative positions, and create tuple if not tuple
         fix_lim = lambda x: x+self._length if x < 0 else x
         index = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in index]
         ### Out of index error
@@ -180,9 +180,9 @@ class unfmt_block:
             ### CHAR data is an 8 character string
             N = sum(j-i for i,j in index)*(self._type == b'CHAR' and 8 or 1)
             values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in data_chunks))
-        except struct_error:
+        except struct_error as err:
             if raise_error:
-                raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}')
+                raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}') from err
             return None
         ### Decode string data
         if self._type == b'CHAR':
@@ -296,6 +296,7 @@ class File:
 class unfmt_file(File):
 #====================================================================================
     start = None
+    end = None
     var_pos = {}
 
     #--------------------------------------------------------------------------------
@@ -412,8 +413,7 @@ class unfmt_file(File):
                                 key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
                                 data.seek(4, 1)
                                 break
-                            else:
-                                data.seek(-4, 1)
+                            data.seek(-4, 1)
                         except (ValueError, struct_error):
                             return ()
                     ### Value array
@@ -424,40 +424,66 @@ class unfmt_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def read(self, *values, start=0, stop=None, step=None, drop=None, **kwargs):    # unfmt_file
+    def read(self, *varnames, start=0, stop=None, step=None, drop=None, **kwargs):    # unfmt_file
     #--------------------------------------------------------------------------------
-        read_order = [key for key in self.var_pos if key in values]
-        if missing := [val for val in values if val not in self.var_pos]:
+        # Check for wrong value names
+        if missing := [val for val in varnames if val not in self.var_pos]:
             err = f'ERROR! Invalid variable names in {self.__class__.__name__}.read() call: {missing}'
             raise SystemError(err)
-        out_order = [read_order.index(v) for v in values]
+        # Get order of keywords in section
+        key_order = dict(self.var_pos.values()).keys()
+        # Make list of [key, pos, var]: ['INTEHEAD', 66, 'year']
+        in_order = [self.var_pos[v]+(v,) for v in varnames]
+        # Group positions and varnames: 'INTEHEAD': [[207, 'min'],[66, 'year']]
+        key_pos_name = dict(groupby_sorted(in_order, key=itemgetter(0)))
+        # Sort on positions for each keyword: 'INTEHEAD': [[66, 'year'],[207, 'min']]
+        key_pos_name = [(v,flatten(sorted(key_pos_name[v], key=itemgetter(0)))) for v in key_order]
         blocks = self.blocks
+        end_key = self.end
+        start_key = self.start
+        # Read file from tail to top if negative start-value
         if start < 0:
             stop = -start
             start = 0
             blocks = self.tail_blocks
-            out_order = out_order[::-1]
-        key_pos = [self.var_pos[v] for v in values]
-        # Group positions
-        key_pos = {k:flatten(g) for k,g in groupby_sorted(key_pos, key=itemgetter(0))}
+            # Reverse keyword read-order
+            key_pos_name = key_pos_name[::-1]
+            # Start-key marks the end of a section
+            end_key = self.start
+            start_key = self.end
+        # Get positions for each keyword: INTEHEAD:[66, 207]
+        keypos_to_read = {k:v[::2] for k,v in key_pos_name}
+        # Get read-order: ('year','min')
+        read_order = flatten(v for _,v in key_pos_name)[1::2]
+        # Map input to read-order: [1, 0] if ('min','year') is input
+        out_order = [read_order.index(v) for v in varnames]
         section = []
-        n = -1
+        n = 0
+        #begin = False
         for block in blocks(**kwargs):
-            if self.start in block:
+            # if start_key in block:
+            #     begin = True
+            # if not begin:
+            #     continue
+            if end_key in block:
                 n += 1
+                # begin = False
+                if end_key in keypos_to_read:
+                    section.extend(block.data(*keypos_to_read[end_key], unwrap_tuple=False))
+                    block = None
                 if section:
                     data = [section[i] for i in out_order]
+                    section = []
                     if not drop or not drop(data):
                         yield data
-                    section = []
             if stop and n >= stop:
                 return
             if n < start:
                 continue
-            if step and n%step > 0:
+            if step and (n-start)%step > 0:
                 continue
-            if (key:=block.key()) in key_pos:
-                section.extend(block.data(*key_pos[key], unwrap_tuple=False))
+            if block and (key:=block.key()) in keypos_to_read:
+                section.extend(block.data(*keypos_to_read[key], unwrap_tuple=False))
 
 
     #--------------------------------------------------------------------------------
@@ -697,6 +723,26 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
+        names = self.welspecs()
+        if not names:
+            # Look for wellnames in a restart-file
+            restart, step = self.get('RESTART')
+            unrst = UNRST_file(restart)
+            rft = RFT_file(self.file)
+            if unrst.is_file() and rft.is_file():
+                data = list(unrst.read('time', 'step', drop=lambda x:x[1] != step))
+                if data:
+                    time, n = data
+                    names = [name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1] != time)]
+        return names
+
+    #--------------------------------------------------------------------------------
+    def welspecs(self):                                                  # DATA_file
+    #--------------------------------------------------------------------------------
+        '''
+        Get wellnames from WELSPECS definitions in the DATA-file or in a
+        schedule-file
+        '''
         welspecs = self.get('WELSPECS')
         if not welspecs or not welspecs[0]:
             # If no WELSPECS in DATA-file, look for WELSPECS in a separate SCH-file 
@@ -906,6 +952,7 @@ class DATA_file(File):
 class UNRST_file(unfmt_file):
 #====================================================================================
     start = 'SEQNUM'
+    end = 'ENDSOL'
     var_pos =  {'step'  : ('SEQNUM',   0),
                 'nwell' : ('INTEHEAD', 16),
                 'day'   : ('INTEHEAD', 64),
@@ -917,9 +964,10 @@ class UNRST_file(unfmt_file):
                 'time'  : ('DOUBHEAD', 0)}
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, end='ENDSOL', **kwargs):    # UNRST_file
+    def __init__(self, file, wait_func=None, end=None, **kwargs):    # UNRST_file
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNRST')
+        self.end = end or self.end 
         self.varmap = {'step'  : keypos(key='SEQNUM'),
                        'nwell' : keypos('INTEHEAD', [16] , 'NWELLS'),
                        'day'   : keypos('INTEHEAD', [64] , 'IDAY'),
@@ -929,7 +977,7 @@ class UNRST_file(unfmt_file):
                        'min'   : keypos('INTEHEAD', [207], 'IMINTS'),
                        'sec'   : keypos('INTEHEAD', [410], 'ISECND'),
                        'time'  : keypos(key='DOUBHEAD')}
-        self.check = check_blocks(self, start=self.start, end=end, wait_func=wait_func, **kwargs)
+        self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
 
 
     #--------------------------------------------------------------------------------
@@ -1002,6 +1050,7 @@ class UNRST_file(unfmt_file):
 class RFT_file(unfmt_file):                                                # RFT_file
 #====================================================================================
     start = 'TIME'
+    end = 'CONNXT'
     var_pos =  {'time'     : ('TIME', 0),
                 'wellname' : ('WELLETC', 1)}
 
@@ -1009,7 +1058,7 @@ class RFT_file(unfmt_file):                                                # RFT
     def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, '.RFT')
-        self.check = check_blocks(self, start=self.start, end='CONNXT', wait_func=wait_func, **kwargs)
+        self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
 
     #--------------------------------------------------------------------------------
     def not_in_sync(self, time, prec=0.1):                                 # RFT_file
@@ -1199,7 +1248,8 @@ class check_blocks:                                                    # check_b
         self._wait_func = wait_func
         self._warn_offset = warn_offset
         self._timer = timer
-        DEBUG and print(f'Creating {self}')
+        if DEBUG:
+            print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                 # check_blocks
@@ -1209,7 +1259,8 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
     def __del__(self):                                                 # check_blocks
     #--------------------------------------------------------------------------------
-        DEBUG and print(f'Deleting {self}')
+        if DEBUG:
+            print(f'Deleting {self}')
 
     #--------------------------------------------------------------------------------
     def data(self):                                                    # check_blocks

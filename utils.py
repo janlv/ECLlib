@@ -197,10 +197,9 @@ def iter_index(iterable, value, start=0): # From https://docs.python.org/3/libra
 def groupby_sorted(iterable, key=None, reverse=False):
 #-----------------------------------------------------------------------
     """ Sort before applying groupby and remove key from result """
-    #groups = []
     ordered = sorted(iterable, key=key, reverse=reverse)
-    for tag, group in ((k, flatten(g)) for k,g in groupby(ordered, key)):
-        yield tag, [g for g in group if g != tag]
+    for tag, groups in groupby(ordered, key):
+        yield tag, [[g for g in group if g != tag] for group in groups]
 
 #-----------------------------------------------------------------------
 def get_tuple(tuple_list_or_val):
