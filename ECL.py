@@ -431,7 +431,8 @@ class unfmt_file(File):
             err = f'ERROR! Invalid variable names in {self.__class__.__name__}.read() call: {missing}'
             raise SystemError(err)
         # Get order of keywords in section
-        key_order = dict(self.var_pos.values()).keys()
+        #key_order = dict(self.var_pos.values()).keys()
+        key_order = [v[0] for k,v in self.var_pos.items() if k in varnames]
         # Make list of [key, pos, var]: ['INTEHEAD', 66, 'year']
         in_order = [self.var_pos[v]+(v,) for v in varnames]
         # Group positions and varnames: 'INTEHEAD': [[207, 'min'],[66, 'year']]
@@ -440,7 +441,7 @@ class unfmt_file(File):
         key_pos_name = [(v,flatten(sorted(key_pos_name[v], key=itemgetter(0)))) for v in key_order]
         blocks = self.blocks
         end_key = self.end
-        start_key = self.start
+        #start_key = self.start
         # Read file from tail to top if negative start-value
         if start < 0:
             stop = -start
@@ -450,7 +451,7 @@ class unfmt_file(File):
             key_pos_name = key_pos_name[::-1]
             # Start-key marks the end of a section
             end_key = self.start
-            start_key = self.end
+            #start_key = self.end
         # Get positions for each keyword: INTEHEAD:[66, 207]
         keypos_to_read = {k:v[::2] for k,v in key_pos_name}
         # Get read-order: ('year','min')
