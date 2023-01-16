@@ -575,7 +575,13 @@ class unfmt_file(File):
             return_value = self.file
         return return_value
 
-
+    #--------------------------------------------------------------------------------
+    def assert_no_duplicates(self):                                  # unfmt_file
+    #--------------------------------------------------------------------------------
+        seen = set()
+        duplicate = (key for b in self.blocks() if (key:=b.key()) in seen or seen.add(key))
+        if (dup:=next(duplicate)) != self.start:
+            raise SystemError(f'ERROR Duplicate keyword {dup} in {self}')
 
 #====================================================================================
 class DATA_file(File):
