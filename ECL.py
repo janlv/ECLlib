@@ -424,7 +424,7 @@ class unfmt_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def read(self, *varnames, start=0, stop=None, step=None, drop=None, **kwargs):    # unfmt_file
+    def read(self, *varnames, tail=False, start=0, stop=None, step=None, drop=None, **kwargs):    # unfmt_file
     #--------------------------------------------------------------------------------
         # Check for wrong value names
         if missing := [val for val in varnames if val not in self.var_pos]:
@@ -432,7 +432,7 @@ class unfmt_file(File):
             raise SystemError(err)
         # Get order of keywords in section
         #key_order = dict(self.var_pos.values()).keys()
-        key_order = [v[0] for k,v in self.var_pos.items() if k in varnames]
+        key_order = {v[0]:0 for k,v in self.var_pos.items() if k in varnames}.keys()
         # Make list of [key, pos, var]: ['INTEHEAD', 66, 'year']
         in_order = [self.var_pos[v]+(v,) for v in varnames]
         # Group positions and varnames: 'INTEHEAD': [[207, 'min'],[66, 'year']]
@@ -441,17 +441,16 @@ class unfmt_file(File):
         key_pos_name = [(v,flatten(sorted(key_pos_name[v], key=itemgetter(0)))) for v in key_order]
         blocks = self.blocks
         end_key = self.end
-        #start_key = self.start
         # Read file from tail to top if negative start-value
-        if start < 0:
-            stop = -start
-            start = 0
+        if tail:
             blocks = self.tail_blocks
             # Reverse keyword read-order
             key_pos_name = key_pos_name[::-1]
             # Start-key marks the end of a section
             end_key = self.start
-            #start_key = self.end
+            # if start < 0:
+            #     stop = -start
+            #     start = 0
         # Get positions for each keyword: INTEHEAD:[66, 207]
         keypos_to_read = {k:v[::2] for k,v in key_pos_name}
         # Get read-order: ('year','min')
@@ -460,15 +459,11 @@ class unfmt_file(File):
         out_order = [read_order.index(v) for v in varnames]
         section = []
         n = 0
-        #begin = False
+        yielded = False
         for block in blocks(**kwargs):
-            # if start_key in block:
-            #     begin = True
-            # if not begin:
-            #     continue
             if end_key in block:
                 n += 1
-                # begin = False
+                # Yield data from end-block?
                 if end_key in keypos_to_read:
                     section.extend(block.data(*keypos_to_read[end_key], unwrap_tuple=False))
                     block = None
@@ -476,6 +471,7 @@ class unfmt_file(File):
                     data = [section[i] for i in out_order]
                     section = []
                     if not drop or not drop(data):
+                        yielded = True
                         yield data
             if stop and n >= stop:
                 return
@@ -485,6 +481,8 @@ class unfmt_file(File):
                 continue
             if block and (key:=block.key()) in keypos_to_read:
                 section.extend(block.data(*keypos_to_read[key], unwrap_tuple=False))
+        if not yielded:
+            yield len(varnames)*[None]
 
 
     #--------------------------------------------------------------------------------
@@ -735,14 +733,11 @@ class DATA_file(File):
             # Look for wellnames in a restart-file
             restart, step = self.get('RESTART')
             unrst = UNRST_file(restart)
-            #rft = RFT_file(self.file)
             rft = RFT_file(unrst.file)
-            #print(unrst, rft)
             if unrst.is_file() and rft.is_file():
-                data = next(unrst.read('time', 'step', drop=lambda x:x[1] != step), None)
-                if data:
-                    time, n = data
-                    names = tuple(name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1] != time))
+                time, _ = next(unrst.read('time', 'step', drop=lambda x:x[1]<step))
+                names = (name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1]<time))
+                names = time and tuple(names) or ()
         return names
 
     #--------------------------------------------------------------------------------
@@ -1086,6 +1081,12 @@ class RFT_file(unfmt_file):                                                # RFT
 #====================================================================================
 class UNSMRY_file(unfmt_file):
 #====================================================================================
+    start = 'SEQHDR'
+    end = 'MINISTEP'
+    var_pos = {'days' : ('PARAMS', 0),
+               'years': ('PARAMS', 1),
+               'step' : ('MINISTEP', 0)}
+
     #--------------------------------------------------------------------------------
     def __init__(self, file):                                           # UNSMRY_file
     #--------------------------------------------------------------------------------
@@ -1102,8 +1103,11 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         if self.is_file() and self.spec.read(keys=keys):
             self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
+            self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
+            print(self.var_pos['welldata'])
             days = welldata = ()
             data = self.get('days', 'welldata', only_new=True, raise_error=False)
+
             if data:
                 days, welldata = data #[:2]
             return self._data(days, welldata, self.keys, self.wells)
