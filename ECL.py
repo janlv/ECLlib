@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import chain, repeat
+from itertools import chain, repeat, accumulate
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
 #from numba import njit, jit
-from .utils import flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
+from .utils import index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
 #
 #
@@ -344,14 +344,14 @@ class unfmt_file(File):
                     ### Header
                     try:
                         ### Header is 24 bytes, we skip int of length 4 before and after
-                        key, length, type = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
+                        key, length, typ = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
                         ### Value array
-                        bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
-                        pos += 24 + bytes
-                    except (ValueError, struct_error): 
+                        nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
+                        pos += 24 + nbytes
+                    except (ValueError, struct_error):
                         return False
                     self.endpos = pos
-                    yield unfmt_block(key=key, length=length, type=type, start=start, end=pos, 
+                    yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
                                       data=data, file=self.file)
     
     # #--------------------------------------------------------------------------------
@@ -408,9 +408,9 @@ class unfmt_file(File):
                             # if self.is_header(data, size, data.tell()):
                             pos = data.tell()
                             ### Check if this is a header
-                            if size == 16 and data[pos+12:pos+16] in DTYPE.keys():
+                            if size == 16 and data[pos+12:pos+16] in DTYPE:
                                 start = data.tell()-4
-                                key, length, type = unpack(ENDIAN+'8si4s', data.read(16))
+                                key, length, typ = unpack(ENDIAN+'8si4s', data.read(16))
                                 data.seek(4, 1)
                                 break
                             data.seek(-4, 1)
@@ -419,71 +419,92 @@ class unfmt_file(File):
                     ### Value array
                     #data_start = data.tell()
                     data.seek(start, 0)
-                    yield unfmt_block(key=key, length=length, type=type, start=start, end=end, 
+                    yield unfmt_block(key=key, length=length, type=typ, start=start, end=end,
                                     data=data, file=self.file)
 
 
     #--------------------------------------------------------------------------------
-    def read(self, *varnames, tail=False, start=0, stop=None, step=None, drop=None, **kwargs):    # unfmt_file
+    def read(self, *varnames, tail=False, start=0, stop=None, step=None, drop=None, unpack_single=True, **kwargs):    # unfmt_file
     #--------------------------------------------------------------------------------
+        if not self.is_file():
+            return
         # Check for wrong value names
         if missing := [val for val in varnames if val not in self.var_pos]:
             err = f'ERROR! Invalid variable names in {self.__class__.__name__}.read() call: {missing}'
             raise SystemError(err)
-        # Get order of keywords in section
-        #key_order = dict(self.var_pos.values()).keys()
+        # Get order of keywords
         key_order = {v[0]:0 for k,v in self.var_pos.items() if k in varnames}.keys()
         # Make list of [key, pos, var]: ['INTEHEAD', 66, 'year']
         in_order = [self.var_pos[v]+(v,) for v in varnames]
         # Group positions and varnames: 'INTEHEAD': [[207, 'min'],[66, 'year']]
         key_pos_name = dict(groupby_sorted(in_order, key=itemgetter(0)))
         # Sort on positions for each keyword: 'INTEHEAD': [[66, 'year'],[207, 'min']]
-        key_pos_name = [(v,flatten(sorted(key_pos_name[v], key=itemgetter(0)))) for v in key_order]
+        key_pos_name = [(v,sorted(key_pos_name[v], key=itemgetter(0))) for v in key_order]
         blocks = self.blocks
         end_key = self.end
-        # Read file from tail to top if negative start-value
         if tail:
+            # Read file reversed from tail to top
             blocks = self.tail_blocks
             # Reverse keyword read-order
             key_pos_name = key_pos_name[::-1]
-            # Start-key marks the end of a section
+            # Reverse start/end keywords
             end_key = self.start
-            # if start < 0:
-            #     stop = -start
-            #     start = 0
+        # keyword : ([pos1], size1, name1, [pos2], size2, name2)
+        tmp = {k:flatten((v[:-1], len(v[:-1]), v[-1]) for v in pn) for k,pn in key_pos_name}
+        #print(tmp)
+        values = flatten(tmp.values())
+        var_limits = list(pairwise(accumulate((0,)+values[1::3])))
+        #print(var_limits)
+        read_order = values[2::3]
         # Get positions for each keyword: INTEHEAD:[66, 207]
-        keypos_to_read = {k:v[::2] for k,v in key_pos_name}
-        # Get read-order: ('year','min')
-        read_order = flatten(v for _,v in key_pos_name)[1::2]
-        # Map input to read-order: [1, 0] if ('min','year') is input
-        out_order = [read_order.index(v) for v in varnames]
+        keypos_to_read = {k:index_limits(flatten(v[0::3])) for k,v in tmp.items()}
+        #keypos_size = {k:list(pairwise(accumulate((0,)+flatten(v[1::3])))) for k,v in tmp.items()}
+        #print(keypos_size)
+        # Map input to read-order limits: [(1,2), (0,1)] if ('min','year') is input
+        out_limits = [var_limits[read_order.index(v)] for v in varnames]
+        if unpack_single:
+            # Only slice (return a list) for non-single variables
+            out_slice = [slice(a,b) if b-a>1 else a for a,b in out_limits]
+        else:
+            # Always slice
+            out_slice = [slice(*i) for i in out_limits]
+        #print(out_slice)
         section = []
-        n = 0
-        yielded = False
+        #size = max(flatten(var_limits))
+        #section = size*[None]
+        num = 0
+        #i = 0
         for block in blocks(**kwargs):
             if end_key in block:
-                n += 1
-                # Yield data from end-block?
-                if end_key in keypos_to_read:
-                    section.extend(block.data(*keypos_to_read[end_key], unwrap_tuple=False))
-                    block = None
-                if section:
-                    data = [section[i] for i in out_order]
-                    section = []
-                    if not drop or not drop(data):
-                        yielded = True
-                        yield data
-            if stop and n >= stop:
+                num += 1
+            if num < start:
+                continue
+            if step and (num-start)%step > 0:
+                continue
+            # if stop and num > stop:
+            #     return
+            if block and (positions:=keypos_to_read.get(block.key())):
+                section.extend(block.data(*positions, unwrap_tuple=False))
+                #section.append(block.data(*positions, unwrap_tuple=False))
+                #print(block.key(), block.data(*positions, unwrap_tuple=False))
+                #data = block.data(*positions, unwrap_tuple=False)
+                #for a,b in keypos_size[block.key()]:
+                #    section[slice(*out_limits[i])] = data[a:b]
+                #    i += 1
+            if end_key in block and section: # and i > 0:
+                #data = [section[slice(*i)] for i in out_limits]
+                data = [section[s] for s in out_slice]
+                if not drop or not drop(data):
+                #if not drop or not drop(section):
+                    yield data
+                    #yield section
+                section = []
+                #i = 0
+            if stop and num >= stop:
                 return
-            if n < start:
-                continue
-            if step and (n-start)%step > 0:
-                continue
-            if block and (key:=block.key()) in keypos_to_read:
-                section.extend(block.data(*keypos_to_read[key], unwrap_tuple=False))
-        if not yielded:
-            yield len(varnames)*[None]
-
+        # if num == 0:
+        #     print(len(varnames)*[[None]])
+        #     return len(varnames)*[[None]]
 
     #--------------------------------------------------------------------------------
     def get(self, *var_list, N=0, stop=(), raise_error=True, **kwargs):  # unfmt_file
@@ -847,7 +868,7 @@ class DATA_file(File):
     def replace_keyword(self, keyword, new_string):                      # DATA_file
     #--------------------------------------------------------------------------------
         ### Get keyword value and position in file
-        match = self.get(keyword, pos=True) 
+        match = self.get(keyword, pos=True)
         if match:
             _, pos = match[0] # Get first match
         else:
@@ -992,28 +1013,29 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def last_day(self):                                                # UNRST_file
     #--------------------------------------------------------------------------------
-        time = self.get('time', N=-1, raise_error=False)
-        return time[0][0] if time else 0
+        #time = self.get('time', N=-1, raise_error=False)
+        #return time[0][0] if time else 0
+        time = next(self.read('time', tail=True), None) or [0]
+        return time[0]
 
     #--------------------------------------------------------------------------------
-    def dates(self, N=0):                                                # UNRST_file
+    def dates(self, **kwargs):                                                # UNRST_file
     #--------------------------------------------------------------------------------
-        year, month, day = self.get('year','month','day', N=N)
-        # dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date() for d,m,y in zip(day, month, year))
-        dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in zip(day, month, year))
-        if abs(N) == 1:
-            return list(dates)[-1]
-        else:
-            return dates
+        #year, month, day = self.get('year','month','day', N=N)
+        #dates = (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in zip(day, month, year))
+        #if abs(N) == 1:
+        #    return list(dates)[-1]
+        #return dates
+        data = self.read('year','month','day', **kwargs)
+        return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for y,m,d in data)
 
-    #--------------------------------------------------------------------------------
-    def date(self, block, step):                                         # UNRST_file
-    #--------------------------------------------------------------------------------
-        if block.key() == 'INTEHEAD':
-            d, m, y = block.data((64,67)) #[64:66]
-            # return datetime.strptime(f'{d} {m} {y}', '%d %m %Y').date()
-            return datetime.strptime(f'{d} {m} {y}', '%d %m %Y')
-        return step
+    # #--------------------------------------------------------------------------------
+    # def date(self, block, step):                                         # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     if block.key() == 'INTEHEAD':
+    #         d, m, y = block.data((64,67)) #[64:66]
+    #         return datetime.strptime(f'{d} {m} {y}', '%d %m %Y')
+    #     return step
 
     #--------------------------------------------------------------------------------
     def step(self, block, step):                                         # UNRST_file
@@ -1021,32 +1043,32 @@ class UNRST_file(unfmt_file):
         '''
         Used in sections to get step of current section
         '''
-        
         if block.key() == 'SEQNUM':
-            return block.data(0) #[0]
+            return block.data(0)
         return step
 
     #--------------------------------------------------------------------------------
     def sections(self, **kwargs):                                       # UNRST_file
     #--------------------------------------------------------------------------------
-        return super().sections(init_key='SEQNUM', check_sync=self.step, **kwargs)
+        #return super().sections(init_key='SEQNUM', check_sync=self.step, **kwargs)
+        return super().sections(init_key=self.start, check_sync=self.step, **kwargs)
 
-    #--------------------------------------------------------------------------------
-    def data(self, *keys):                                               # UNRST_file
-    #--------------------------------------------------------------------------------
-        data = {}
-        for block in self.blocks():
-            if block.key() == 'SEQNUM':
-                if data:
-                    yield data
-                data = {}
-                data['SEQNUM'] = block.data(0) #[0]
-            if block.key() == 'INTEHEAD':
-                data['DATE'] = block.data((64,67)) #[64:67] #data[206:208], data[410] 
-            for key in keys:
-                if block.key() == key:
-                    D = block.data()
-                    data[key] = (min(D), max(D))
+    # #--------------------------------------------------------------------------------
+    # def data(self, *keys):                                               # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     data = {}
+    #     for block in self.blocks():
+    #         if block.key() == 'SEQNUM':
+    #             if data:
+    #                 yield data
+    #             data = {}
+    #             data['SEQNUM'] = block.data(0) #[0]
+    #         if block.key() == 'INTEHEAD':
+    #             data['DATE'] = block.data((64,67)) #[64:67] #data[206:208], data[410] 
+    #         for key in keys:
+    #             if block.key() == key:
+    #                 D = block.data()
+    #                 data[key] = (min(D), max(D))
 
 
 
@@ -1081,8 +1103,15 @@ class RFT_file(unfmt_file):                                                # RFT
 #====================================================================================
 class UNSMRY_file(unfmt_file):
 #====================================================================================
-    start = 'SEQHDR'
-    end = 'MINISTEP'
+    """
+    Unformatted unified summary file
+    --------------------------------
+    A report step is initiated by a SEQHDR keyword, followed by pairs of MINISTEP
+    and PARAMS keywords for each ministep. Hence, one sequence might have multiple
+    MINISTEP and PARAMS keywords.
+    """
+    start = 'MINISTEP'
+    end = 'PARAMS'
     var_pos = {'days' : ('PARAMS', 0),
                'years': ('PARAMS', 1),
                'step' : ('MINISTEP', 0)}
@@ -1104,12 +1133,12 @@ class UNSMRY_file(unfmt_file):
         if self.is_file() and self.spec.read(keys=keys):
             self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
-            print(self.var_pos['welldata'])
             days = welldata = ()
-            data = self.get('days', 'welldata', only_new=True, raise_error=False)
-
+            data = list(self.read('days', 'welldata', only_new=True))
+            #data = self.get('days', 'welldata', only_new=True, raise_error=False)
             if data:
-                days, welldata = data #[:2]
+                days, welldata = zip(*data)
+                #days, welldata = data #[:2]
             return self._data(days, welldata, self.keys, self.wells)
         return self._data()
 
@@ -1168,17 +1197,18 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     #--------------------------------------------------------------------------------
     def pos(self, keyword:int):                                         # SMSPEC_file
     #--------------------------------------------------------------------------------
-        return keyword in self.data[0] and [self.data[0].index(keyword)] or []
+        return [self.data[0].index(keyword)] if keyword in self.data[0] else []
+        #return keyword in self.data[0] and [self.data[0].index(keyword)] or []
 
     #--------------------------------------------------------------------------------
     def well_pos(self):                                                 # SMSPEC_file
     #--------------------------------------------------------------------------------
-        pos = tuple(self._index.keys())
-        # Group consecutive indexes into (first, last) limits,
-        # i.e. (1,2,3,4,8,9,10) becomes (1,5),(8,11)
-        index = (pos[0],) + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + (pos[-1],)
-        limits = [(a,b+1) for a,b in grouper(index, 2)]
-        return limits
+        return tuple(self._index.keys())
+        # # Group consecutive indexes into (first, last) limits,
+        # # i.e. (1,2,3,4,8,9,10) becomes (1,5),(8,11)
+        # index = (pos[0],) + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + (pos[-1],)
+        # limits = [(a,b+1) for a,b in grouper(index, 2)]
+        # return limits
 
 
 
@@ -1209,10 +1239,9 @@ class text_file(File):
             raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
         if N == 0:
             return list(values.values())
-        else:
-            if N > 0:
-                N -= 1
-            return [[v[N]] if v else [] for v in values.values()]
+        if N > 0:
+            N -= 1
+        return [[v[N]] if v else [] for v in values.values()]
 
 
 

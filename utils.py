@@ -26,6 +26,16 @@ from psutil import Process, NoSuchProcess, wait_procs
 #    * : 0 or more rep.
 
 #-----------------------------------------------------------------------
+def index_limits(index):
+#-----------------------------------------------------------------------
+    """ Group consecutive indexes into (first, last) limits """
+    # index_lim((1,2,3,4,8,9,10)) --> (1,5),(8,11)
+    jumps = (index[0],) + flatten((a,b) for a,b in pairwise(index) if b-a>1) + (index[-1],)
+    limits = [(a,b+1) for a,b in grouper(jumps, 2)]
+    return limits
+
+
+#-----------------------------------------------------------------------
 def string_chunks(str, l, strip=False):
 #-----------------------------------------------------------------------
     strings = (str[i:i+l] for i in range(0, len(str), l))
