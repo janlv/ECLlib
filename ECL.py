@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
 #from numba import njit, jit
-from .utils import index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
+from .utils import tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
 #
 #
@@ -289,6 +289,12 @@ class File:
     def name(self):                                                            # File
     #--------------------------------------------------------------------------------
         return self.file.name
+
+    #--------------------------------------------------------------------------------
+    def tail(self, **kwargs):
+    #--------------------------------------------------------------------------------
+        return tail_file(self.file, **kwargs)
+
 
 
 
@@ -1097,7 +1103,13 @@ class RFT_file(unfmt_file):                                                # RFT
     #--------------------------------------------------------------------------------
     def last_day(self):                                                   # RFT_file
     #--------------------------------------------------------------------------------
-        return (data := self.check.data()) and data[-1] or 0
+        # Return data from last check if it exists
+        if data := self.check.data():
+            return data[-1]
+        # Return time-value from tail of file
+        time = next(self.read('time', tail=True), None) or [0]
+        return time[0]
+        #return (data := self.check.data()) and data[-1] or 0
 
 
 #====================================================================================
@@ -1272,6 +1284,14 @@ class PRT_file(text_file):
         self._convert = {'time' : float,
                          'step' : int}
 
+    #--------------------------------------------------------------------------------
+    def last_day(self):
+    #--------------------------------------------------------------------------------
+        text = (txt for txt in self.tail(size=10*1024) if 'TIME=' in txt)
+        data = next(text, None)
+        if data:
+            days = list(m.group(1) for m in re_compile(self._pattern['time']).finditer(data))
+            return float(days[-1]) if days else 0
 
 
 #====================================================================================
