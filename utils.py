@@ -413,6 +413,15 @@ def get_python_version():
     return version_info
 
 #--------------------------------------------------------------------------------
+def clear_dict(adict):
+#--------------------------------------------------------------------------------
+    for val in adict.values():
+        if isinstance(val, list):
+            val.clear()
+        elif isinstance(val, dict):
+            clear_dict(val)
+
+#--------------------------------------------------------------------------------
 def print_dict(adict):
 #--------------------------------------------------------------------------------
     return ', '.join([f'{k}={v}' for k,v in adict.items()])
@@ -435,7 +444,20 @@ def print_error(func):
     return wrapper
 
 #--------------------------------------------------------------------------------
-def read_file(file, raise_error=True):
+def read_line(n, file, raise_error=True):
+#--------------------------------------------------------------------------------
+    file = Path(file)
+    if not file.is_file():
+        if raise_error:
+            raise SystemError(f'ERROR {file} not found in read_line()')
+        return ''
+    with open(file, 'r') as fileobj:
+        for _ in range(n-1):
+            fileobj.readline()
+        return fileobj.readline()
+
+#--------------------------------------------------------------------------------
+def read_file(file, raise_error=True, skip=None):
 #--------------------------------------------------------------------------------
     file = Path(file)
     if not file.is_file():
@@ -443,6 +465,7 @@ def read_file(file, raise_error=True):
             raise SystemError(f'ERROR {file} not found in read_file()')
         return ''
     with open(file, 'rb') as fileobj:
+        skip and fileobj.seek(skip)
         return fileobj.read().decode()
     
     # try:
