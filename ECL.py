@@ -339,6 +339,7 @@ class unfmt_file(File):
             startpos = self.endpos
         if start:
             startpos = start
+        #print(f'{self}, start:{start}, only_new:{only_new}, {self.size()} - {startpos} = {self.size() - startpos}')
         if self.size() - startpos < 24: # Header is 24 bytes
             return False
         with open(self.file, mode='rb') as file:
@@ -601,12 +602,15 @@ class unfmt_file(File):
         return return_value
 
     #--------------------------------------------------------------------------------
-    def assert_no_duplicates(self):                                  # unfmt_file
+    def assert_no_duplicates(self, raise_error=True):                     # unfmt_file
     #--------------------------------------------------------------------------------
         seen = set()
         duplicate = (key for b in self.blocks() if (key:=b.key()) in seen or seen.add(key))
         if (dup:=next(duplicate)) != self.start:
-            raise SystemError(f'ERROR Duplicate keyword {dup} in {self}')
+            msg = f'Duplicate keyword {dup} in {self}'
+            if raise_error:
+                raise SystemError('ERROR ' + msg)
+            print('WARNING ' + msg)
 
 #====================================================================================
 class DATA_file(File):
@@ -792,11 +796,14 @@ class DATA_file(File):
     def get(self, *keywords, raise_error=False, pos=False):                # DATA_file
     #--------------------------------------------------------------------------------
         #print('get', keywords)
-        FAIL = len(keywords)*((),)
-        if not self.exists(raise_error=raise_error):
-            return FAIL
+        #FAIL = len(keywords)*((),)
         keywords = [key.upper() for key in keywords]
         getters = [self._getter.get(key) for key in keywords]
+        FAIL = [g.default for g in getters]
+        FAIL = FAIL[0] if len(FAIL) == 1 else FAIL
+        #print(FAIL)
+        if not self.exists(raise_error=raise_error):
+            return FAIL
         if missing:=[k for g,k in zip(getters, keywords) if not g]:
             if raise_error:
                 raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
@@ -891,7 +898,11 @@ class DATA_file(File):
         #    data = (data,)
         lines = (l for d in data for l in d.split(b'\n'))
         text = (l.split(b'--')[0].strip() for l in lines)
-        text = b'\n'.join(t for t in text if t).decode()
+        text = b'\n'.join(t for t in text if t)
+        try:
+            text = text.decode()
+        except UnicodeDecodeError:
+            text = text.decode(encoding='latin1')
         return text+'\n' if text else ''
 
     #--------------------------------------------------------------------------------
@@ -971,7 +982,8 @@ class DATA_file(File):
         unzip = zip(*values)
         files = ([(self.file.parent/file).resolve()] for file in next(unzip))
         numbers = [[float(num)] for num in next(unzip, ())]
-        files = numbers and tuple([f[0],n[0]] for f,n in zip(files, numbers)) or tuple(files)
+        files = tuple([f[0],n[0]] for f,n in zip(files, numbers)) if numbers else tuple(files)
+        #print(key, files)
         ### Add suffix for RESTART keyword
         if key == 'RESTART' and files:
             files[0][0] = files[0][0].with_suffix('.UNRST')
@@ -1147,10 +1159,8 @@ class UNSMRY_file(unfmt_file):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             days = welldata = ()
             data = list(self.read('days', 'welldata', only_new=True))
-            #data = self.get('days', 'welldata', only_new=True, raise_error=False)
             if data:
                 days, welldata = zip(*data)
-                #days, welldata = data #[:2]
             return self._data(days, welldata, self.keys, self.wells)
         return self._data()
 
