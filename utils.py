@@ -25,6 +25,14 @@ from psutil import Process, NoSuchProcess, wait_procs
 #    + : 1 or more rep.
 #    * : 0 or more rep.
 
+
+#-----------------------------------------------------------------------
+def removeprefix(prefix, string):
+#-----------------------------------------------------------------------
+    if string.startswith(prefix):
+        return string[len(prefix):]
+    return string
+
 #-----------------------------------------------------------------------
 def index_limits(index):
 #-----------------------------------------------------------------------
@@ -136,7 +144,7 @@ def tail_file(path, size=10*1024):
     with open(path, 'rb') as file:
         while pos <= maxsize:
             file.seek(-pos, 2)
-            yield file.read(size).decode()
+            yield decode(file.read(size))
             if pos == maxsize:
                 return
             pos = min(pos + size, maxsize)
@@ -318,16 +326,16 @@ def string_in_file(string, file):
 def safezip(*gen):
 #-----------------------------------------------------------------------
     '''
-    Zip generators and close them if the zip exits. Zip exits when the first generator is exhausted.
-    The __exit__() function for the non-exhausted generators will not be called. 
-    This routine closes the generators explicitly.
+    Zip generators and close them if the zip exits. Zip exits when the first generator 
+    is exhausted. The __exit__() function for the non-exhausted generators will not be 
+    called. This routine closes the generators explicitly.
     '''
     try:
         yield zip(*gen)
     finally:
         for g in gen:
             g.close()
-        #[g.close() for g in gen]
+
 
 #-----------------------------------------------------------------------
 def remove_chars(chars, text):
@@ -340,7 +348,7 @@ def remove_chars(chars, text):
 #-----------------------------------------------------------------------
 def remove_leading_nondigits(txt):
 #-----------------------------------------------------------------------
-    return sub(r'^[a-zA-Z-+._]*', '', txt)  
+    return sub(r'^[a-zA-Z-+._]*', '', txt)
 
 #-----------------------------------------------------------------------
 def try_except_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, func=None, **kwargs):
@@ -473,89 +481,77 @@ def read_file(file, raise_error=True, skip=None):
             raise SystemError(f'ERROR {file} not found in read_file()')
         return ''
     with open(file, 'rb') as fileobj:
-        skip and fileobj.seek(skip)
-        return fileobj.read().decode()
+        if skip:
+            fileobj.seek(skip)
+        return decode(fileobj.read())
     
-    # try:
-    #     with open(file, encoding='utf-8') as f:
-    #     #with open(file, encoding='ascii', errors='surrogateescape') as f:
-    #         lines = f.readlines()
-    # except UnicodeDecodeError as e:
-    #     with open(file, encoding='latin-1') as f:
-    #         lines = f.readlines()
-    # except OSError as err:
-    #     raise SystemError(f'Unable to read {file}: {err}')
-    # return ''.join(lines)
+#--------------------------------------------------------------------------------
+def decode(data):
+#--------------------------------------------------------------------------------
+    encoding = ('utf-8', 'latin1')
+    for enc in encoding:
+        try:
+            return data.decode(encoding=enc)
+        except UnicodeError:
+            continue
+    raise SystemError(f'ERROR decode with {encoding} encoding failed!')
 
 #--------------------------------------------------------------------------------
-def write_file(file, text):
+def write_file(path, text):
 #--------------------------------------------------------------------------------
+    for encoding in ('utf-8', 'latin-1'):
+        try:
+            with open(path, 'w', encoding=encoding) as file:
+                return file.write(text)
+        except UnicodeError:
+            continue
+    raise SystemError(f'ERROR Unable to write to file {Path(path).name}')
+
+
+#--------------------------------------------------------------------------------
+def remove_comments(path, comment='--', join=True, raise_error=True):
+#--------------------------------------------------------------------------------
+    path = Path(path)
     try:
-        with open(file, 'w') as f:
-            f.write(text)
-    except UnicodeEncodeError:
-        #with open(file, 'w', encoding='ISO-8859-1') as f:
-        with open(file, 'w', encoding='latin-1') as f:
-            f.write(text)
-    except OSError as err:
-        raise SystemError(f'Unable to write to {file}: {err}')
-
-
-
-#--------------------------------------------------------------------------------
-def remove_comments(path, comment='--', join=True, raise_error=True, encoding=None, end=None):
-#--------------------------------------------------------------------------------
-    try:
-        path = Path(path)
-        if not path.is_file:
+        if not path.is_file():
             if raise_error:
-                raise SystemError(f'ERROR {path} not found in remove_comments()')    
+                raise SystemError(f'ERROR {path} not found in remove_comments()')
             return []
-        with open(path, encoding=encoding) as file:
-            lines = (line.split(comment)[0].strip() for l in file if (line:=l.strip()) and not line.startswith(comment))
-            if end:
-                # If end should be included
-                #lines = chain(takewhile(lambda x: x != end, lines), (end,))
-                lines = takewhile(lambda x: x != end, lines)
-            if join:
-                return '\n'.join(lines)+'\n'
-            return list(lines)
-    except (FileNotFoundError, PermissionError):
+    except PermissionError:
         return []
-    except UnicodeDecodeError as e:
-        if encoding:
-            raise SystemError('ERROR {path} raised UnicodeDecodeError for both UTF-8 and latin-1 encodings: {e}')
-        return remove_comments(path, encoding='latin-1', comment=comment, join=join, raise_error=raise_error, end=end)
-
-
+    comment = comment.encode()
+    with open(path, 'rb') as file:
+        data = file.read()
+        lines = (line.split(comment)[0].strip() for l in data.split(b'\n') if (line:=l.strip()) and not line.startswith(comment))
+        if join:
+            return decode(b'\n'.join(lines)) + '\n'
+        return [decode(line) for line in lines]
 
 # #--------------------------------------------------------------------------------
-# def remove_comments_old(file=None, lines=None, comment='--', end=None, raise_error=True, newline=True):
+# def remove_comments(path, comment='--', join=True, raise_error=True, encoding=None, end=None):
 # #--------------------------------------------------------------------------------
-#     if file:
-#         try:
-#             if not Path(file).is_file():
-#                 if raise_error:
-#                     raise SystemError(f'ERROR {file} not found in remove_comments()')    
-#                 else:
-#                     return []
-#             with open(file) as f:
-#                 lines = f.readlines()
-#         except UnicodeDecodeError:
-#             #with open(file, encoding='ISO-8859-1') as f:
-#             with open(file, encoding='latin-1') as f:
-#                 lines = f.readlines()
-#         except (FileNotFoundError, PermissionError):
+#     try:
+#         path = Path(path)
+#         if not path.is_file:
+#             if raise_error:
+#                 raise SystemError(f'ERROR {path} not found in remove_comments()')
 #             return []
-#     lf = ''
-#     if newline:
-#         lf = '\n'
-#     lines = ''.join([l.split(comment)[0]+lf if comment in l else l for l in lines])
-#     if end:
-#         pos = [m.end() for m in compile(rf'\b{end}\b').finditer(lines)]
-#         if pos:
-#             lines = lines[:pos[0]]+lf
-#     return lines
+#         with open(path, encoding=encoding) as file:
+#             lines = (line.split(comment)[0].strip() for l in file if (line:=l.strip()) and not line.startswith(comment))
+#             if end:
+#                 # If end should be included
+#                 #lines = chain(takewhile(lambda x: x != end, lines), (end,))
+#                 lines = takewhile(lambda x: x != end, lines)
+#             if join:
+#                 return '\n'.join(lines)+'\n'
+#             return list(lines)
+#     except (FileNotFoundError, PermissionError):
+#         return []
+#     except UnicodeDecodeError as e:
+#         if encoding:
+#             raise SystemError('ERROR {path} raised UnicodeDecodeError for both UTF-8 and latin-1 encodings: {e}')
+#         return remove_comments(path, encoding='latin-1', comment=comment, join=join, raise_error=raise_error, end=end)
+
 
 #--------------------------------------------------------------------------------
 def safeindex(alist, value):
@@ -599,26 +595,26 @@ def replace_line(fname, find=None, replace=None):
     return True
 
 
-#--------------------------------------------------------------------------------
-def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=True):
-#--------------------------------------------------------------------------------
-    #print(f'file_contains({fname}, {text})')
-    if not Path(fname).is_file():
-        if raise_error:
-            raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
-        else:
-            return False
-    if isinstance(text, str):
-        text = [text]
-    regex = [rf'\b{t}\b' for t in text]
-    lines = remove_comments(fname, comment=comment, end=end)
-    if any(search(r, lines) for r in regex):
-        return True
-    # for reg in regex:
-    #     #regex = rf'\b{text}\b'
-    #     if search(reg, lines): 
-    #         return True
-    return False
+# #--------------------------------------------------------------------------------
+# def file_contains(fname, text='', regex='', comment='#', end=None, raise_error=True):
+# #--------------------------------------------------------------------------------
+#     #print(f'file_contains({fname}, {text})')
+#     if not Path(fname).is_file():
+#         if raise_error:
+#             raise SystemError('ERROR ' + fname + ' not found in file_contains()')    
+#         else:
+#             return False
+#     if isinstance(text, str):
+#         text = [text]
+#     regex = [rf'\b{t}\b' for t in text]
+#     lines = remove_comments(fname, comment=comment, end=end)
+#     if any(search(r, lines) for r in regex):
+#         return True
+#     # for reg in regex:
+#     #     #regex = rf'\b{text}\b'
+#     #     if search(reg, lines): 
+#     #         return True
+#     return False
 
 #--------------------------------------------------------------------------------
 def delete_all(folder, keep_folder=False, ignore_error=()):

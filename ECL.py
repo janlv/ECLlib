@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
 #from numba import njit, jit
-from .utils import tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
+from .utils import decode, tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
 #
 #
@@ -208,13 +208,13 @@ class File:
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix, role='', ignore_case=False):          # File
     #--------------------------------------------------------------------------------
-        #self.file = suffix and Path(filename).with_suffix(suffix) or Path(filename)
-        self.file = Path(filename).with_suffix(suffix) if suffix else Path(filename)
+        filename = Path(filename)
+        self.file = filename.with_suffix(suffix) if suffix else filename
         if ignore_case and not self.file.is_file():
             ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
-            pattern = '*.'+'['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
+            pattern = '*.['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
             self.file = next(filename.parent.glob(pattern), self.file)
-        self.role = role.rstrip().lstrip()
+        self.role = role.strip() #rstrip().lstrip()
         self.debug = DEBUG and self.__class__.__name__ == File.__name__
         if self.debug:
             print(f'Creating {repr(self)}')
@@ -246,6 +246,17 @@ class File:
             raise SystemError(f'File {self} does not exist')
         return b''
  
+    # #--------------------------------------------------------------------------------
+    # def decode(self, data):
+    # #--------------------------------------------------------------------------------        
+    #     encoding = ('utf-8', 'latin1')
+    #     for enc in encoding:
+    #         try:
+    #             return data.decode(encoding=enc)
+    #         except UnicodeError:
+    #             continue
+    #     raise SystemError(f'ERROR decode with {encoding} encoding failed for {self}')
+
     #--------------------------------------------------------------------------------
     def delete(self, raise_error=False, echo=False):                           # File
     #--------------------------------------------------------------------------------
@@ -716,7 +727,8 @@ class DATA_file(File):
         if not comments:
             self.data = self._remove_comments(data)
         else:
-            self.data = b''.join(data).decode()
+            #self.data = b''.join(data).decode()
+            self.data = decode(b''.join(data))
         return search(regex, self.data, flags=MULTILINE)
 
     #--------------------------------------------------------------------------------
@@ -899,10 +911,10 @@ class DATA_file(File):
         lines = (l for d in data for l in d.split(b'\n'))
         text = (l.split(b'--')[0].strip() for l in lines)
         text = b'\n'.join(t for t in text if t)
-        try:
-            text = text.decode()
-        except UnicodeDecodeError:
-            text = text.decode(encoding='latin1')
+        #try:
+        text = decode(text)
+        #except UnicodeDecodeError:
+        #    text = text.decode(encoding='latin1')
         return text+'\n' if text else ''
 
     #--------------------------------------------------------------------------------
