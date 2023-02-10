@@ -354,24 +354,28 @@ class unfmt_file(File):
         if self.size() - startpos < 24: # Header is 24 bytes
             return False
         with open(self.file, mode='rb') as file:
-            with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                size = data.size()
-                pos = startpos
-                while pos < size:
-                    start = pos
-                    ### Header
-                    try:
-                        ### Header is 24 bytes, we skip int of length 4 before and after
-                        key, length, typ = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
-                        ### Value array
-                        nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
-                        pos += 24 + nbytes
-                    except (ValueError, struct_error):
-                        return False
-                    self.endpos = pos
-                    yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
-                                      data=data, file=self.file)
-    
+            try:
+                with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
+                    size = data.size()
+                    pos = startpos
+                    while pos < size:
+                        start = pos
+                        ### Header
+                        try:
+                            ### Header is 24 bytes, we skip int of length 4 before and after
+                            key, length, typ = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
+                            ### Value array
+                            nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
+                            pos += 24 + nbytes
+                        except (ValueError, struct_error):
+                            return False
+                        self.endpos = pos
+                        yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
+                                        data=data, file=self.file)
+            except ValueError: # as error: # Catch 'cannot mmap an empty file'
+                #print(error)
+                return False
+
     # #--------------------------------------------------------------------------------
     # def blocks(self, only_new=False, start=None):                        # unfmt_file
     # #--------------------------------------------------------------------------------
@@ -637,9 +641,9 @@ class DATA_file(File):
     common_kw = ('TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE', 'FMTOUT','UNIFOUT','UNIFIN',
                  'OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS',
                  'REGDIMS','TRACERS', 'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO',
-                 'BOX','PERMX','PERMY','PERMZ','TOPS', 'INIT','RPTGRID','PVCDO','PVTW','DENSITY',
-                 'PVDG','ROCK','SPECROCK','SPECHEAT','TRACER','TRACERKP', 'TRDIFPAR','TRDIFIDE',
-                 'SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
+                 'BOX','PERMX','PERMY','PERMZ','TOPS', 'INIT','RPTGRID','PVCDO','PVTW','SGOF','SWOF',
+                 'DENSITY','PVDG','ROCK','RPTPROPS','SPECROCK','SPECHEAT','TRACER','TRACERKP', 'TRDIFPAR',
+                 'TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
                  'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT',
                  'FWPR','FWPT','FWCT','FWIR', 'FWIT','FOIP','ROIP','WTPCHEA','WOPR','WWPR','WWIR',
                  'WBHP','WWCT','WOPT','WWIT','WTPRA1','WTPTA1','WTPCA1', 'WTIRA1','WTITA1',
