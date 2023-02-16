@@ -473,15 +473,11 @@ class unfmt_file(File):
             end_key = self.start
         # keyword : ([pos1], size1, name1, [pos2], size2, name2)
         tmp = {k:flatten((v[:-1], len(v[:-1]), v[-1]) for v in pn) for k,pn in key_pos_name}
-        #print(tmp)
         values = flatten(tmp.values())
         var_limits = list(pairwise(accumulate((0,)+values[1::3])))
-        #print(var_limits)
         read_order = values[2::3]
         # Get positions for each keyword: INTEHEAD:[66, 207]
         keypos_to_read = {k:index_limits(flatten(v[0::3])) for k,v in tmp.items()}
-        #keypos_size = {k:list(pairwise(accumulate((0,)+flatten(v[1::3])))) for k,v in tmp.items()}
-        #print(keypos_size)
         # Map input to read-order limits: [(1,2), (0,1)] if ('min','year') is input
         out_limits = [var_limits[read_order.index(v)] for v in varnames]
         if unpack_single:
@@ -490,12 +486,8 @@ class unfmt_file(File):
         else:
             # Always slice
             out_slice = [slice(*i) for i in out_limits]
-        #print(out_slice)
         section = []
-        #size = max(flatten(var_limits))
-        #section = size*[None]
         num = 0
-        #i = 0
         for block in blocks(**kwargs):
             if end_key in block:
                 num += 1
@@ -503,30 +495,16 @@ class unfmt_file(File):
                 continue
             if step and (num-start)%step > 0:
                 continue
-            # if stop and num > stop:
-            #     return
             if block and (positions:=keypos_to_read.get(block.key())):
                 section.extend(block.data(*positions, unwrap_tuple=False))
-                #section.append(block.data(*positions, unwrap_tuple=False))
-                #print(block.key(), block.data(*positions, unwrap_tuple=False))
-                #data = block.data(*positions, unwrap_tuple=False)
-                #for a,b in keypos_size[block.key()]:
-                #    section[slice(*out_limits[i])] = data[a:b]
-                #    i += 1
             if end_key in block and section: # and i > 0:
-                #data = [section[slice(*i)] for i in out_limits]
                 data = [section[s] for s in out_slice]
                 if not drop or not drop(data):
-                #if not drop or not drop(section):
                     yield data
-                    #yield section
                 section = []
-                #i = 0
             if stop and num >= stop:
                 return
-        # if num == 0:
-        #     print(len(varnames)*[[None]])
-        #     return len(varnames)*[[None]]
+
 
     #--------------------------------------------------------------------------------
     def get(self, *var_list, N=0, stop=(), raise_error=True, **kwargs):  # unfmt_file
@@ -739,16 +717,19 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
+        ''' Check if file is empty '''
         return self._remove_comments() == ''
 
     #--------------------------------------------------------------------------------
     def include_files(self, data:bytes=None):                           # DATA_file
     #--------------------------------------------------------------------------------
+        ''' Return full path of INCLUDE files as a generator '''
         return (f[0] for f in self._included_file_data(data))
 
     #--------------------------------------------------------------------------------
-    def including(self, *files):
+    def including(self, *files):                                          # DATA_file
     #--------------------------------------------------------------------------------
+        ''' Add the given files and return self '''
         self._added_files = files
         return self
 
@@ -1022,13 +1003,14 @@ class UNRST_file(unfmt_file):
                 'hour'  : ('INTEHEAD', 206),
                 'min'   : ('INTEHEAD', 207),
                 'sec'   : ('INTEHEAD', 410),
-                'time'  : ('DOUBHEAD', 0)}
+                'time'  : ('DOUBHEAD', 0),
+                'well'  : ('ZWEL'    , 0)}
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, end=None, **kwargs):    # UNRST_file
     #--------------------------------------------------------------------------------
         super().__init__(file, '.UNRST')
-        self.end = end or self.end 
+        self.end = end or self.end
         self.varmap = {'step'  : keypos(key='SEQNUM'),
                        'nwell' : keypos('INTEHEAD', [16] , 'NWELLS'),
                        'day'   : keypos('INTEHEAD', [64] , 'IDAY'),
