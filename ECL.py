@@ -938,8 +938,9 @@ class DATA_file(File):
         ''' Return tuple of filename and binary-data for each include file '''
         #print('include_files')
         data = data or self.binarydata()
-        #regex = rb"(\bINCLUDE\b|\bGDFILE\b)\s*(--)?.*\s+'*(?P<file>[a-zA-Z0-9_./\\-]+)'*\s*/"
-        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
+        #regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
+        # Allow filenames without quotes ('"), i.e. !#%& and ASCII 28 - 126 (7e) 
+        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)'*([!#%&\x28-\x7e]+)['\s]*/.*$"
         files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
         for file in chain(files, self._added_files):
             new_filename = self.with_name(file)
