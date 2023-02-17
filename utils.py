@@ -987,7 +987,7 @@ class Progress:
         if self.min > 0 and n >= self.min:
             a, b = strip_zero((self.min, nn))
             t = f'({a} + {b})'
-        print(f'fraction: {t} / {T}')
+        #print(f'fraction: {t} / {T}')
         return f'{t} / {T}'
 
     #--------------------------------------------------------------------------------
