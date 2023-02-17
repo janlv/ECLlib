@@ -757,17 +757,29 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
-        names = self.welspecs()
-        if not names:
-            # Look for wellnames in a restart-file
-            restart, step = self.get('RESTART')
-            unrst = UNRST_file(restart)
-            rft = RFT_file(unrst.file)
-            if unrst.is_file() and rft.is_file():
-                time, _ = next(unrst.read('time', 'step', drop=lambda x:x[1]<step))
-                names = (name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1]<time))
-                names = time and tuple(names) or ()
-        return names
+        '''
+        Return tuple of wellnames from WELSPECS and UNRST file for RESTART runs
+        '''
+        wells = self.welspecs()
+        restart, step = self.get('RESTART')
+        if restart and step:
+            rest_wells = UNRST_file(restart).read('well', stop=step)
+            rest_wells = set(w[0].strip() for w in rest_wells)
+            wells = tuple(rest_wells.union(wells))
+        return wells
+        #names = self.welspecs()
+        #if not names:
+        # Look for wellnames in a restart-file
+        #restart, step = self.get('RESTART')
+        #if restart and step:
+        #    wells = set(w[0].strip() for w in UNRST_file(restart).read('well', stop=step))
+        #rft = RFT_file(unrst.file)
+        # if unrst.is_file() and rft.is_file():
+        # if unrst.is_file() and rft.is_file():
+        #         time, _ = next(unrst.read('time', 'step', drop=lambda x:x[1]<step))
+        #         names = (name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1]<time))
+        #         names = time and tuple(names) or ()
+        #return names
 
     #--------------------------------------------------------------------------------
     def welspecs(self):                                                  # DATA_file
@@ -784,7 +796,7 @@ class DATA_file(File):
             if sch_file:
                 welspecs = DATA_file(sch_file, sections=False).get('WELSPECS')
         # The wellname is the first value, but it might contain spaces. If so, it is quoted
-        # and we need to check if the first char is a quote or not. If the line starts with  
+        # and we need to check if the first char is a quote or not. If the line starts with
         # a quote, we split on quote+space, otherwise we just split on space
         splits = (w.split("' ") if w.startswith("'") else w.split() for w in welspecs if w)
         return tuple(set(s[0].replace("'","") for s in splits))
