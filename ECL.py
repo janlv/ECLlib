@@ -705,12 +705,10 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def search(self, key, regex, comments=False):                         # DATA_file
     #--------------------------------------------------------------------------------
-        #print(list(self.include_files(self._data)))        
         data = self._matching(key)
         if not comments:
             self.data = self._remove_comments(data)
         else:
-            #self.data = b''.join(data).decode()
             self.data = decode(b''.join(data))
         return search(regex, self.data, flags=MULTILINE)
 
@@ -934,7 +932,7 @@ class DATA_file(File):
         data = data or self.binarydata()
         #regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
         # Allow filenames without quotes ('"), i.e. !#%& and ASCII 28 - 126 (7e) 
-        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)'*([!#%&\x28-\x7e]+)['\s]*/.*$"
+        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([!#%&\x28-\x7e]+)['\s]*/.*$"
         files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
         for file in chain(files, self._added_files):
             new_filename = self.with_name(file)

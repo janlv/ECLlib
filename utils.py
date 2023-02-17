@@ -943,22 +943,52 @@ class Progress:
     #--------------------------------------------------------------------------------
     def format_bar(self, n):
     #--------------------------------------------------------------------------------
-        #print('format_bar', n, self.min)
+        return f'{self.fraction(n)}  [{self.bar(n)}]  {self.time_str}'
+
+    # #--------------------------------------------------------------------------------
+    # def format_bar(self, n):
+    # #--------------------------------------------------------------------------------
+    #     #print('format_bar', n, self.min)
+    #     hash = 0
+    #     nn = max(n-self.min, 0)
+    #     if (diff := self.N-self.min) > 0:
+    #         hash = int(self.bar_length*nn/diff)
+    #     rest = self.bar_length - hash
+    #     # count = f'{int(n)}'
+    #     t, T = strip_zero((n, self.N))
+    #     if self.min > 0 and n >= self.min:
+    #         #count = f'({int(self.min)} + {int(nn)})'
+    #         a, b = strip_zero((self.min, nn))
+    #         t = f'({a} + {b})'
+    #         #print('format_bar',t)
+    #     #bar = hash <= self.bar_length and f'{hash*"#"}{rest*"-"}' or f'-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --'
+    #     bar = f'{hash*"#"}{rest*"-"}' if hash <= self.bar_length else f'-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --'
+    #     return f'{t} / {T}  [{bar}]  {self.time_str}'
+    #     #return f'{t} / {T}  [{bar}]  {self.eta}'
+
+    #--------------------------------------------------------------------------------
+    def bar(self, n):
+    #--------------------------------------------------------------------------------
         hash = 0
         nn = max(n-self.min, 0)
         if (diff := self.N-self.min) > 0:
             hash = int(self.bar_length*nn/diff)
         rest = self.bar_length - hash
-        # count = f'{int(n)}'
+        if hash <= self.bar_length:        
+            return f'{hash*"#"}{rest*"-"}'
+        return f'-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --'
+
+    #--------------------------------------------------------------------------------
+    def fraction(self, n):
+    #--------------------------------------------------------------------------------
+        n = n or 0  # if n is None
+        nn = max(n-self.min, 0)
         t, T = strip_zero((n, self.N))
         if self.min > 0 and n >= self.min:
-            #count = f'({int(self.min)} + {int(nn)})'
             a, b = strip_zero((self.min, nn))
             t = f'({a} + {b})'
-            #print('format_bar',t)
-        bar = hash <= self.bar_length and f'{hash*"#"}{rest*"-"}' or f'-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --'
-        return f'{t} / {T}  [{bar}]  {self.time_str}'
-        #return f'{t} / {T}  [{bar}]  {self.eta}'
+        print(f'fraction: {t} / {T}')
+        return f'{t} / {T}'
 
     #--------------------------------------------------------------------------------
     def set_N(self, N):
