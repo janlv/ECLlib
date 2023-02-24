@@ -36,10 +36,14 @@ def removeprefix(prefix, string):
 #-----------------------------------------------------------------------
 def index_limits(index):
 #-----------------------------------------------------------------------
-    """ Group consecutive indexes into (first, last) limits """
+    """ 
+    Group consecutive indexes into (first, last) limits 
+    Return () if first < 0
+    """
     # index_lim((1,2,3,4,8,9,10)) --> (1,5),(8,11)
     jumps = (index[0],) + flatten((a,b) for a,b in pairwise(index) if b-a>1) + (index[-1],)
-    limits = [(a,b+1) for a,b in grouper(jumps, 2)]
+    #limits = [(a,b+1) if a>=0 else () for a,b in grouper(jumps, 2)]
+    limits = [() if a<0 else (a,b+1) for a,b in grouper(jumps, 2)]
     return limits
 
 
