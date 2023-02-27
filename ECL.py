@@ -206,7 +206,7 @@ class unfmt_block:
 class File:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, role='', ignore_case=False):          # File
+    def __init__(self, filename, suffix, role=None, ignore_case=False):          # File
     #--------------------------------------------------------------------------------
         filename = Path(filename)
         self.file = filename.with_suffix(suffix) if suffix else filename
@@ -214,7 +214,7 @@ class File:
             ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
             pattern = '*.['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
             self.file = next(filename.parent.glob(pattern), self.file)
-        self.role = role.strip() #rstrip().lstrip()
+        self.role = role.strip() if role else '' #rstrip().lstrip()
         self.debug = DEBUG and self.__class__.__name__ == File.__name__
         if self.debug:
             print(f'Creating {repr(self)}')
@@ -771,24 +771,10 @@ class DATA_file(File):
         wells = self.welspecs()
         restart, step = self.get('RESTART')
         if restart and step:
-            #rest_wells = UNRST_file(restart).read('well', stop=step)
-            #rest_wells = set(w[0].strip() for w in rest_wells)
-            #wells = tuple(rest_wells.union(wells))
-            wells += UNRST_file(restart).wells(stop=step)
+            unrst = UNRST_file(restart, role='RESTART file')
+            unrst.exists(raise_error=True)
+            wells += unrst.wells(stop=step)
         return wells
-        #names = self.welspecs()
-        #if not names:
-        # Look for wellnames in a restart-file
-        #restart, step = self.get('RESTART')
-        #if restart and step:
-        #    wells = set(w[0].strip() for w in UNRST_file(restart).read('well', stop=step))
-        #rft = RFT_file(unrst.file)
-        # if unrst.is_file() and rft.is_file():
-        # if unrst.is_file() and rft.is_file():
-        #         time, _ = next(unrst.read('time', 'step', drop=lambda x:x[1]<step))
-        #         names = (name.strip() for name,_ in rft.read('wellname', 'time', drop=lambda x:x[1]<time))
-        #         names = time and tuple(names) or ()
-        #return names
 
     #--------------------------------------------------------------------------------
     def welspecs(self):                                                  # DATA_file
@@ -1039,19 +1025,10 @@ class UNRST_file(unfmt_file):
                 'wells' : ('ZWEL'    , -1)}  # -1 = whole array
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, end=None, **kwargs):    # UNRST_file
+    def __init__(self, file, wait_func=None, end=None, role=None, **kwargs):    # UNRST_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, '.UNRST')
+        super().__init__(file, '.UNRST', role=role)
         self.end = end or self.end
-        # self.varmap = {'step'  : keypos(key='SEQNUM'),
-        #                'nwell' : keypos('INTEHEAD', [16] , 'NWELLS'),
-        #                'day'   : keypos('INTEHEAD', [64] , 'IDAY'),
-        #                'month' : keypos('INTEHEAD', [65] , 'IMON'),
-        #                'year'  : keypos('INTEHEAD', [66] , 'IYEAR'),
-        #                'hour'  : keypos('INTEHEAD', [206], 'IHOURZ'),
-        #                'min'   : keypos('INTEHEAD', [207], 'IMINTS'),
-        #                'sec'   : keypos('INTEHEAD', [410], 'ISECND'),
-        #                'time'  : keypos(key='DOUBHEAD')}
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
 
 
