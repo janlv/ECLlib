@@ -279,6 +279,18 @@ class File:
     #--------------------------------------------------------------------------------
         return (self.file.parent/file).resolve()
 
+    #--------------------------------------------------------------------------------
+    def with_suffix(self, suffix, ignore_case=False, exists=False):            # File
+    #--------------------------------------------------------------------------------
+        if not exists:
+            return self.file.with_suffix(suffix)
+        # Require suffix starting with .
+        if suffix[0] != '.':
+            raise ValueError(f"Invalid suffix '{suffix}'")
+        if ignore_case:
+            # 'abc' -> '[aA][bB][cC]'
+            suffix = '.[' + ']['.join(s+s.swapcase() for s in suffix[1:]) + ']'
+        return next(self.file.parent.glob(self.file.stem+suffix), None)
         
     #--------------------------------------------------------------------------------
     def exists(self, raise_error=False):                                       # File
@@ -787,7 +799,8 @@ class DATA_file(File):
         if not welspecs or not welspecs[0]:
             # If no WELSPECS in DATA-file, look for WELSPECS in a separate SCH-file 
             # This is the case for backward runs
-            sch_file = next(self.file.parent.glob('*.[Ss][Cc][Hh]'), None)
+            #sch_file = next(self.file.parent.glob(f'{self.file.stem}.[Ss][Cc][Hh]'), None)
+            sch_file = self.with_suffix('.SCH', ignore_case=True, exists=True)
             if sch_file:
                 welspecs = DATA_file(sch_file, sections=False).get('WELSPECS')
         # The wellname is the first value, but it might contain spaces. If so, it is quoted
