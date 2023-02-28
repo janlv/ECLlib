@@ -206,14 +206,17 @@ class unfmt_block:
 class File:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, role=None, ignore_case=False):          # File
+    def __init__(self, filename, suffix=None, role=None, ignore_suffix_case=False, exists=False):          # File
     #--------------------------------------------------------------------------------
-        filename = Path(filename)
-        self.file = filename.with_suffix(suffix) if suffix else filename
-        if ignore_case and not self.file.is_file():
-            ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
-            pattern = '*.['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
-            self.file = next(filename.parent.glob(pattern), self.file)
+        # filename = Path(filename)
+        # self.file = filename.with_suffix(suffix) if suffix else filename
+        self.path = Path(filename)
+        self.path = self.with_suffix(suffix, ignore_suffix_case, exists) if suffix else self.path
+        # if ignore_case and not self.file.is_file():
+        #     # ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
+        #     # pattern = '*.['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
+        #     # self.file = next(filename.parent.glob(pattern), self.file)
+        #     self.file = self.with_suffix(ignore_case=True)
         self.role = role.strip() if role else '' #rstrip().lstrip()
         self.debug = DEBUG and self.__class__.__name__ == File.__name__
         if self.debug:
@@ -222,12 +225,12 @@ class File:
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
     #--------------------------------------------------------------------------------
-        return f'<{type(self)}, file={self.file}, role={self.role}>'
+        return f'<{type(self)}, file={self.path}, role={self.role}>'
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                         # File
     #--------------------------------------------------------------------------------
-        return f'{self.file.name}'
+        return f'{self.path and self.path.name}'
 
     #--------------------------------------------------------------------------------
     def __del__(self):                                                         # File
@@ -240,7 +243,7 @@ class File:
     #--------------------------------------------------------------------------------
         ### Open as binary file to avoid encoding errors
         if self.is_file():
-            with open(self.file, 'rb') as f:
+            with open(self.path, 'rb') as f:
                 return f.read()
         if raise_error:
             raise SystemError(f'File {self} does not exist')
@@ -260,8 +263,10 @@ class File:
     #--------------------------------------------------------------------------------
     def delete(self, raise_error=False, echo=False):                           # File
     #--------------------------------------------------------------------------------
+        if not self.path:
+            return
         try:
-            self.file.unlink(missing_ok=True)
+            self.path.unlink(missing_ok=True)
         except (PermissionError, FileNotFoundError) as error:
             if raise_error:
                 raise SystemError(f'Unable to delete {self}: {error}') from error
@@ -272,51 +277,74 @@ class File:
     #--------------------------------------------------------------------------------
     def is_file(self):                                                         # File
     #--------------------------------------------------------------------------------
-        return self.file.is_file()
+        if not self.path:
+            return
+        return self.path.is_file()
 
     #--------------------------------------------------------------------------------
     def with_name(self, file):                                                 # File
     #--------------------------------------------------------------------------------
-        return (self.file.parent/file).resolve()
+        if not self.path:
+            return
+        return (self.path.parent/file).resolve()
 
     #--------------------------------------------------------------------------------
-    def with_suffix(self, suffix, ignore_case=False, exists=False):            # File
+    def with_suffix(self, suffix, ignore_case=False, exists=False):        # File
     #--------------------------------------------------------------------------------
+        """
+            exists = True:  return first existing file with filename = self.stem + suffix
+                   = False: return Path.with_suffix()
+        """
+        if ignore_case:
+            exists = True
         if not exists:
-            return self.file.with_suffix(suffix)
+            return self.path.with_suffix(suffix)
         # Require suffix starting with .
         if suffix[0] != '.':
             raise ValueError(f"Invalid suffix '{suffix}'")
         if ignore_case:
             # 'abc' -> '[aA][bB][cC]'
             suffix = '.[' + ']['.join(s+s.swapcase() for s in suffix[1:]) + ']'
-        return next(self.file.parent.glob(self.file.stem+suffix), None)
+        return next(self.glob(suffix), None)
+        #return next(self.file.parent.glob(self.file.stem+suffix), None)
         
+    #--------------------------------------------------------------------------------
+    def glob(self, pattern):                                                   # File
+    #--------------------------------------------------------------------------------
+        if not self.path:
+            return ()
+        return self.path.parent.glob(self.path.stem + pattern)
+
     #--------------------------------------------------------------------------------
     def exists(self, raise_error=False):                                       # File
     #--------------------------------------------------------------------------------
-        if self.file.is_file():
+        if self.is_file():
             return True
         if raise_error:
-            raise SystemError(f'ERROR {" ".join((self.role, self.file.name)).lstrip()} is missing in folder {self.file.parent}')
+            raise SystemError(f'ERROR {" ".join((self.role, self.path.name)).lstrip()} is missing in folder {self.path.parent}')
         return False
 
 
     #--------------------------------------------------------------------------------
     def size(self):                                                            # File
     #--------------------------------------------------------------------------------
-        return self.file.is_file() and self.file.stat().st_size or -1
+        size = -1
+        if self.is_file():
+            size = self.path.stat().st_size
+        return size
 
 
     #--------------------------------------------------------------------------------
     def name(self):                                                            # File
     #--------------------------------------------------------------------------------
-        return self.file.name
+        if not self.path:
+            return
+        return self.path.name 
 
     #--------------------------------------------------------------------------------
     def tail(self, **kwargs):
     #--------------------------------------------------------------------------------
-        return tail_file(self.file, **kwargs)
+        return tail_file(self.path, **kwargs)
 
 
 
@@ -329,9 +357,9 @@ class unfmt_file(File):
     var_pos = {}
 
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, **kwargs):                      # unfmt_file
+    def __init__(self, filename, **kwargs):                      # unfmt_file
     #--------------------------------------------------------------------------------
-        super().__init__(filename, suffix, **kwargs)
+        super().__init__(filename, **kwargs)
         self.endpos = 0
         # self.varmap = {}
         if DEBUG:
@@ -365,7 +393,7 @@ class unfmt_file(File):
         #print(f'{self}, start:{start}, only_new:{only_new}, {self.size()} - {startpos} = {self.size() - startpos}')
         if self.size() - startpos < 24: # Header is 24 bytes
             return False
-        with open(self.file, mode='rb') as file:
+        with open(self.path, mode='rb') as file:
             try:
                 with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                     size = data.size()
@@ -383,7 +411,7 @@ class unfmt_file(File):
                             return False
                         self.endpos = pos
                         yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
-                                        data=data, file=self.file)
+                                        data=data, file=self.path)
             except ValueError: # as error: # Catch 'cannot mmap an empty file'
                 #print(error)
                 return False
@@ -426,7 +454,7 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         if not self.is_file() or self.size() < 24: # Header is 24 bytes
             return ()
-        with open(self.file, mode='rb') as file:
+        with open(self.path, mode='rb') as file:
             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
                 # Goto end of file
                 data.seek(0, 2)
@@ -454,7 +482,7 @@ class unfmt_file(File):
                     #data_start = data.tell()
                     data.seek(start, 0)
                     yield unfmt_block(key=key, length=length, type=typ, start=start, end=end,
-                                    data=data, file=self.file)
+                                    data=data, file=self.path)
 
 
     #--------------------------------------------------------------------------------
@@ -564,10 +592,10 @@ class unfmt_file(File):
                  start_after=None, end_before=None, end_after=None):    # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.exists():
-            raise SystemError(f'ERROR File {self.file} not found') 
+            raise SystemError(f'ERROR File {self.path} not found') 
         inside = False
         step = None
-        with open(self.file, 'rb') as file:
+        with open(self.path, 'rb') as file:
             for block in self.blocks():
                 key = block.key()
                 step = check_sync(block, step)
@@ -596,7 +624,7 @@ class unfmt_file(File):
     def create(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
     #--------------------------------------------------------------------------------
         return_value = False
-        with open(self.file, 'wb') as out_file, safezip(*sections) as zipper:
+        with open(self.path, 'wb') as out_file, safezip(*sections) as zipper:
             ### Get data from the section generators
             for step_data in zipper:
                 steps = []
@@ -608,7 +636,7 @@ class unfmt_file(File):
                         f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
                 progress(steps[0])
                 cancel()
-            return_value = self.file
+            return_value = self.path
         return return_value
 
     #--------------------------------------------------------------------------------
@@ -652,10 +680,11 @@ class DATA_file(File):
                  'MINPV','COPY','MULTIPLY')
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=False, sections=True, **kwargs):      # DATA_file
+    def __init__(self, file, suffix=None, check=False, sections=True, **kwargs):      # DATA_file
     #--------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
-        super().__init__(file, Path(file).suffix or '.DATA', role='Eclipse input-file', **kwargs)
+        suffix = Path(file).suffix or suffix or '.DATA'
+        super().__init__(file, suffix=suffix, role='Eclipse input-file', **kwargs)
         self.data = None
         self._checked = False
         self._added_files = ()
@@ -681,7 +710,7 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # DATA_file
     #--------------------------------------------------------------------------------
-        return f'<{type(self)}, {self.file}>'
+        return f'<{type(self)}, {self.path}>'
 
     #--------------------------------------------------------------------------------
     def __call__(self):                                                  # DATA_file
@@ -828,7 +857,7 @@ class DATA_file(File):
             return FAIL
         names = set(g.section for g in getters)
         self.data = self._remove_comments(self.section(*names)._matching(*keywords))
-        error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.file}'
+        error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.path}'
         if not self.data:
             if raise_error:
                 raise SystemError(error_msg)
@@ -907,7 +936,7 @@ class DATA_file(File):
         else:
             raise SystemError(f'ERROR Missing {keyword} in {self}')
         out = self.data[:pos[0]] + new_string + self.data[pos[1]:]
-        with open(self.file, 'w') as f:
+        with open(self.path, 'w') as f:
             f.write(out)
 
     #--------------------------------------------------------------------------------
@@ -1010,7 +1039,7 @@ class DATA_file(File):
         values = (val.replace("'",'').replace('\\','/').split() for val in values)
         ### Unzip values in a files (always) and numbers lists (only for RESTART)
         unzip = zip(*values)
-        files = ([(self.file.parent/file).resolve()] for file in next(unzip))
+        files = ([(self.path.parent/file).resolve()] for file in next(unzip))
         numbers = [[float(num)] for num in next(unzip, ())]
         files = tuple([f[0],n[0]] for f,n in zip(files, numbers)) if numbers else tuple(files)
         #print(key, files)
@@ -1040,7 +1069,7 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, end=None, role=None, **kwargs):    # UNRST_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, '.UNRST', role=role)
+        super().__init__(file, suffix='.UNRST', role=role)
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
 
@@ -1097,7 +1126,7 @@ class RFT_file(unfmt_file):                                                # RFT
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, '.RFT')
+        super().__init__(file, suffix='.RFT')
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
 
     #--------------------------------------------------------------------------------
@@ -1139,7 +1168,7 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __init__(self, file):                                           # UNSMRY_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, '.UNSMRY')
+        super().__init__(file, suffix='.UNSMRY')
         self.spec = SMSPEC_file(file)
         # self.varmap = {'days'  : keypos('PARAMS'  , [0], 'TIME'),
         #                'years' : keypos('PARAMS'  , [1], ''),
@@ -1172,7 +1201,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     #--------------------------------------------------------------------------------
     def __init__(self, file):                                           # SMSPEC_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, '.SMSPEC')
+        super().__init__(file, suffix='.SMSPEC')
         self._inkeys = ()
         self._index = {}
         self._attr = {}
@@ -1234,10 +1263,10 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
 class text_file(File):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, suffix, **kwargs):
+    def __init__(self, file, **kwargs):
     #--------------------------------------------------------------------------------
         #self.file = Path(file).with_suffix(suffix)
-        super().__init__(file, suffix, **kwargs)
+        super().__init__(file, **kwargs)
         self._pattern = {}
         self._convert = {}
 
@@ -1251,10 +1280,10 @@ class text_file(File):
     #-----------------------------------------------------------------------
         values = {}
         for var in var_list:
-            match = matches(file=self.file, pattern=self._pattern[var])
+            match = matches(file=self.path, pattern=self._pattern[var])
             values[var] = [self._convert[var](m.group(1)) for m in match]
         if raise_error and not all(values.values()):
-            raise SystemError(f'ERROR Unable to read {var_list} from {self.file.name}')
+            raise SystemError(f'ERROR Unable to read {var_list} from {self.path.name}')
         if N == 0:
             return list(values.values())
         if N > 0:
@@ -1269,7 +1298,7 @@ class MSG_file(text_file):
     #--------------------------------------------------------------------------------
     def __init__(self, file):
     #--------------------------------------------------------------------------------
-        super().__init__(file, '.MSG')
+        super().__init__(file, suffix='.MSG')
         self._pattern = {'time' : r'<\s*\bmessage\b\s+\bdate\b="[0-9/]+"\s+time="([0-9.]+)"\s*>',
                         'step' : r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)'}
         self._convert = {'time' : float,
@@ -1284,7 +1313,7 @@ class PRT_file(text_file):
     def __init__(self, file):
     #--------------------------------------------------------------------------------
         #self.file = Path(file).with_suffix('.PRT')
-        super().__init__(file, '.PRT')
+        super().__init__(file, suffix='.PRT')
         self._pattern = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
                         'step' : r'\bSTEP\b\s+([0-9]+)'}
         self._convert = {'time' : float,
@@ -1310,7 +1339,7 @@ class check_blocks:                                                    # check_b
         if isinstance(file, unfmt_file):
             self._unfmt = file
         else:
-            self._unfmt = unfmt_file(file, '')
+            self._unfmt = unfmt_file(file)
         self._keys = [start.ljust(8).encode(), [], end.ljust(8).encode(),  0]
         self._data = None
         self._wait_func = wait_func
@@ -1406,7 +1435,7 @@ class check_blocks:                                                    # check_b
         data.extend(self.data())
         msg.append(self.info(data=data, count=True))
         if not data:
-            msg.append(f'WARNING No blocks read in {self._unfmt.file.name}')
+            msg.append(f'WARNING No blocks read in {self._unfmt.path.name}')
         return msg
 
 
@@ -1416,7 +1445,7 @@ class check_blocks:                                                    # check_b
         msg = ''
         wait_func = self._wait_func or wait_func
         OK = wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
-        msg += not OK and f'WARNING Check of {self._unfmt.file.name} failed!' or ''
+        msg += not OK and f'WARNING Check of {self._unfmt.path.name} failed!' or ''
         msg += self._warn_offset and self.warn_if_offset() or ''
         return msg
 
@@ -1487,10 +1516,10 @@ class fmt_file(File):                                                      # fmt
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, **kwargs):                                  # fmt_file
+    def __init__(self, filename, **kwargs):                                  # fmt_file
     #--------------------------------------------------------------------------------
         #self.file = Path(filename)
-        super().__init__(filename, suffix, **kwargs)
+        super().__init__(filename, **kwargs)
         self.fh = None
 
 
@@ -1500,14 +1529,14 @@ class fmt_file(File):                                                      # fmt
         keyword = ''
         if not self.is_file():
              return
-        with open(self.file, encoding=getpreferredencoding()) as self.fh:
+        with open(self.path, encoding=getpreferredencoding()) as self.fh:
             for line in self.fh:
                 try:
                     keyword, length, dtype = self.read_header(line)
                     data = self.read_data(length, dtype)
                 except StopIteration:
                     if warn_missing:
-                        print(f"\n  WARNING: Missing data in '{keyword}' block, file {self.file.name} not complete!")
+                        print(f"\n  WARNING: Missing data in '{keyword}' block, file {self.path.name} not complete!")
                     return
                 except TypeError:
                     return
@@ -1554,7 +1583,7 @@ class FUNRST_file(fmt_file):
     #----------------------------------------------------------------------------
     def __init__(self, filename):                           # FUNRST_file
     #----------------------------------------------------------------------------
-        super().__init__(filename, '.FUNRST')
+        super().__init__(filename, suffix='.FUNRST')
 
 
     #--------------------------------------------------------------------------------
@@ -1678,10 +1707,10 @@ class FUNRST_file(fmt_file):
     def fast_convert(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
                 rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file 
     #--------------------------------------------------------------------------------
-        outfile = self.file.with_suffix(ext)
+        outfile = self.path.with_suffix(ext)
         # if self.size() < 1:
         #     return None
-        with open(self.file) as f:
+        with open(self.path) as f:
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
                 # prepare 
                 blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
@@ -1831,10 +1860,10 @@ class RSM_block:                                                          # RSM_
 class RSM_file(File):                                                      # RSM_file
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, suffix, **kwargs):
+    def __init__(self, filename, **kwargs):
     #--------------------------------------------------------------------------------
         #self.file = Path(filename)
-        super().__init__(filename, suffix, **kwargs)
+        super().__init__(filename, **kwargs)
         self.fh = None
         self.tag = '1'
         self.nrow = self.block_length()-10
@@ -1843,9 +1872,9 @@ class RSM_file(File):                                                      # RSM
     #--------------------------------------------------------------------------------
     def get_data(self):                                                    # RSM_file
     #--------------------------------------------------------------------------------
-        if not self.file.is_file():
+        if not self.path.is_file():
             return ()
-        with open(self.file) as self.fh:
+        with open(self.path) as self.fh:
             for line in self.fh:
                 # line is now at the tag-line
                 for block in self.read_block():
@@ -1914,7 +1943,7 @@ class RSM_file(File):                                                      # RSM
     #--------------------------------------------------------------------------------
     def block_length(self):                                                # RSM_file
     #--------------------------------------------------------------------------------
-        with open(self.file) as fh: 
+        with open(self.path) as fh: 
             nb, n = 0, 0 
             for line in fh: 
                 n += 1 
