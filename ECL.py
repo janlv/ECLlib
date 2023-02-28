@@ -208,15 +208,9 @@ class File:
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix=None, role=None, ignore_suffix_case=False, exists=False):          # File
     #--------------------------------------------------------------------------------
-        # filename = Path(filename)
-        # self.file = filename.with_suffix(suffix) if suffix else filename
-        self.path = Path(filename)
-        self.path = self.with_suffix(suffix, ignore_suffix_case, exists) if suffix else self.path
-        # if ignore_case and not self.file.is_file():
-        #     # ### Create case-insensitive pattern, e.g. '.[sS][cC][hH]'
-        #     # pattern = '*.['+']['.join(c.lower()+c.upper() for c in self.file.suffix[1:])+']'
-        #     # self.file = next(filename.parent.glob(pattern), self.file)
-        #     self.file = self.with_suffix(ignore_case=True)
+        self.path = Path(filename).resolve()
+        if suffix:
+            self.path = self.with_suffix(suffix, ignore_suffix_case, exists)
         self.role = role.strip() if role else '' #rstrip().lstrip()
         self.debug = DEBUG and self.__class__.__name__ == File.__name__
         if self.debug:
@@ -278,7 +272,7 @@ class File:
     def is_file(self):                                                         # File
     #--------------------------------------------------------------------------------
         if not self.path:
-            return
+            return False
         return self.path.is_file()
 
     #--------------------------------------------------------------------------------
