@@ -636,9 +636,10 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
     def assert_no_duplicates(self, raise_error=True):                     # unfmt_file
     #--------------------------------------------------------------------------------
+        allowed = (self.start, 'ZTRACER')
         seen = set()
         duplicate = (key for b in self.blocks() if (key:=b.key()) in seen or seen.add(key))
-        if (dup:=next(duplicate)) != self.start:
+        if (dup:=next(duplicate)) not in allowed:
             msg = f'Duplicate keyword {dup} in {self}'
             if raise_error:
                 raise SystemError('ERROR ' + msg)
@@ -1049,7 +1050,7 @@ class UNRST_file(unfmt_file):
 #====================================================================================
     start = 'SEQNUM'
     end = 'ENDSOL'
-    var_pos =  {'step'  : ('SEQNUM',   0),
+    var_pos =  {'step'  : ('SEQNUM'  ,  0),
                 'nwell' : ('INTEHEAD', 16),
                 'day'   : ('INTEHEAD', 64),
                 'month' : ('INTEHEAD', 65),
@@ -1067,27 +1068,26 @@ class UNRST_file(unfmt_file):
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
 
-
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
         return f'<{type(self)}, {self}>'
 
     #--------------------------------------------------------------------------------
-    def wells(self, **kwargs):                                                # UNRST_file
+    def wells(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
         wells = flatten_all(self.read('wells', **kwargs))
         unique_wells = set(w for well in wells if (w:=well.strip()))
         return tuple(unique_wells)
 
     #--------------------------------------------------------------------------------
-    def last_day(self):                                                # UNRST_file
+    def last_day(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
         time = next(self.read('time', tail=True), None) or [0]
         return time[0]
 
     #--------------------------------------------------------------------------------
-    def dates(self, **kwargs):                                                # UNRST_file
+    def dates(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
         data = self.read('day','month','year', **kwargs)
         return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
@@ -1364,18 +1364,18 @@ class check_blocks:                                                    # check_b
         return f"  {self._data[0].decode()} : {list2str(data and data or self._data[1], count=count)}"
         
     #--------------------------------------------------------------------------------
-    def _blocks_complete(self, nblocks=1):                             # check_blocks
+    def blocks_complete(self, nblocks=1, only_new=True):                             # check_blocks
     #--------------------------------------------------------------------------------
         block = None
         start, start_val, end, end_val = 0, 1, 2, 3
-        for block in self._unfmt.blocks(only_new=True):
+        for block in self._unfmt.blocks(only_new=only_new):
             if block._key == self._keys[start]:
                 if (data := block.data()):
                     self._keys[start_val].append(data[0])
                 else:
-                    return False    
+                    return False
             if block._key == self._keys[end]:
-                self._keys[end_val] += 1 
+                self._keys[end_val] += 1
                 if self.steps_complete() and self._keys[end_val] == nblocks:
                     ### nblocks complete blocks read, reset counters and return True
                     self._data = self._keys[:start_val+1]
@@ -1402,9 +1402,9 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
     def data_saved_maxmin(self, nblocks=1, iter=100, **kwargs):      # check_blocks
     #--------------------------------------------------------------------------------
-        f'''
+        f"""
             Loop for {iter} iterations until {nblocks} start/end-blocks are found or end-of-file reached.
-        '''
+        """
         if nblocks == 0:
             return []
         msg = []
@@ -1412,7 +1412,7 @@ class check_blocks:                                                    # check_b
         n = nblocks
         v = 2
         while n > 0:
-            passed = self._wait_func( self._blocks_complete, nblocks=n, limit=iter, timer=self._timer, v=v, **kwargs )
+            passed = self._wait_func( self.blocks_complete, nblocks=n, limit=iter, timer=self._timer, v=v, **kwargs )
             #msg.append(f'start, end: {self._start, self._end}, at_end: {self.at_end()}, passed: {passed}')
             if self._unfmt.at_end() and self.steps_complete():
                 ### blocks <= max_blocks
@@ -1434,11 +1434,11 @@ class check_blocks:                                                    # check_b
 
 
     #--------------------------------------------------------------------------------
-    def data_saved(self, nblocks=1, wait_func=None, **kwargs):               # check_blocks
-    #--------------------------------------------------------------------------------        
+    def data_saved(self, nblocks=1, wait_func=None, **kwargs):         # check_blocks
+    #--------------------------------------------------------------------------------
         msg = ''
         wait_func = self._wait_func or wait_func
-        OK = wait_func( self._blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
+        OK = wait_func( self.blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
         msg += not OK and f'WARNING Check of {self._unfmt.path.name} failed!' or ''
         msg += self._warn_offset and self.warn_if_offset() or ''
         return msg
@@ -1615,7 +1615,7 @@ class FUNRST_file(fmt_file):
             length = int(length.decode())
             if key==init_key:
                 n += 1
-                if n>1:
+                if n > 1:
                     size['bytes'] = sum(blocks.tail) + len(blocks.format)*24
                     size['blocks'] = match.start()
                     num['blocks'] = len(blocks.format)
@@ -1698,17 +1698,19 @@ class FUNRST_file(fmt_file):
         return heads, slices, tails, types
 
     #----------------------------------------------------------------------------
-    def fast_convert(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
-                rename_key=None, echo=False, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file 
+    #def fast_convert(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
+    def as_UNRST(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
+                rename_key=None, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file 
     #--------------------------------------------------------------------------------
         outfile = self.path.with_suffix(ext)
         # if self.size() < 1:
         #     return None
         with open(self.path) as f:
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
-                # prepare 
+                # prepare
                 blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
-                unit_format = ''.join(blocks.format) 
+                #print(blocks)
+                unit_format = ''.join(blocks.format)
                 data_pos, pos_stride = self.get_data_pos(filemap, blocks.size['blocks'])
                 #self.get_data_pos_v2(filemap, blocks.size['blocks'])                
                 N = int(len(filemap)/blocks.size['blocks'])
@@ -1732,12 +1734,11 @@ class FUNRST_file(fmt_file):
                         a = b
                         buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
                         data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                        #out.write(pack(ENDIAN+nblocks*unit_format, *[x for y in data_chunks for x in y]))
                         out.write(pack(ENDIAN+nblocks*unit_format, *(x for y in data_chunks for x in y)))
                         n += nblocks
                         progress(n)
                         cancel()
-        return outfile
+        return UNRST_file(outfile, end=UNRST_file(outfile).end_key())
 
     #----------------------------------------------------------------------------
     def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride): # FUNRST_file
