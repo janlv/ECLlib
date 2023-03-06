@@ -208,10 +208,10 @@ class File:
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix=None, role=None, ignore_suffix_case=False, exists=False):          # File
     #--------------------------------------------------------------------------------
-        self.path = Path(filename).resolve()
+        self.path = Path(filename).resolve() if filename else None
         if suffix:
             self.path = self.with_suffix(suffix, ignore_suffix_case, exists)
-        self.role = role.strip() if role else '' #rstrip().lstrip()
+        self.role = role.strip()+' ' if role else ''
         self.debug = DEBUG and self.__class__.__name__ == File.__name__
         if self.debug:
             print(f'Creating {repr(self)}')
@@ -219,18 +219,34 @@ class File:
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
     #--------------------------------------------------------------------------------
-        return f'<{type(self)}, file={self.path}, role={self.role}>'
+        return f"<{self.__class__.__name__}, file={self.path}, role={self.role or None}>"
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                         # File
     #--------------------------------------------------------------------------------
-        return f'{self.path and self.path.name}'
+        return f'{self.role}{self.name}'
+        #return f'{self.path and self.path.name}'
 
     #--------------------------------------------------------------------------------
     def __del__(self):                                                         # File
     #--------------------------------------------------------------------------------
         if self.__class__.__name__ == File.__name__ and self.debug:
             print(f'Deleting {repr(self)}')
+
+    #--------------------------------------------------------------------------------
+    def __getattr__(self, item):                                               # File
+    #--------------------------------------------------------------------------------
+        #print('__getattr__',item)
+        try:
+            attr = getattr(self.path or Path(), item)
+        except AttributeError as error:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item}'") from error
+        if self.path:
+            return attr
+        # self.path is None, return None or None-function
+        if callable(attr):
+            return lambda: None
+        return None
 
     #--------------------------------------------------------------------------------
     def binarydata(self, raise_error=False):                                    # File
@@ -268,12 +284,12 @@ class File:
                 print(f'Deleted {self}')
 
 
-    #--------------------------------------------------------------------------------
-    def is_file(self):                                                         # File
-    #--------------------------------------------------------------------------------
-        if not self.path:
-            return False
-        return self.path.is_file()
+    # #--------------------------------------------------------------------------------
+    # def is_file(self):                                                         # File
+    # #--------------------------------------------------------------------------------
+    #     if not self.path:
+    #         return False
+    #     return self.path.is_file()
 
     #--------------------------------------------------------------------------------
     def with_name(self, file):                                                 # File
@@ -289,6 +305,8 @@ class File:
             exists = True:  return first existing file with filename = self.stem + suffix
                    = False: return Path.with_suffix()
         """
+        if not self.path:
+            return None
         if ignore_case:
             exists = True
         if not exists:
@@ -315,7 +333,8 @@ class File:
         if self.is_file():
             return True
         if raise_error:
-            raise SystemError(f'ERROR {" ".join((self.role, self.path.name)).lstrip()} is missing in folder {self.path.parent}')
+            raise SystemError(f'ERROR {self} is missing in folder {self.parent}')
+            #raise SystemError(f'ERROR {" ".join((self.role, str(self.name))).lstrip()} is missing in folder {self.parent}')
         return False
 
 
@@ -328,12 +347,19 @@ class File:
         return size
 
 
-    #--------------------------------------------------------------------------------
-    def name(self):                                                            # File
-    #--------------------------------------------------------------------------------
-        if not self.path:
-            return
-        return self.path.name 
+    # #--------------------------------------------------------------------------------
+    # def name(self):                                                            # File
+    # #--------------------------------------------------------------------------------
+    #     if not self.path:
+    #         return
+    #     return self.path.name 
+
+    # #--------------------------------------------------------------------------------
+    # def parent(self):                                                            # File
+    # #--------------------------------------------------------------------------------
+    #     if not self.path:
+    #         return
+    #     return self.path.parent 
 
     #--------------------------------------------------------------------------------
     def tail(self, **kwargs):
@@ -362,7 +388,7 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_file
     #--------------------------------------------------------------------------------
-        return f'<{type(self)}, {self}, endpos={self.endpos}>'
+        return f'<{super().__repr__()}, endpos={self.endpos}>'
 
     #--------------------------------------------------------------------------------
     def at_end(self):                                                    # unfmt_file
@@ -1068,10 +1094,10 @@ class UNRST_file(unfmt_file):
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
 
-    #--------------------------------------------------------------------------------
-    def __repr__(self):                                                  # UNRST_file
-    #--------------------------------------------------------------------------------
-        return f'<{type(self)}, {self}>'
+    # #--------------------------------------------------------------------------------
+    # def __repr__(self):                                                  # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     return f'<{type(self)}, {super().__repr__()}, {self}>'
 
     #--------------------------------------------------------------------------------
     def wells(self, **kwargs):                                           # UNRST_file
