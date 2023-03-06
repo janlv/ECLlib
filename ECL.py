@@ -236,7 +236,7 @@ class File:
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                               # File
     #--------------------------------------------------------------------------------
-        #print('__getattr__',item)
+        #print('File',self.path, item)
         try:
             attr = getattr(self.path or Path(), item)
         except AttributeError as error:
@@ -283,13 +283,12 @@ class File:
             if echo:
                 print(f'Deleted {self}')
 
-
-    # #--------------------------------------------------------------------------------
-    # def is_file(self):                                                         # File
-    # #--------------------------------------------------------------------------------
-    #     if not self.path:
-    #         return False
-    #     return self.path.is_file()
+    #--------------------------------------------------------------------------------
+    def is_file(self):                                                         # File
+    #--------------------------------------------------------------------------------
+        if not self.path:
+            return False
+        return self.path.is_file()
 
     #--------------------------------------------------------------------------------
     def with_name(self, file):                                                 # File
@@ -1218,7 +1217,9 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        return self.spec and getattr(self.spec, item)
+        #print('unsmry',item)
+        return getattr(self.spec, item)
+        #return self.spec and getattr(self.spec, item)
 
 
 #====================================================================================
@@ -1258,9 +1259,11 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # SMSPEC_file
     #--------------------------------------------------------------------------------
+        #print('smspec', item)
         if (val := self._attr.get(item)) is not None:
             return val
-        raise AttributeError(f'{self.__class__.__name__} object has no attribute {item}')
+        return super().__getattr__(item)
+        #raise AttributeError(f'{self.__class__.__name__} object has no attribute {item}')
 
     #--------------------------------------------------------------------------------
     def missing_keys(self):                                             # SMSPEC_file
