@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import chain, repeat, accumulate
+from itertools import chain, repeat, accumulate, groupby
 from operator import itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
@@ -469,7 +469,7 @@ class unfmt_file(File):
     
 
     #--------------------------------------------------------------------------------
-    def tail_blocks(self):                                               # unfmt_file
+    def tail_blocks(self, **kwargs):                                               # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file() or self.size() < 24: # Header is 24 bytes
             return ()
@@ -835,7 +835,7 @@ class DATA_file(File):
             unrst = UNRST_file(restart, role='RESTART file')
             unrst.exists(raise_error=True)
             wells += unrst.wells(stop=step)
-        return wells
+        return tuple(set(wells))
 
     #--------------------------------------------------------------------------------
     def welspecs(self):                                                  # DATA_file
@@ -848,7 +848,6 @@ class DATA_file(File):
         if not welspecs or not welspecs[0]:
             # If no WELSPECS in DATA-file, look for WELSPECS in a separate SCH-file 
             # This is the case for backward runs
-            #sch_file = next(self.file.parent.glob(f'{self.file.stem}.[Ss][Cc][Hh]'), None)
             sch_file = self.with_suffix('.SCH', ignore_case=True, exists=True)
             if sch_file:
                 welspecs = DATA_file(sch_file, sections=False).get('WELSPECS')
@@ -857,7 +856,6 @@ class DATA_file(File):
         # a quote, we split on quote+space, otherwise we just split on space
         splits = (w.split("' ") if w.startswith("'") else w.split() for w in welspecs if w)
         return tuple(set(s[0].replace("'","") for s in splits))
-        #return tuple(set(w.split()[0].replace("'",'') for w in welspecs if w))
 
     #--------------------------------------------------------------------------------
     def get(self, *keywords, raise_error=False, pos=False):                # DATA_file
@@ -1128,12 +1126,12 @@ class UNRST_file(unfmt_file):
         return step
 
     #--------------------------------------------------------------------------------
-    def sections(self, **kwargs):                                       # UNRST_file
+    def sections(self, **kwargs):                                        # UNRST_file
     #--------------------------------------------------------------------------------
         return super().sections(init_key=self.start, check_sync=self.step, **kwargs)
 
     #--------------------------------------------------------------------------------
-    def end_key(self):                                       # UNRST_file
+    def end_key(self):                                                   # UNRST_file
     #--------------------------------------------------------------------------------
         block = next(self.tail_blocks(), None)
         if block:
@@ -1195,24 +1193,35 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.UNSMRY')
         self.spec = SMSPEC_file(file)
-        # self.varmap = {'days'  : keypos('PARAMS'  , [0], 'TIME'),
-        #                'years' : keypos('PARAMS'  , [1], ''),
-        #                'step'  : keypos('MINISTEP', [0], '')}
-        fields = ('days', 'welldata', 'keys', 'wells')
-        self._data = namedtuple('data', fields, defaults=((),)*len(fields))
+        #fields = ('days', 'welldata', 'keys', 'wells')
+        #self._data = namedtuple('data', fields, defaults=((),)*len(fields))
+        #datatuple = namedtuple('datatuple','key well data')
 
     #--------------------------------------------------------------------------------
-    def data(self, keys=()):                                            # UNSMRY_file
+    def read(self, keys=(), wells=(), only_new=True, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
         if self.is_file() and self.spec.read(keys=keys):
-            # self.varmap['welldata'] = keypos('PARAMS', self.spec.well_pos(), '')
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
-            days = welldata = ()
-            data = list(self.read('days', 'welldata', only_new=True))
-            if data:
-                days, welldata = zip(*data)
-            return self._data(days, welldata, self.keys, self.wells)
-        return self._data()
+            try:
+                days, data = zip(*super().read('days', 'welldata', only_new=only_new, **kwargs))
+            except ValueError:
+                return ()
+            kwd = zip(self.keys, self.wells, zip(*data))
+            if wells:
+                kwd = ((k,w,d) for k,w,d in kwd if w in wells)
+            if as_array:
+                kwd = ((k,w,nparray(d)) for k,w,d in kwd)
+            if named:
+                Values = namedtuple('Values', list(wells) or list(set(self.wells)))
+                Welldata = namedtuple('Welldata', ['days'] + list(set(self.keys)))
+                grouped = groupby(kwd, key=itemgetter(0))
+                values = {k:Values(**dict(g[1:] for g in gr)) for k,gr in grouped}
+                return Welldata(days=days, **values)
+            Values = namedtuple('Values','key well data')
+            values = (Values(k, w, d) for k,w,d in kwd)
+            Welldata = namedtuple('Welldata','days values')
+            return Welldata(days, tuple(values))
+        return ()
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # UNSMRY_file
@@ -1220,6 +1229,12 @@ class UNSMRY_file(unfmt_file):
         #print('unsmry',item)
         return getattr(self.spec, item)
         #return self.spec and getattr(self.spec, item)
+
+    # #--------------------------------------------------------------------------------
+    # def energy(self):                                             # UNSMRY_file
+    # #--------------------------------------------------------------------------------
+    #     data = self.read(keys=('WBHP','WTHP','WIRR'))
+    #     print(data)
 
 
 #====================================================================================
@@ -1231,7 +1246,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         super().__init__(file, suffix='.SMSPEC')
         self._inkeys = ()
         self._index = {}
-        self._attr = {}
+        self._attr = dict.fromkeys(('wells', 'keys', 'measures', 'units'), ())
 
     #--------------------------------------------------------------------------------
     def read(self, keys=()):                                            # SMSPEC_file
@@ -1241,18 +1256,16 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             return False
         K, W, M, U = 0, 1, 2, 3
         data = [b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS')]
-        ### Fix MEASRMNT by joining substrings (MEASRMNT strings are multiples of 8 chars)
-        #if all(d for d in data):
         if len(data) == 4:
+            # Fix MEASRMNT by joining substrings (MEASRMNT strings are multiples of 8 chars)
             width = len(data[M])//max(len(data[K]), 1)
             data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
             keys = keys or set(data[K])
-            #print('keys', keys)
-            #print('data',data)
-            ### Dictionary with array index as key and value-tuple (well, varname, fluid type, data type)
-            self._index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(zip(data[W], data[K], data[M], data[U])) if k in keys and w and not '+' in w}
-            #print('index',self._index)
-            self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(('wells', 'keys', 'measures', 'units'))}
+            # dict with array index as key and value-tuple (well, varname, fluid type, data type)
+            wkmu = zip(data[W], data[K], data[M], data[U])
+            self._index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(wkmu) if k in keys and w and not '+' in w}
+            #self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(('wells', 'keys', 'measures', 'units'))}
+            self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(self._attr)}
             return bool(self._index)
         return False
 
@@ -1274,18 +1287,11 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     def pos(self, keyword:int):                                         # SMSPEC_file
     #--------------------------------------------------------------------------------
         return [self.data[0].index(keyword)] if keyword in self.data[0] else []
-        #return keyword in self.data[0] and [self.data[0].index(keyword)] or []
 
     #--------------------------------------------------------------------------------
     def well_pos(self):                                                 # SMSPEC_file
     #--------------------------------------------------------------------------------
         return tuple(self._index.keys())
-        # # Group consecutive indexes into (first, last) limits,
-        # # i.e. (1,2,3,4,8,9,10) becomes (1,5),(8,11)
-        # index = (pos[0],) + flatten((a,b) for a,b in pairwise(pos) if b-a>1) + (pos[-1],)
-        # limits = [(a,b+1) for a,b in grouper(index, 2)]
-        # return limits
-
 
 
 #====================================================================================
