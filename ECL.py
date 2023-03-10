@@ -6,7 +6,7 @@ ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
 from itertools import chain, repeat, accumulate, groupby
-from operator import itemgetter
+from operator import attrgetter, itemgetter
 from pathlib import Path
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import mmap, ACCESS_READ
@@ -1193,9 +1193,6 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.UNSMRY')
         self.spec = SMSPEC_file(file)
-        #fields = ('days', 'welldata', 'keys', 'wells')
-        #self._data = namedtuple('data', fields, defaults=((),)*len(fields))
-        #datatuple = namedtuple('datatuple','key well data')
 
     #--------------------------------------------------------------------------------
     def read(self, keys=(), wells=(), only_new=True, as_array=False, named=False, **kwargs): # UNSMRY_file
@@ -1206,16 +1203,19 @@ class UNSMRY_file(unfmt_file):
                 days, data = zip(*super().read('days', 'welldata', only_new=only_new, **kwargs))
             except ValueError:
                 return ()
-            kwd = zip(self.keys, self.wells, zip(*data))
+            kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
             if wells:
                 kwd = ((k,w,d) for k,w,d in kwd if w in wells)
             if as_array:
                 kwd = ((k,w,nparray(d)) for k,w,d in kwd)
             if named:
-                Values = namedtuple('Values', list(wells) or list(set(self.wells)))
-                Welldata = namedtuple('Welldata', ['days'] + list(set(self.keys)))
+                # Values = namedtuple('Values', list(wells) or list(set(self.wells)))
+                # Welldata = namedtuple('Welldata', ['days'] + list(set(self.keys)))
+                Values = namedtuple('Values', (wells or self.wells)+('unit', 'measure'))
+                Welldata = namedtuple('Welldata', ('days',) + self.keys)
+                units = {k:{'unit':u, 'measure':m} for k,u,m in zip(*attrgetter('keys', 'units', 'measures')(self.spec))}
                 grouped = groupby(kwd, key=itemgetter(0))
-                values = {k:Values(**dict(g[1:] for g in gr)) for k,gr in grouped}
+                values = {k:Values(**dict(g[1:] for g in gr), **units[k]) for k,gr in grouped}
                 return Welldata(days=days, **values)
             Values = namedtuple('Values','key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
@@ -1224,16 +1224,16 @@ class UNSMRY_file(unfmt_file):
         return ()
 
     #--------------------------------------------------------------------------------
-    def key_units(self):
+    def metric(self):                                                # UNSMRY_file
     #--------------------------------------------------------------------------------
-        return tuple(set(zip(self.keys, self.units)))
+        Var = namedtuple('Var','unit measure')
+        var = (Var(u,m) for k,u,m in set(zip(*attrgetter('keys', 'units', 'measures')(self.spec))))
+        return namedtuple('Keys', self.keys)(*var)
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        #print('unsmry',item)
-        return getattr(self.spec, item)
-        #return self.spec and getattr(self.spec, item)
+        return tuple(set(getattr(self.spec, item)))
 
     # #--------------------------------------------------------------------------------
     # def energy(self):                                             # UNSMRY_file
@@ -1250,8 +1250,14 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.SMSPEC')
         self._inkeys = ()
-        self._index = {}
-        self._attr = dict.fromkeys(('wells', 'keys', 'measures', 'units'), ())
+        #self._index = {}
+        self._ind = ()
+        self.measures = ()
+        #self.data = namedtuple('data','keys wells measures units')(4*([],))
+        #self.values = self.datatuple()
+        #self.unique = self.datatuple()
+        #self. = namedtuple('unique','wells keys measures units', defaults=4*((),))
+        #self._attr = dict.fromkeys(('wells', 'keys', 'measures', 'units'), ())
 
     #--------------------------------------------------------------------------------
     def read(self, keys=()):                                            # SMSPEC_file
@@ -1259,44 +1265,76 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         self._inkeys = keys
         if not self.is_file():
             return False
-        K, W, M, U = 0, 1, 2, 3
-        data = [b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS')]
-        if len(data) == 4:
+        #K, W, M, U = 0, 1, 2, 3
+        Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
+        blockdata = (b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS'))
+        #data = blockdata
+        self.data = Data(*blockdata)
+        #if len(data) == 4:
+        if all(self.data):
+            #self.data = Data()
             # Fix MEASRMNT by joining substrings (MEASRMNT strings are multiples of 8 chars)
-            width = len(data[M])//max(len(data[K]), 1)
-            data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
-            keys = keys or set(data[K])
+            #print('LEN:',list(map(len,self.data)))
+            #width = len(self.data.measures)//max(len(self.data.keys), 1)
+            #data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
+            width = len(self.data.measures)//max(len(self.data.keys), 1)
+            #self.measures = tuple(map(''.join, grouper(self.data.measures, width)))
+            keys = keys or set(self.data.keys)
             # dict with array index as key and value-tuple (well, varname, fluid type, data type)
-            wkmu = zip(data[W], data[K], data[M], data[U])
-            self._index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(wkmu) if k in keys and w and not '+' in w}
-            #self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(('wells', 'keys', 'measures', 'units'))}
-            self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(self._attr)}
-            return bool(self._index)
+            #wkmu = zip(data[W], data[K], data[M], data[U])
+            #wkmu = zip(data[W], data[K], data[M], data[U])
+            ikw = enumerate(zip(self.data.keys, self.data.wells))
+            self._ind = tuple(i for i,(k,w) in ikw if k in keys and w and not '+' in w)
+            concat_measures = map(''.join, grouper(self.data.measures, width))
+            self.measures =  itemgetter(*self._ind)(tuple(concat_measures))
+            #self._ind = [i for i,(k,w) in enumerate(zip(self.data.keys, self.data.wells)) if k in keys and w and not '+' in w]
+            #self._index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(wkmu) if k in keys and w and not '+' in w}
+            #self._ind = [i for i,(w,k) in enumerate(zip(data[W], data[K])) if k in keys and w and not '+' in w]
+            #print(itemgetter(*self._ind)(data[W]))
+            #self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(self._attr)}
+            #self.values = self.datatuple([v[i] for v in self._index.values()] for i,a in enumerate(self._attr)}
+            #return bool(self._index)
+            return bool(self._ind)
         return False
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # SMSPEC_file
     #--------------------------------------------------------------------------------
         #print('smspec', item)
-        if (val := self._attr.get(item)) is not None:
-            return val
+        if (val := getattr(self.data, item, None)) is not None:
+            return itemgetter(*self._ind)(val) if self._ind else ()
         return super().__getattr__(item)
-        #raise AttributeError(f'{self.__class__.__name__} object has no attribute {item}')
+
+    # #--------------------------------------------------------------------------------
+    # def __getattr__(self, item):                                        # SMSPEC_file
+    # #--------------------------------------------------------------------------------
+    #     #print('smspec', item)
+    #     if (val := self._attr.get(item)) is not None:
+    #         return val
+    #     return super().__getattr__(item)
+
+    # #--------------------------------------------------------------------------------
+    # def measures(self):                                        # SMSPEC_file
+    # #--------------------------------------------------------------------------------
+    #     width = len(self.data.measures)//max(len(self.data.keys), 1)
+    #     return tuple(grouper(self.data.measures, width))
+    #     #return tuple(''.join(v).lower() for v in grouper(data[M], width))
 
     #--------------------------------------------------------------------------------
     def missing_keys(self):                                             # SMSPEC_file
     #--------------------------------------------------------------------------------
         return [a for a in self._inkeys if not a in self.keys]
 
-    #--------------------------------------------------------------------------------
-    def pos(self, keyword:int):                                         # SMSPEC_file
-    #--------------------------------------------------------------------------------
-        return [self.data[0].index(keyword)] if keyword in self.data[0] else []
+    # #--------------------------------------------------------------------------------
+    # def pos(self, keyword:int):                                         # SMSPEC_file
+    # #--------------------------------------------------------------------------------
+    #     return [self.data[0].index(keyword)] if keyword in self.data[0] else []
 
     #--------------------------------------------------------------------------------
     def well_pos(self):                                                 # SMSPEC_file
     #--------------------------------------------------------------------------------
-        return tuple(self._index.keys())
+        return self._ind
+        #return tuple(self._index.keys())
 
 
 #====================================================================================
