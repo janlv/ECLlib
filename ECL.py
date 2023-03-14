@@ -1197,25 +1197,39 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def read(self, keys=(), wells=(), only_new=True, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
-        if self.is_file() and self.spec.read(keys=keys):
+        if self.is_file() and self.spec.read(keys=keys, wells=wells):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
                 days, data = zip(*super().read('days', 'welldata', only_new=only_new, **kwargs))
             except ValueError:
                 return ()
             kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
-            if wells:
-                kwd = ((k,w,d) for k,w,d in kwd if w in wells)
+            #_wells = self.wells
+            #if wells:
+            #    # Only include existing wells
+            #    _wells = tuple(set(self.wells).intersection(wells))
+            #    kwd = ((k,w,d) for k,w,d in kwd if w in _wells)
             if as_array:
                 kwd = ((k,w,nparray(d)) for k,w,d in kwd)
             if named:
+                #grouped = {k:dict(g[1:] for g in gr) for k, gr in groupby(kwd, key=itemgetter(0))}
+                #self.keys = grouped.keys()
                 # Values = namedtuple('Values', list(wells) or list(set(self.wells)))
                 # Welldata = namedtuple('Welldata', ['days'] + list(set(self.keys)))
-                Values = namedtuple('Values', (wells or self.wells)+('unit', 'measure'))
+                #print(wells, self.wells)
+                #Values = namedtuple('Values', (wells or self.wells)+('unit', 'measure'))
+                #Values = namedtuple('Values', _wells + ('unit', 'measure'), defaults=len(_wells)*((),)+2*(None,))
+                wells = self.wells
+                Values = namedtuple('Values', wells + ('unit', 'measure'), defaults=len(wells)*((),)+2*(None,))
                 Welldata = namedtuple('Welldata', ('days',) + self.keys)
                 units = {k:{'unit':u, 'measure':m} for k,u,m in zip(*attrgetter('keys', 'units', 'measures')(self.spec))}
+                #for k,v in grouped.items(): #groupby(kwd, key=itemgetter(0)):
+                #    print(k,v)
                 grouped = groupby(kwd, key=itemgetter(0))
                 values = {k:Values(**dict(g[1:] for g in gr), **units[k]) for k,gr in grouped}
+                #values = {k:Values(**dict(g), **units[k]) for k,*g in grouped}
+                #for k,v in values.items():
+                #    print(k, v)
                 return Welldata(days=days, **values)
             Values = namedtuple('Values','key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
@@ -1253,6 +1267,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         #self._index = {}
         self._ind = ()
         self.measures = ()
+        self.wells = ()
+        self.data = ()
         #self.data = namedtuple('data','keys wells measures units')(4*([],))
         #self.values = self.datatuple()
         #self.unique = self.datatuple()
@@ -1260,7 +1276,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         #self._attr = dict.fromkeys(('wells', 'keys', 'measures', 'units'), ())
 
     #--------------------------------------------------------------------------------
-    def read(self, keys=()):                                            # SMSPEC_file
+    def read(self, keys=(), wells=()):                                            # SMSPEC_file
     #--------------------------------------------------------------------------------
         self._inkeys = keys
         if not self.is_file():
@@ -1280,13 +1296,16 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             width = len(self.data.measures)//max(len(self.data.keys), 1)
             #self.measures = tuple(map(''.join, grouper(self.data.measures, width)))
             keys = keys or set(self.data.keys)
+            wells = wells or set(w for w in self.data.wells if w and not '+' in w)
             # dict with array index as key and value-tuple (well, varname, fluid type, data type)
             #wkmu = zip(data[W], data[K], data[M], data[U])
             #wkmu = zip(data[W], data[K], data[M], data[U])
             ikw = enumerate(zip(self.data.keys, self.data.wells))
-            self._ind = tuple(i for i,(k,w) in ikw if k in keys and w and not '+' in w)
-            concat_measures = map(''.join, grouper(self.data.measures, width))
-            self.measures =  itemgetter(*self._ind)(tuple(concat_measures))
+            #self._ind = tuple(i for i,(k,w) in ikw if k in keys and w and not '+' in w)
+            self._ind = tuple(i for i,(k,w) in ikw if k in keys and w in wells)
+            measure_strings = map(''.join, grouper(self.data.measures, width))
+            self.measures = itemgetter(*self._ind)(tuple(measure_strings))
+            self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
             #self._ind = [i for i,(k,w) in enumerate(zip(self.data.keys, self.data.wells)) if k in keys and w and not '+' in w]
             #self._index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(wkmu) if k in keys and w and not '+' in w}
             #self._ind = [i for i,(w,k) in enumerate(zip(data[W], data[K])) if k in keys and w and not '+' in w]
