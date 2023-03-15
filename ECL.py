@@ -194,14 +194,6 @@ class unfmt_block:
 
 
 
-# #====================================================================================
-# @dataclass #(init=False)
-# class keypos:
-# #====================================================================================
-#     key: str = ''
-#     pos: tuple = (0,)
-#     name: str = ''
-
 #====================================================================================
 class File:
 #====================================================================================
@@ -344,21 +336,6 @@ class File:
         if self.is_file():
             size = self.path.stat().st_size
         return size
-
-
-    # #--------------------------------------------------------------------------------
-    # def name(self):                                                            # File
-    # #--------------------------------------------------------------------------------
-    #     if not self.path:
-    #         return
-    #     return self.path.name 
-
-    # #--------------------------------------------------------------------------------
-    # def parent(self):                                                            # File
-    # #--------------------------------------------------------------------------------
-    #     if not self.path:
-    #         return
-    #     return self.path.parent 
 
     #--------------------------------------------------------------------------------
     def tail(self, **kwargs):
@@ -738,12 +715,6 @@ class DATA_file(File):
         self.data = self.binarydata()
         return self
 
-    # #--------------------------------------------------------------------------------
-    # def data(self):                                                  # DATA_file
-    # #--------------------------------------------------------------------------------
-    #     return self.remove_comments()
-        
-
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                          # DATA_file
     #--------------------------------------------------------------------------------
@@ -796,7 +767,7 @@ class DATA_file(File):
         ''' Add the given files and return self '''
         # Added files must be an iterator to avoid an infinite recursive
         # loop when self._added_files is called in _included_file_data
-        self._added_files = iter(files) 
+        self._added_files = iter(files)
         # Disable check to avoid check to consume the above iterator
         self._checked = True
         return self
@@ -920,28 +891,22 @@ class DATA_file(File):
             return sec_pos
         return  {sec:pos for sec in sections if (pos := sec_pos.get(sec))}
 
-
     #--------------------------------------------------------------------------------
     def section(self, *sections, raise_error=True):                       # DATA_file
     #--------------------------------------------------------------------------------
         #print('section', sections)
         if not self._checked:
             self.check()
-        #print('after check')
         self.data = self.binarydata()
         ### Get section-names and file positions
         if not self.section_names:
             return self
-        # section_pos = {name.upper():(a,b) for name,a,b in split_by_words(self.data, self.section_names)}
-        # pos = [p for sec in sections if (p := section_pos.get(sec.encode()))]
         sec_pos = self.section_positions(*sections)
         if not sec_pos:
             if raise_error:
                 raise SystemError(f'ERROR Section {list2text(sections)} not found in {self}')
             return self
-            #return None
         self.data = b''.join(self.data[a:b] for a,b in sorted(sec_pos.values()))
-        #self.data = (self.data[a:b] for a,b in sorted(pos))
         return self
 
     #--------------------------------------------------------------------------------
@@ -961,15 +926,10 @@ class DATA_file(File):
     def _remove_comments(self, data=None):                   # DATA_file
     #--------------------------------------------------------------------------------
         data = data or (self.binarydata(),)
-        #if not isinstance(data, tuple):
-        #    data = (data,)
         lines = (l for d in data for l in d.split(b'\n'))
         text = (l.split(b'--')[0].strip() for l in lines)
         text = b'\n'.join(t for t in text if t)
-        #try:
         text = decode(text)
-        #except UnicodeDecodeError:
-        #    text = text.decode(encoding='latin1')
         return text+'\n' if text else ''
 
     #--------------------------------------------------------------------------------
@@ -977,15 +937,11 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         #print('_matching', keys)
         self.data = self.data or self.binarydata()
-        #print(self.data[:100])
         keys = [key.encode() for key in keys]
         if keys == [] or any(key in self.data for key in keys):
             yield self.data
         for file, data in self._included_file_data(self.data):
             if keys == [] or any(key in data for key in keys):
-                #print('*********',file)
-                #print('=========',keys)
-                #print(data)
                 yield data
 
     #--------------------------------------------------------------------------------
@@ -1090,11 +1046,6 @@ class UNRST_file(unfmt_file):
         super().__init__(file, suffix='.UNRST', role=role)
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
-
-    # #--------------------------------------------------------------------------------
-    # def __repr__(self):                                                  # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     return f'<{type(self)}, {super().__repr__()}, {self}>'
 
     #--------------------------------------------------------------------------------
     def wells(self, **kwargs):                                           # UNRST_file
@@ -1204,32 +1155,15 @@ class UNSMRY_file(unfmt_file):
             except ValueError:
                 return ()
             kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
-            #_wells = self.wells
-            #if wells:
-            #    # Only include existing wells
-            #    _wells = tuple(set(self.wells).intersection(wells))
-            #    kwd = ((k,w,d) for k,w,d in kwd if w in _wells)
             if as_array:
                 kwd = ((k,w,nparray(d)) for k,w,d in kwd)
             if named:
-                #grouped = {k:dict(g[1:] for g in gr) for k, gr in groupby(kwd, key=itemgetter(0))}
-                #self.keys = grouped.keys()
-                # Values = namedtuple('Values', list(wells) or list(set(self.wells)))
-                # Welldata = namedtuple('Welldata', ['days'] + list(set(self.keys)))
-                #print(wells, self.wells)
-                #Values = namedtuple('Values', (wells or self.wells)+('unit', 'measure'))
-                #Values = namedtuple('Values', _wells + ('unit', 'measure'), defaults=len(_wells)*((),)+2*(None,))
                 wells = self.wells
                 Values = namedtuple('Values', wells + ('unit', 'measure'), defaults=len(wells)*((),)+2*(None,))
                 Welldata = namedtuple('Welldata', ('days',) + self.keys)
                 units = {k:{'unit':u, 'measure':m} for k,u,m in zip(*attrgetter('keys', 'units', 'measures')(self.spec))}
-                #for k,v in grouped.items(): #groupby(kwd, key=itemgetter(0)):
-                #    print(k,v)
                 grouped = groupby(kwd, key=itemgetter(0))
                 values = {k:Values(**dict(g[1:] for g in gr), **units[k]) for k,gr in grouped}
-                #values = {k:Values(**dict(g), **units[k]) for k,*g in grouped}
-                #for k,v in values.items():
-                #    print(k, v)
                 return Welldata(days=days, **values)
             Values = namedtuple('Values','key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
@@ -1264,96 +1198,49 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.SMSPEC')
         self._inkeys = ()
-        #self._index = {}
         self._ind = ()
         self.measures = ()
         self.wells = ()
         self.data = ()
-        #self.data = namedtuple('data','keys wells measures units')(4*([],))
-        #self.values = self.datatuple()
-        #self.unique = self.datatuple()
-        #self. = namedtuple('unique','wells keys measures units', defaults=4*((),))
-        #self._attr = dict.fromkeys(('wells', 'keys', 'measures', 'units'), ())
 
     #--------------------------------------------------------------------------------
-    def read(self, keys=(), wells=()):                                            # SMSPEC_file
+    def read(self, keys=(), wells=()):                                  # SMSPEC_file
     #--------------------------------------------------------------------------------
         self._inkeys = keys
         if not self.is_file():
             return False
-        #K, W, M, U = 0, 1, 2, 3
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
         blockdata = (b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS'))
-        #data = blockdata
         self.data = Data(*blockdata)
-        #if len(data) == 4:
         if all(self.data):
-            #self.data = Data()
-            # Fix MEASRMNT by joining substrings (MEASRMNT strings are multiples of 8 chars)
-            #print('LEN:',list(map(len,self.data)))
-            #width = len(self.data.measures)//max(len(self.data.keys), 1)
-            #data[M] = tuple(''.join(v).lower() for v in grouper(data[M], width))
             width = len(self.data.measures)//max(len(self.data.keys), 1)
-            #self.measures = tuple(map(''.join, grouper(self.data.measures, width)))
             keys = keys or set(self.data.keys)
             wells = wells or set(w for w in self.data.wells if w and not '+' in w)
-            # dict with array index as key and value-tuple (well, varname, fluid type, data type)
-            #wkmu = zip(data[W], data[K], data[M], data[U])
-            #wkmu = zip(data[W], data[K], data[M], data[U])
             ikw = enumerate(zip(self.data.keys, self.data.wells))
-            #self._ind = tuple(i for i,(k,w) in ikw if k in keys and w and not '+' in w)
+            # index into UNSMRY arrays
             self._ind = tuple(i for i,(k,w) in ikw if k in keys and w in wells)
             measure_strings = map(''.join, grouper(self.data.measures, width))
             self.measures = itemgetter(*self._ind)(tuple(measure_strings))
             self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
-            #self._ind = [i for i,(k,w) in enumerate(zip(self.data.keys, self.data.wells)) if k in keys and w and not '+' in w]
-            #self._index = {i:(w,k,m,u) for i,(w,k,m,u) in enumerate(wkmu) if k in keys and w and not '+' in w}
-            #self._ind = [i for i,(w,k) in enumerate(zip(data[W], data[K])) if k in keys and w and not '+' in w]
-            #print(itemgetter(*self._ind)(data[W]))
-            #self._attr = {a:[v[i] for v in self._index.values()] for i,a in enumerate(self._attr)}
-            #self.values = self.datatuple([v[i] for v in self._index.values()] for i,a in enumerate(self._attr)}
-            #return bool(self._index)
             return bool(self._ind)
         return False
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # SMSPEC_file
     #--------------------------------------------------------------------------------
-        #print('smspec', item)
         if (val := getattr(self.data, item, None)) is not None:
             return itemgetter(*self._ind)(val) if self._ind else ()
         return super().__getattr__(item)
-
-    # #--------------------------------------------------------------------------------
-    # def __getattr__(self, item):                                        # SMSPEC_file
-    # #--------------------------------------------------------------------------------
-    #     #print('smspec', item)
-    #     if (val := self._attr.get(item)) is not None:
-    #         return val
-    #     return super().__getattr__(item)
-
-    # #--------------------------------------------------------------------------------
-    # def measures(self):                                        # SMSPEC_file
-    # #--------------------------------------------------------------------------------
-    #     width = len(self.data.measures)//max(len(self.data.keys), 1)
-    #     return tuple(grouper(self.data.measures, width))
-    #     #return tuple(''.join(v).lower() for v in grouper(data[M], width))
 
     #--------------------------------------------------------------------------------
     def missing_keys(self):                                             # SMSPEC_file
     #--------------------------------------------------------------------------------
         return [a for a in self._inkeys if not a in self.keys]
 
-    # #--------------------------------------------------------------------------------
-    # def pos(self, keyword:int):                                         # SMSPEC_file
-    # #--------------------------------------------------------------------------------
-    #     return [self.data[0].index(keyword)] if keyword in self.data[0] else []
-
     #--------------------------------------------------------------------------------
     def well_pos(self):                                                 # SMSPEC_file
     #--------------------------------------------------------------------------------
         return self._ind
-        #return tuple(self._index.keys())
 
 
 #====================================================================================
@@ -1362,15 +1249,9 @@ class text_file(File):
     #--------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):
     #--------------------------------------------------------------------------------
-        #self.file = Path(file).with_suffix(suffix)
         super().__init__(file, **kwargs)
         self._pattern = {}
         self._convert = {}
-
-    # #-----------------------------------------------------------------------
-    # def size(self):
-    # #-----------------------------------------------------------------------
-    #     return self.file.stat().st_size
 
     #-----------------------------------------------------------------------
     def get(self, *var_list, N=0, raise_error=True):
