@@ -16,6 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
+from matplotlib.pyplot import figure, ion
 #from numba import njit, jit
 from .utils import decode, tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
@@ -1144,15 +1145,26 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.UNSMRY')
         self.spec = SMSPEC_file(file)
+        self._days = ()
+        self._data = ()
+        self._plots = None
 
     #--------------------------------------------------------------------------------
-    def read(self, keys=(), wells=(), only_new=True, as_array=False, named=False, **kwargs): # UNSMRY_file
+    def read(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
         if self.is_file() and self.spec.read(keys=keys, wells=wells):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
-                days, data = zip(*super().read('days', 'welldata', only_new=only_new, **kwargs))
+                days, data = zip(*super().read('days', 'welldata', only_new=True, **kwargs))
             except ValueError:
+                days, data = (), ()
+            if not only_new:
+                # Append old (previously read) data 
+                days, data = self._days + days, self._data + data
+            if days and data:
+                self._days, self._data = days, data
+            else:
+                # No data, return 
                 return ()
             kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
             if as_array:
@@ -1170,6 +1182,27 @@ class UNSMRY_file(unfmt_file):
             Welldata = namedtuple('Welldata','days values')
             return Welldata(days, tuple(values))
         return ()
+
+    #--------------------------------------------------------------------------------
+    def plot(self, keys=(), wells=(), **kwargs):                        # UNSMRY_file
+    #--------------------------------------------------------------------------------
+        data = self.read(keys=keys, wells=wells)
+        if not self._plots:
+            default = {'marker':'o', 'ms':2, 'lw':0.1}
+            kwargs.update(**{k:kwargs.get(k) or v for k,v in default.items()})
+            ion()
+            axes = {key:figure().add_subplot() for key in self.keys}
+            for val in data.values:
+                self._plots[val.key+val.well], = axes[val.key].plot(data.days, val.data, label=val.well, **kwargs)
+            for key, ax in axes.items():
+                ax.set_title(key)
+                ax.legend()
+                ax.autoscale_view()
+        else:
+            for val in data.values:
+                plot = self._plots[val.key+val.well]
+                plot.set_xdata(data.days)
+                plot.set_ydata(val.data)
 
     #--------------------------------------------------------------------------------
     def metric(self):                                                # UNSMRY_file
