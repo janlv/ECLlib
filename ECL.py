@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
-from matplotlib.pyplot import figure, ion
+from matplotlib.pyplot import figure as pl_figure, close as pl_close
 #from numba import njit, jit
 from .utils import decode, tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
@@ -1148,10 +1148,12 @@ class UNSMRY_file(unfmt_file):
         self._days = ()
         self._data = ()
         self._plots = None
+        #self._axes = None
 
     #--------------------------------------------------------------------------------
     def read(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
+        #start = datetime.now()
         if self.is_file() and self.spec.read(keys=keys, wells=wells):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
@@ -1165,6 +1167,7 @@ class UNSMRY_file(unfmt_file):
                 self._days, self._data = days, data
             else:
                 # No data, return 
+                #print('Read: ', datetime.now()-start)
                 return ()
             kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
             if as_array:
@@ -1180,29 +1183,48 @@ class UNSMRY_file(unfmt_file):
             Values = namedtuple('Values','key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
             Welldata = namedtuple('Welldata','days values')
+            #print('Read: ', datetime.now()-start)
             return Welldata(days, tuple(values))
+        #print('Read: ', datetime.now()-start)
         return ()
 
     #--------------------------------------------------------------------------------
-    def plot(self, keys=(), wells=(), **kwargs):                        # UNSMRY_file
+    def plot(self, keys=(), wells=(), start=0, stop=None, step=None, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        data = self.read(keys=keys, wells=wells)
-        if not self._plots:
-            default = {'marker':'o', 'ms':2, 'lw':0.1}
-            kwargs.update(**{k:kwargs.get(k) or v for k,v in default.items()})
-            ion()
-            axes = {key:figure().add_subplot() for key in self.keys}
-            for val in data.values:
-                self._plots[val.key+val.well], = axes[val.key].plot(data.days, val.data, label=val.well, **kwargs)
-            for key, ax in axes.items():
-                ax.set_title(key)
+        if data := self.read(keys=keys, wells=wells, start=start, stop=stop, step=step):
+            _keys = set(keys).intersection(self.keys) if keys else self.keys
+            if not self._plots:
+                # Create new figures and axes
+                figs = {}
+                pl_close('all')
+                for key in _keys:
+                    figs[key] = pl_figure(clear=True)
+                    ax = figs[key].add_subplot()
+                    ax.set_title(key)
+                default = {'marker':'o', 'ms':2, 'linestyle':'None'}
+                kwargs.update(**{k:kwargs.get(k) or v for k,v in default.items()})
+                lines = {}
+                for val in data.values:
+                    # Create plot-lines
+                    lines[(val.key, val.well)], = figs[val.key].axes[0].plot(data.days, val.data, label=val.well, **kwargs)
+                self._plots = (figs, lines)
+            else:
+                # Update existing plot-lines
+                figs, lines = self._plots
+                for val in data.values:
+                    lines[(val.key, val.well)].set_data(data.days, val.data)
+            for fig in figs.values():
+                ax = fig.axes[0]
                 ax.legend()
+                ax.relim()
                 ax.autoscale_view()
-        else:
-            for val in data.values:
-                plot = self._plots[val.key+val.well]
-                plot.set_xdata(data.days)
-                plot.set_ydata(val.data)
+                fig.canvas.draw()
+        return figs
+
+    # #--------------------------------------------------------------------------------
+    # def loop_plot(self, keys=(), wells=(), start=0, stop=None, step=None, **kwargs):                        # UNSMRY_file
+    # #--------------------------------------------------------------------------------
+
 
     #--------------------------------------------------------------------------------
     def metric(self):                                                # UNSMRY_file
@@ -1252,10 +1274,12 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             ikw = enumerate(zip(self.data.keys, self.data.wells))
             # index into UNSMRY arrays
             self._ind = tuple(i for i,(k,w) in ikw if k in keys and w in wells)
-            measure_strings = map(''.join, grouper(self.data.measures, width))
-            self.measures = itemgetter(*self._ind)(tuple(measure_strings))
-            self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
-            return bool(self._ind)
+            if self._ind:
+                measure_strings = map(''.join, grouper(self.data.measures, width))
+                self.measures = itemgetter(*self._ind)(tuple(measure_strings))
+                self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
+                return True
+            #return bool(self._ind)
         return False
 
     #--------------------------------------------------------------------------------

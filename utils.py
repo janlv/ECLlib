@@ -25,6 +25,10 @@ from psutil import Process, NoSuchProcess, wait_procs
 #    + : 1 or more rep.
 #    * : 0 or more rep.
 
+#-----------------------------------------------------------------------
+def ordered_intersect(A, B):
+#-----------------------------------------------------------------------
+    return [a for a in A if a in B] if A else B
 
 #-----------------------------------------------------------------------
 def removeprefix(prefix, string):
