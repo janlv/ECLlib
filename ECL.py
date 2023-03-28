@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
-from matplotlib.pyplot import figure as pl_figure, close as pl_close
+from matplotlib.pyplot import close as pl_close, subplots as pl_subplots
 #from numba import njit, jit
 from .utils import decode, tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
@@ -1194,12 +1194,13 @@ class UNSMRY_file(unfmt_file):
         if data := self.read(keys=keys, wells=wells, start=start, stop=stop, step=step):
             _keys = set(keys).intersection(self.keys) if keys else self.keys
             if not self._plots:
-                # Create new figures and axes
+                # Create new plots (figures and axes)
                 figs = {}
                 pl_close('all')
                 for key in _keys:
-                    figs[key] = pl_figure(clear=True)
-                    ax = figs[key].add_subplot()
+                    figs[key], ax = pl_subplots()
+                    #figs[key] = pl_figure(clear=True)
+                    #ax = figs[key].add_subplot()
                     ax.set_title(key)
                 default = {'marker':'o', 'ms':2, 'linestyle':'None'}
                 kwargs.update(**{k:kwargs.get(k) or v for k,v in default.items()})
@@ -1209,7 +1210,7 @@ class UNSMRY_file(unfmt_file):
                     lines[(val.key, val.well)], = figs[val.key].axes[0].plot(data.days, val.data, label=val.well, **kwargs)
                 self._plots = (figs, lines)
             else:
-                # Update existing plot-lines
+                # Update existing plots
                 figs, lines = self._plots
                 for val in data.values:
                     lines[(val.key, val.well)].set_data(data.days, val.data)
@@ -1221,9 +1222,25 @@ class UNSMRY_file(unfmt_file):
                 fig.canvas.draw()
         return figs
 
-    # #--------------------------------------------------------------------------------
-    # def loop_plot(self, keys=(), wells=(), start=0, stop=None, step=None, **kwargs):                        # UNSMRY_file
-    # #--------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------
+    def plot_loop(self, sleep=1.0, finished=True, **kwargs):                        # UNSMRY_file
+    #--------------------------------------------------------------------------------
+        from IPython import get_ipython
+        if ipython := get_ipython():
+            ipython.run_line_magic('matplotlib', 'widget')
+        else:
+            msg = f'{self.__class__.__name__}.plot_loop() can only run inside a Jupyter Notebook/IPython session'
+            raise SystemError(msg)
+        
+        import asyncio
+        async def update():
+            #for i in range(100):
+            while not finished:
+                self.plot(**kwargs)
+                await asyncio.sleep(sleep)
+    
+        loop  = asyncio.get_event_loop()
+        loop.create_task(update());
 
 
     #--------------------------------------------------------------------------------
