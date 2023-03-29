@@ -1153,7 +1153,6 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def read(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
-        #start = datetime.now()
         if self.is_file() and self.spec.read(keys=keys, wells=wells):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
@@ -1166,8 +1165,7 @@ class UNSMRY_file(unfmt_file):
             if days and data:
                 self._days, self._data = days, data
             else:
-                # No data, return 
-                #print('Read: ', datetime.now()-start)
+                # No data, return
                 return ()
             kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
             if as_array:
@@ -1183,9 +1181,7 @@ class UNSMRY_file(unfmt_file):
             Values = namedtuple('Values','key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
             Welldata = namedtuple('Welldata','days values')
-            #print('Read: ', datetime.now()-start)
             return Welldata(days, tuple(values))
-        #print('Read: ', datetime.now()-start)
         return ()
 
     #--------------------------------------------------------------------------------
@@ -1199,8 +1195,6 @@ class UNSMRY_file(unfmt_file):
                 pl_close('all')
                 for key in _keys:
                     figs[key], ax = pl_subplots()
-                    #figs[key] = pl_figure(clear=True)
-                    #ax = figs[key].add_subplot()
                     ax.set_title(key)
                 default = {'marker':'o', 'ms':2, 'linestyle':'None'}
                 kwargs.update(**{k:kwargs.get(k) or v for k,v in default.items()})
@@ -1223,7 +1217,7 @@ class UNSMRY_file(unfmt_file):
         return figs
 
     #--------------------------------------------------------------------------------
-    def plot_loop(self, sleep=1.0, finished=True, **kwargs):                        # UNSMRY_file
+    def plot_loop(self, sleep=1.0, thread=None, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
         from IPython import get_ipython
         if ipython := get_ipython():
@@ -1235,12 +1229,12 @@ class UNSMRY_file(unfmt_file):
         import asyncio
         async def update():
             #for i in range(100):
-            while not finished:
+            while thread and thread.is_alive():
                 self.plot(**kwargs)
                 await asyncio.sleep(sleep)
-    
-        loop  = asyncio.get_event_loop()
-        loop.create_task(update());
+
+        loop = asyncio.get_event_loop()
+        loop.create_task(update())
 
 
     #--------------------------------------------------------------------------------
