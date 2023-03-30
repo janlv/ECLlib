@@ -378,6 +378,12 @@ class unfmt_file(File):
         return self.size() - self.endpos
 
     #--------------------------------------------------------------------------------
+    def blockdata(self, *keys, strip=True, **kwargs):                        # unfmt_file
+    #--------------------------------------------------------------------------------
+        return (bl.data(strip=strip) for bl in self.blocks() if bl.key() in keys)
+
+
+    #--------------------------------------------------------------------------------
     def blocks(self, only_new=False, start=None):                        # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file():
@@ -1151,12 +1157,15 @@ class UNSMRY_file(unfmt_file):
         #self._axes = None
 
     #--------------------------------------------------------------------------------
-    def read(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
+    #def read(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
+    def welldata(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
-        if self.is_file() and self.spec.read(keys=keys, wells=wells):
+        #if self.is_file() and self.spec.read(keys=keys, wells=wells):
+        if self.is_file() and self.spec.welldata(keys=keys, wells=wells):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
-                days, data = zip(*super().read('days', 'welldata', only_new=True, **kwargs))
+                # days, data = zip(*super().read('days', 'welldata', only_new=True, **kwargs))
+                days, data = zip(*self.read('days', 'welldata', only_new=True, **kwargs))
             except ValueError:
                 days, data = (), ()
             if not only_new:
@@ -1185,29 +1194,41 @@ class UNSMRY_file(unfmt_file):
         return ()
 
     #--------------------------------------------------------------------------------
-    def plot(self, keys=(), wells=(), start=0, stop=None, step=None, **kwargs):                        # UNSMRY_file
+    def plot(self, keys=(), wells=(), date=True, start=0, stop=None, step=None, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        if data := self.read(keys=keys, wells=wells, start=start, stop=stop, step=step):
+        #if data := self.read(keys=keys, wells=wells, start=start, stop=stop, step=step):
+        if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
+            if date:
+                xlabel = 'Dates'
+                start = self.spec.startdate()
+                time = [start + timedelta(days=day) for day in data.days]
+            else:
+                xlabel = 'Days'
+                time = data.days
             _keys = set(keys).intersection(self.keys) if keys else self.keys
             if not self._plots:
                 # Create new plots (figures and axes)
                 figs = {}
                 pl_close('all')
+                metric = self.metric()
                 for key in _keys:
                     figs[key], ax = pl_subplots()
                     ax.set_title(key)
+                    ax.set_xlabel(xlabel)
+                    ylabel = getattr(metric, key)
+                    ax.set_ylabel(f'{ylabel.measure.split(":")[-1]} [{ylabel.unit}]')
                 default = {'marker':'o', 'ms':2, 'linestyle':'None'}
                 kwargs.update(**{k:kwargs.get(k) or v for k,v in default.items()})
                 lines = {}
                 for val in data.values:
                     # Create plot-lines
-                    lines[(val.key, val.well)], = figs[val.key].axes[0].plot(data.days, val.data, label=val.well, **kwargs)
+                    lines[(val.key, val.well)], = figs[val.key].axes[0].plot(time, val.data, label=val.well, **kwargs)
                 self._plots = (figs, lines)
             else:
                 # Update existing plots
                 figs, lines = self._plots
                 for val in data.values:
-                    lines[(val.key, val.well)].set_data(data.days, val.data)
+                    lines[(val.key, val.well)].set_data(time, val.data)
             for fig in figs.values():
                 ax = fig.axes[0]
                 ax.legend()
@@ -1270,14 +1291,16 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         self.data = ()
 
     #--------------------------------------------------------------------------------
-    def read(self, keys=(), wells=()):                                  # SMSPEC_file
+    #def read(self, keys=(), wells=()):                                  # SMSPEC_file
+    def welldata(self, keys=(), wells=()):                                  # SMSPEC_file
     #--------------------------------------------------------------------------------
         self._inkeys = keys
         if not self.is_file():
             return False
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
-        blockdata = (b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS'))
-        self.data = Data(*blockdata)
+        # blockdata = (b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS'))
+        # self.data = Data(*blockdata)
+        self.data = Data(*self.blockdata('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS'))
         if all(self.data):
             width = len(self.data.measures)//max(len(self.data.keys), 1)
             keys = keys or set(self.data.keys)
@@ -1290,12 +1313,22 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
                 self.measures = itemgetter(*self._ind)(tuple(measure_strings))
                 self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
                 return True
-            #return bool(self._ind)
         return False
+
+    #--------------------------------------------------------------------------------
+    def startdate(self):                                                    # SMSPEC_file
+    #--------------------------------------------------------------------------------
+        if start := next(self.blockdata('STARTDAT'), None):
+            day, month, year, hour, minute, second = start
+            return datetime(year, month, day, hour, minute, second)
+        # return next((bl.data(strip=True) for bl in self.blocks() if 'STARTDAT' in bl), None)
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # SMSPEC_file
     #--------------------------------------------------------------------------------
+        """
+        Read attributes from the named-tuple Data
+        """
         if (val := getattr(self.data, item, None)) is not None:
             return itemgetter(*self._ind)(val) if self._ind else ()
         return super().__getattr__(item)
