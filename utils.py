@@ -808,8 +808,8 @@ def safeopen(filename, mode):
     try:
         filehandle = open(filename, mode)
         return filehandle
-    except OSError as err:
-        raise SystemError(f'Unable to open file {filename} in mode {mode}: {err.errno}')
+    except OSError as error:
+        raise SystemError(f'Unable to open file {filename}: {error}') from error
         
 #--------------------------------------------------------------------------------
 def warn_empty_file(file, comment=''):

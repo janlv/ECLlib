@@ -1194,9 +1194,10 @@ class UNSMRY_file(unfmt_file):
         return ()
 
     #--------------------------------------------------------------------------------
-    def plot(self, keys=(), wells=(), date=True, start=0, stop=None, step=None, **kwargs):                        # UNSMRY_file
+    def plot(self, keys=(), wells=(), date=True, start=0, stop=None, step=None, line={}, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
         #if data := self.read(keys=keys, wells=wells, start=start, stop=stop, step=step):
+        figs = {}
         if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
             if date:
                 xlabel = 'Dates'
@@ -1208,7 +1209,6 @@ class UNSMRY_file(unfmt_file):
             _keys = set(keys).intersection(self.keys) if keys else self.keys
             if not self._plots:
                 # Create new plots (figures and axes)
-                figs = {}
                 pl_close('all')
                 metric = self.metric()
                 for key in _keys:
@@ -1218,11 +1218,11 @@ class UNSMRY_file(unfmt_file):
                     ylabel = getattr(metric, key)
                     ax.set_ylabel(f'{ylabel.measure.split(":")[-1]} [{ylabel.unit}]')
                 default = {'marker':'o', 'ms':2, 'linestyle':'None'}
-                kwargs.update(**{k:kwargs.get(k) or v for k,v in default.items()})
+                line.update(**{k:line.get(k) or v for k,v in default.items()})
                 lines = {}
                 for val in data.values:
                     # Create plot-lines
-                    lines[(val.key, val.well)], = figs[val.key].axes[0].plot(time, val.data, label=val.well, **kwargs)
+                    lines[(val.key, val.well)], = figs[val.key].axes[0].plot(time, val.data, label=val.well, **line)
                 self._plots = (figs, lines)
             else:
                 # Update existing plots
@@ -1238,7 +1238,7 @@ class UNSMRY_file(unfmt_file):
         return figs
 
     #--------------------------------------------------------------------------------
-    def plot_loop(self, sleep=1.0, thread=None, **kwargs):                        # UNSMRY_file
+    def plot_loop(self, sleep=1.0, thread=None, line={}, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
         from IPython import get_ipython
         if ipython := get_ipython():
@@ -1251,7 +1251,7 @@ class UNSMRY_file(unfmt_file):
         async def update():
             #for i in range(100):
             while thread and thread.is_alive():
-                self.plot(**kwargs)
+                self.plot(line=line, **kwargs)
                 await asyncio.sleep(sleep)
 
         loop = asyncio.get_event_loop()
