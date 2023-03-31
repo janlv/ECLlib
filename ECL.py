@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
-from matplotlib.pyplot import close as pl_close, subplots as pl_subplots
+from matplotlib.pyplot import close as pl_close, subplots as pl_subplots, figure as pl_figure
 #from numba import njit, jit
 from .utils import decode, tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
@@ -1196,7 +1196,6 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def plot(self, keys=(), wells=(), date=True, start=0, stop=None, step=None, line={}, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        #if data := self.read(keys=keys, wells=wells, start=start, stop=stop, step=step):
         figs = {}
         if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
             if date:
@@ -1209,10 +1208,12 @@ class UNSMRY_file(unfmt_file):
             _keys = set(keys).intersection(self.keys) if keys else self.keys
             if not self._plots:
                 # Create new plots (figures and axes)
-                pl_close('all')
+                #pl_close('all')
                 metric = self.metric()
-                for key in _keys:
-                    figs[key], ax = pl_subplots()
+                for i,key in enumerate(_keys):
+                    #figs[key], ax = pl_subplots()
+                    figs[key] = pl_figure(i+1)
+                    ax = figs[key].add_subplot()
                     ax.set_title(key)
                     ax.set_xlabel(xlabel)
                     ylabel = getattr(metric, key)
@@ -1237,6 +1238,7 @@ class UNSMRY_file(unfmt_file):
                 fig.canvas.draw()
         return figs
 
+
     #--------------------------------------------------------------------------------
     def plot_loop(self, sleep=1.0, thread=None, line={}, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
@@ -1249,11 +1251,14 @@ class UNSMRY_file(unfmt_file):
         
         import asyncio
         async def update():
-            #for i in range(100):
             while thread and thread.is_alive():
                 self.plot(line=line, **kwargs)
                 await asyncio.sleep(sleep)
 
+        pl_close('all')
+        for i in range(len(kwargs.get('keys'))):
+            fig = pl_figure(i+1)
+            fig.canvas.draw()
         loop = asyncio.get_event_loop()
         loop.create_task(update())
 
