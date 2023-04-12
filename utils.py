@@ -15,7 +15,7 @@ from collections.abc import Iterable
 from shutil import copy2
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
-from matplotlib.pyplot import figure as pl_figure, show as pl_show
+from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_close
 
 # Short Python regexp guide:
 #   \s : whitespace, [ \t\n\r\f\v]
@@ -1175,10 +1175,13 @@ class LivePlot:
         else:
             msg = 'ERROR! LivePlot can only be used inside a Jupyter Notebook/IPython session'
             raise SystemError(msg)
-        self.fig = pl_figure(num, clear=True)
+        pl_close('all')
+        self.fig = pl_figure(num) #, clear=True)
         canvas = self.fig.canvas
         canvas.header_visible = False
+        #print(self.fig)
         #canvas.layout.width = '200px'
+        #canvas.layout.height = '200px'
         pl_show()
         #self.fig.canvas.draw()
         self.func = func
