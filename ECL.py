@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from itertools import chain, repeat, accumulate, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
+from platform import system
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import mmap, ACCESS_READ
 from re import MULTILINE, finditer, compile as re_compile, search
@@ -739,9 +740,12 @@ class DATA_file(File):
     def check(self, include=True):                                        # DATA_file
     #--------------------------------------------------------------------------------
         self._checked = True
-        ### Check if file exists
-        self.exists(raise_error=True)        
-        ### Check if included files exists
+        # Check if file exists
+        self.exists(raise_error=True)
+        # If Linux, check that file name is all capital letters to avoid I/O error in Eclipse
+        if self.suffix == '.DATA' and system() == 'Linux' and not self.name.isupper():
+            raise SystemError(f"ERROR Invalid filename format' {self.name}'. Under Linux, Eclipse only accepts uppercase letters")
+        # Check if included files exists
         if include and (missing := [f for f in self.include_files() if not f.is_file()]):
             raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
         return True
@@ -1225,6 +1229,7 @@ class UNSMRY_file(unfmt_file):
                 for val in data.values:
                     # Create plot-lines
                     lines[(val.key, val.well)], = axes[val.key].plot(time, val.data, label=val.well, **line)
+                #pl_show()
                 self._plots = (fig, axes, lines)
             else:
                 # Update existing plots

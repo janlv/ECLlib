@@ -15,7 +15,7 @@ from collections.abc import Iterable
 from shutil import copy2
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
-from matplotlib.pyplot import figure as pl_figure
+from matplotlib.pyplot import figure as pl_figure, show as pl_show
 
 # Short Python regexp guide:
 #   \s : whitespace, [ \t\n\r\f\v]
@@ -1075,12 +1075,10 @@ class TimerThread:
         self._limit = limit
         self._idle = prec   # Idle time between checks given by precision
         self._running = False
-        #self._is_alive = False
         self._starttime = None
         self._endtime = None
         self._thread = Thread(target=self._timer, daemon=True)
         self.DEBUG and print(f'Creating {self}')
-        #print(self._limit, self._idle)
 
     #--------------------------------------------------------------------------------    
     def __str__(self):
@@ -1116,7 +1114,6 @@ class TimerThread:
     #--------------------------------------------------------------------------------    
     def start(self):
     #--------------------------------------------------------------------------------    
-        # self._is_alive = True
         self._endtime = None
         self._call_func = self._func
         self._starttime = datetime.now()
@@ -1137,7 +1134,6 @@ class TimerThread:
         #print((datetime.now()-self._starttime).total_seconds(), self._is_alive)
         if not self._endtime:
             self._call_func = lambda : None
-            #self._is_alive = False
             self._endtime = self.time()
             return True
         return False
@@ -1145,7 +1141,6 @@ class TimerThread:
     #--------------------------------------------------------------------------------    
     def is_alive(self):
     #--------------------------------------------------------------------------------    
-        #return self._is_alive
         return not self._endtime
 
     #--------------------------------------------------------------------------------    
@@ -1158,12 +1153,10 @@ class TimerThread:
     #--------------------------------------------------------------------------------    
         while self._running:
             sleep(self._idle)
-            #if self._is_alive:
             if not self._endtime:
                 time = self.time()
                 if time >= self._limit:
                     self._call_func()
-                    #self._is_alive = False
                     self._endtime = time
                     #print('Called '+self._caller.__qualname__+f' at {sec}')
 
@@ -1172,20 +1165,22 @@ class TimerThread:
 #====================================================================================
 class LivePlot:
 #====================================================================================
-    from IPython import get_ipython
-
     #--------------------------------------------------------------------------------
     def __init__(self, num=1, func=None, **kwargs):                            # Plot
     #--------------------------------------------------------------------------------
         #pl_close('all')
+        from IPython import get_ipython
         if ipython := get_ipython():
             ipython.run_line_magic('matplotlib', 'widget')
         else:
             msg = 'ERROR! LivePlot can only be used inside a Jupyter Notebook/IPython session'
             raise SystemError(msg)
         self.fig = pl_figure(num, clear=True)
-        self.fig.canvas.header_visible = False
-        self.fig.canvas.draw()
+        canvas = self.fig.canvas
+        canvas.header_visible = False
+        #canvas.layout.width = '200px'
+        pl_show()
+        #self.fig.canvas.draw()
         self.func = func
         self.kwargs = kwargs
 
