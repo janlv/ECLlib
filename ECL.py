@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
-from matplotlib.pyplot import close as pl_close, subplots as pl_subplots, figure as pl_figure
+from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
 from .utils import decode, tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
 
@@ -1194,9 +1194,8 @@ class UNSMRY_file(unfmt_file):
         return ()
 
     #--------------------------------------------------------------------------------
-    def plot(self, keys=(), wells=(), date=True, start=0, stop=None, step=None, line={}, **kwargs):                        # UNSMRY_file
+    def plot(self, keys=(), wells=(), ncols=1, date=True, start=0, stop=None, step=None, line=None, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        figs = {}
         if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
             if date:
                 xlabel = 'Dates'
@@ -1205,70 +1204,48 @@ class UNSMRY_file(unfmt_file):
             else:
                 xlabel = 'Days'
                 time = data.days
-            _keys = set(keys).intersection(self.keys) if keys else self.keys
+            _keys = [k for k in keys if k in self.keys] if keys else self.keys
             if not self._plots:
-                # Create new plots (figures and axes)
-                #pl_close('all')
-                metric = self.metric()
-                for i,key in enumerate(_keys):
-                    #figs[key], ax = pl_subplots()
-                    figs[key] = pl_figure(i+1)
-                    ax = figs[key].add_subplot()
+                # Create new plots
+                nrows = -(-len(_keys)//ncols) # -(-a//b) is equivalent of ceil
+                fig = pl_figure(1, clear=True, figsize=(8*ncols,4*nrows))
+                axes = {key:fig.add_subplot(nrows, ncols, i+1) for i,key in enumerate(_keys)}
+                fig.subplots_adjust(hspace=0.4, wspace=0.25)
+                units = self.key_units()
+                for key, ax in axes.items():
                     ax.set_title(key)
                     ax.set_xlabel(xlabel)
-                    ylabel = getattr(metric, key)
-                    ax.set_ylabel(f'{ylabel.measure.split(":")[-1]} [{ylabel.unit}]')
+                    ylabel = getattr(units, key)
+                    ax.set_ylabel(f'{ylabel.measure} [{ylabel.unit}]')
                 default = {'marker':'o', 'ms':2, 'linestyle':'None'}
+                if line is None:
+                    line = {}
                 line.update(**{k:line.get(k) or v for k,v in default.items()})
                 lines = {}
                 for val in data.values:
                     # Create plot-lines
-                    lines[(val.key, val.well)], = figs[val.key].axes[0].plot(time, val.data, label=val.well, **line)
-                self._plots = (figs, lines)
+                    lines[(val.key, val.well)], = axes[val.key].plot(time, val.data, label=val.well, **line)
+                self._plots = (fig, axes, lines)
             else:
                 # Update existing plots
-                figs, lines = self._plots
+                fig, axes, lines = self._plots
                 for val in data.values:
                     lines[(val.key, val.well)].set_data(time, val.data)
-            for fig in figs.values():
-                ax = fig.axes[0]
+            for ax in axes.values():
                 ax.legend()
                 ax.relim()
                 ax.autoscale_view()
-                fig.canvas.draw()
-        return figs
-
-
-    #--------------------------------------------------------------------------------
-    def plot_loop(self, sleep=1.0, thread=None, line={}, **kwargs):                        # UNSMRY_file
-    #--------------------------------------------------------------------------------
-        from IPython import get_ipython
-        if ipython := get_ipython():
-            ipython.run_line_magic('matplotlib', 'widget')
-        else:
-            msg = f'{self.__class__.__name__}.plot_loop() can only run inside a Jupyter Notebook/IPython session'
-            raise SystemError(msg)
-        
-        import asyncio
-        async def update():
-            while thread and thread.is_alive():
-                self.plot(line=line, **kwargs)
-                await asyncio.sleep(sleep)
-
-        pl_close('all')
-        for i in range(len(kwargs.get('keys'))):
-            fig = pl_figure(i+1)
             fig.canvas.draw()
-        loop = asyncio.get_event_loop()
-        loop.create_task(update())
+
 
 
     #--------------------------------------------------------------------------------
-    def metric(self):                                                # UNSMRY_file
+    def key_units(self):                                                # UNSMRY_file
     #--------------------------------------------------------------------------------
         Var = namedtuple('Var','unit measure')
-        var = (Var(u,m) for k,u,m in set(zip(*attrgetter('keys', 'units', 'measures')(self.spec))))
-        return namedtuple('Keys', self.keys)(*var)
+        kum = zip(*attrgetter('keys', 'units', 'measures')(self.spec))
+        var = {k:Var(u, m.split(':')[-1].replace('_',' ')) for k,u,m in set(kum)}
+        return namedtuple('Keys', self.keys)(**var)
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # UNSMRY_file
@@ -1296,7 +1273,6 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         self.data = ()
 
     #--------------------------------------------------------------------------------
-    #def read(self, keys=(), wells=()):                                  # SMSPEC_file
     def welldata(self, keys=(), wells=()):                                  # SMSPEC_file
     #--------------------------------------------------------------------------------
         self._inkeys = keys

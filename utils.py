@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from shutil import copy2
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
+from matplotlib.pyplot import figure as pl_figure
 
 # Short Python regexp guide:
 #   \s : whitespace, [ \t\n\r\f\v]
@@ -1165,4 +1166,46 @@ class TimerThread:
                     #self._is_alive = False
                     self._endtime = time
                     #print('Called '+self._caller.__qualname__+f' at {sec}')
+
+
+
+#====================================================================================
+class LivePlot:
+#====================================================================================
+    from IPython import get_ipython
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, num=1, func=None, **kwargs):                            # Plot
+    #--------------------------------------------------------------------------------
+        #pl_close('all')
+        if ipython := get_ipython():
+            ipython.run_line_magic('matplotlib', 'widget')
+        else:
+            msg = 'ERROR! LivePlot can only be used inside a Jupyter Notebook/IPython session'
+            raise SystemError(msg)
+        self.fig = pl_figure(num, clear=True)
+        self.fig.canvas.header_visible = False
+        self.fig.canvas.draw()
+        self.func = func
+        self.kwargs = kwargs
+
+    #--------------------------------------------------------------------------------
+    def loop(self, sleep=1.0, thread=None):                 # Plot
+    #--------------------------------------------------------------------------------
+        #from IPython import get_ipython
+        # if ipython := get_ipython():
+        #     ipython.run_line_magic('matplotlib', 'widget')
+        # else:
+        #     msg = f'{self.__class__.__name__}.loop() can only run inside a Jupyter Notebook/IPython session'
+        #     raise SystemError(msg)
+        
+        import asyncio
+        async def update():
+            while thread and thread.is_alive():
+                self.func(**self.kwargs)
+                await asyncio.sleep(sleep)
+
+        loop = asyncio.get_event_loop()
+        loop.create_task(update())
+
 
