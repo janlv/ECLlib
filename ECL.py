@@ -1161,40 +1161,41 @@ class UNSMRY_file(unfmt_file):
         #self._axes = None
 
     #--------------------------------------------------------------------------------
-    #def read(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
-        #if self.is_file() and self.spec.read(keys=keys, wells=wells):
         if self.is_file() and self.spec.welldata(keys=keys, wells=wells):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
-                # days, data = zip(*super().read('days', 'welldata', only_new=True, **kwargs))
                 days, data = zip(*self.read('days', 'welldata', only_new=True, **kwargs))
             except ValueError:
                 days, data = (), ()
             if not only_new:
-                # Append old (previously read) data 
+                # Append old (previously read) data
                 days, data = self._days + days, self._data + data
             if days and data:
                 self._days, self._data = days, data
             else:
                 # No data, return
                 return ()
+            # Add dates
+            start = self.spec.startdate()
+            dates = [start + timedelta(days=day) for day in days]
+            # Process keys and wells
             kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
             if as_array:
                 kwd = ((k,w,nparray(d)) for k,w,d in kwd)
             if named:
                 wells = self.wells
-                Values = namedtuple('Values', wells + ('unit', 'measure'), defaults=len(wells)*((),)+2*(None,))
-                Welldata = namedtuple('Welldata', ('days',) + self.keys)
                 units = {k:{'unit':u, 'measure':m} for k,u,m in zip(*attrgetter('keys', 'units', 'measures')(self.spec))}
                 grouped = groupby(kwd, key=itemgetter(0))
+                Values = namedtuple('Values', wells + ('unit', 'measure'), defaults=len(wells)*((),)+2*(None,))
                 values = {k:Values(**dict(g[1:] for g in gr), **units[k]) for k,gr in grouped}
-                return Welldata(days=days, **values)
+                Welldata = namedtuple('Welldata', ('days', 'dates') + self.keys)
+                return Welldata(days=days, dates=dates, **values)
             Values = namedtuple('Values','key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
-            Welldata = namedtuple('Welldata','days values')
-            return Welldata(days, tuple(values))
+            Welldata = namedtuple('Welldata','days dates values')
+            return Welldata(days, dates, tuple(values))
         return ()
 
     #--------------------------------------------------------------------------------
@@ -1203,8 +1204,9 @@ class UNSMRY_file(unfmt_file):
         if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
             if date:
                 xlabel = 'Dates'
-                start = self.spec.startdate()
-                time = [start + timedelta(days=day) for day in data.days]
+                # start = self.spec.startdate()
+                # time = [start + timedelta(days=day) for day in data.days]
+                time = data.dates
             else:
                 xlabel = 'Days'
                 time = data.days
@@ -1214,13 +1216,13 @@ class UNSMRY_file(unfmt_file):
                 nrows = -(-len(_keys)//ncols) # -(-a//b) is equivalent of ceil
                 fig = pl_figure(1, clear=True, figsize=(8*ncols,4*nrows))
                 axes = {key:fig.add_subplot(nrows, ncols, i+1) for i,key in enumerate(_keys)}
-                fig.subplots_adjust(hspace=0.4, wspace=0.25)
+                fig.subplots_adjust(hspace=0.5, wspace=0.25)
                 units = self.key_units()
                 for key, ax in axes.items():
                     ax.set_title(key)
                     ax.set_xlabel(xlabel)
                     ylabel = getattr(units, key)
-                    ax.set_ylabel(f'{ylabel.measure} [{ylabel.unit}]')
+                    ax.set_ylabel(ylabel.measure + (f' [{ylabel.unit}]' if ylabel.unit else ''))
                 default = {'marker':'o', 'ms':2, 'linestyle':'None'}
                 if line is None:
                     line = {}
@@ -1242,8 +1244,6 @@ class UNSMRY_file(unfmt_file):
                 ax.autoscale_view()
             fig.canvas.draw()
 
-
-
     #--------------------------------------------------------------------------------
     def key_units(self):                                                # UNSMRY_file
     #--------------------------------------------------------------------------------
@@ -1257,11 +1257,21 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         return tuple(set(getattr(self.spec, item)))
 
-    # #--------------------------------------------------------------------------------
-    # def energy(self):                                             # UNSMRY_file
-    # #--------------------------------------------------------------------------------
-    #     data = self.read(keys=('WBHP','WTHP','WIRR'))
-    #     print(data)
+    #--------------------------------------------------------------------------------
+    def energy(self, *wells):                                             # UNSMRY_file
+    #--------------------------------------------------------------------------------
+        from scipy.integrate import cumtrapz
+        data = self.welldata(keys=('WBHP','WTHP','WWIR'), wells=wells, as_array=True, named=True)
+        wells = wells or self.wells
+        # Power = (WBHP - WTHP) * WWIR
+        # Energy is time-integral of power (use trapezoidal rule: cumtrapz)
+        Energy = namedtuple('Energy', ('unit',) + wells)
+        if data.WBHP.unit == 'BARSA':
+            # 1 bar = 1e5 Joule/m3
+            BTI = ((getattr(kd, well) for kd in (data.WBHP, data.WTHP, data.WWIR)) for well in wells)
+            energy = Energy('Joule', *(1e-5*cumtrapz((BP-TP)*IR, data.days) for BP,TP,IR in BTI))
+            return namedtuple('Data', 'days dates energy')(data.days[1:], data.dates[1:], energy)
+        raise SystemError(f'ERROR Energy calculation only for metric data, pressure unit is: {data.WBHP.unit}')
 
 
 #====================================================================================

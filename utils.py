@@ -2,19 +2,20 @@
 # -*- coding: utf-8 -*-
 
 from pathlib import Path
-from re import RegexFlag, findall, compile as re_compile, DOTALL, search, sub, IGNORECASE, MULTILINE
+from re import RegexFlag, findall, compile as re_compile, DOTALL, sub, IGNORECASE, MULTILINE
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
 from mmap import mmap, ACCESS_READ
 from signal import SIGTERM
 from contextlib import contextmanager
-from itertools import chain, groupby, islice, takewhile, tee, zip_longest
+from itertools import chain, groupby, islice, tee, zip_longest
 from collections import deque
 from collections.abc import Iterable
 from shutil import copy2
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
+#from operator import attrgetter
 from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_close
 
 # Short Python regexp guide:
@@ -25,6 +26,21 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #    ? : 0 or 1 repetitions
 #    + : 1 or more rep.
 #    * : 0 or more rep.
+
+# #-----------------------------------------------------------------------
+# def zipgetter(items, objects):
+# #-----------------------------------------------------------------------
+#     """
+#     zipgetter(('A','B'),(obj1, obj2)) -> (obj1.A, obj2.A), (obj1.B, obj2.B)
+#     """
+#     getter = attrgetter(*items)
+#     if len(items) > 1:
+#         getgen = (getter(o) for o in objects)
+#     else:
+#         #
+#         getgen = ((getter(o),) for o in objects)
+#     return zip(*getgen)
+
 
 #-----------------------------------------------------------------------
 def ordered_intersect(A, B):
