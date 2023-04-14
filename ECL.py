@@ -1163,7 +1163,7 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
-        if self.is_file() and self.spec.welldata(keys=keys, wells=wells):
+        if self.is_file() and self.spec.welldata(keys=keys, wells=wells, named=named):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
                 days, data = zip(*self.read('days', 'welldata', only_new=True, **kwargs))
@@ -1204,8 +1204,6 @@ class UNSMRY_file(unfmt_file):
         if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
             if date:
                 xlabel = 'Dates'
-                # start = self.spec.startdate()
-                # time = [start + timedelta(days=day) for day in data.days]
                 time = data.dates
             else:
                 xlabel = 'Days'
@@ -1288,7 +1286,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         self.data = ()
 
     #--------------------------------------------------------------------------------
-    def welldata(self, keys=(), wells=()):                                  # SMSPEC_file
+    def welldata(self, keys=(), wells=(), named=False):                 # SMSPEC_file
     #--------------------------------------------------------------------------------
         self._inkeys = keys
         if not self.is_file():
@@ -1305,9 +1303,15 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             # index into UNSMRY arrays
             self._ind = tuple(i for i,(k,w) in ikw if k in keys and w in wells)
             if self._ind:
+                getter = itemgetter(*self._ind)
                 measure_strings = map(''.join, grouper(self.data.measures, width))
-                self.measures = itemgetter(*self._ind)(tuple(measure_strings))
-                self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
+                #self.measures = itemgetter(*self._ind)(tuple(measure_strings))
+                self.measures = getter(tuple(measure_strings))
+                if named:
+                    #self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
+                    self.wells = getter(tuple(w.replace('-','_') for w in self.data.wells))
+                else:
+                    self.wells = getter(tuple(self.data.wells))
                 return True
         return False
 
