@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import chain, repeat, accumulate, groupby
+from itertools import chain, repeat, accumulate, groupby, zip_longest
 from operator import attrgetter, itemgetter
 from pathlib import Path
 from platform import system
@@ -1181,7 +1181,9 @@ class UNSMRY_file(unfmt_file):
             start = self.spec.startdate()
             dates = [start + timedelta(days=day) for day in days]
             # Process keys and wells
-            kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
+            #print('\nKEYS:', self.spec.keys)
+            #print('WELLS:', self.spec.wells)
+            kwd = zip(self.spec.keys, self.spec.wells, zip_longest(*data, fillvalue=0))
             if as_array:
                 kwd = ((k,w,nparray(d)) for k,w,d in kwd)
             if named:
@@ -1199,7 +1201,7 @@ class UNSMRY_file(unfmt_file):
         return ()
 
     #--------------------------------------------------------------------------------
-    def plot(self, keys=(), wells=(), ncols=1, date=True, start=0, stop=None, step=None, line=None, **kwargs):                        # UNSMRY_file
+    def plot(self, keys=(), wells=(), ncols=1, date=True, start=0, stop=None, step=None, args=None, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
         if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
             if date:
@@ -1221,21 +1223,31 @@ class UNSMRY_file(unfmt_file):
                     ax.set_xlabel(xlabel)
                     ylabel = getattr(units, key)
                     ax.set_ylabel(ylabel.measure + (f' [{ylabel.unit}]' if ylabel.unit else ''))
+                # Update plot args
                 default = {'marker':'o', 'ms':2, 'linestyle':'None'}
-                if line is None:
-                    line = {}
-                line.update(**{k:line.get(k) or v for k,v in default.items()})
+                if args is None:
+                    args = {}
+                args.update(**{k:args.get(k) or v for k,v in default.items()})
                 lines = {}
                 for val in data.values:
                     # Create plot-lines
-                    lines[(val.key, val.well)], = axes[val.key].plot(time, val.data, label=val.well, **line)
+                    lines[(val.key, val.well)], = axes[val.key].plot(time, val.data, label=val.well, **args)
                 #pl_show()
-                self._plots = (fig, axes, lines)
+                self._plots = (fig, axes, lines, args)
             else:
                 # Update existing plots
-                fig, axes, lines = self._plots
+                fig, axes, lines, args = self._plots
+                #print('time:', time)
                 for val in data.values:
-                    lines[(val.key, val.well)].set_data(time, val.data)
+                    #print('values',val)
+                    #lines[(val.key, val.well)].set_data(time, val.data)
+                    if line := lines.get((val.key, val.well)):
+                        # Existing well, update line
+                        line.set_data(time, val.data)
+                    else:
+                        # New well, create new line
+                        lines[(val.key, val.well)], = axes[val.key].plot(time, val.data, label=val.well, **args)
+            #print(lines)
             for ax in axes.values():
                 ax.legend()
                 ax.relim()

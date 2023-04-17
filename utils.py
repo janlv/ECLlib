@@ -41,7 +41,13 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #         getgen = ((getter(o),) for o in objects)
 #     return zip(*getgen)
 
-
+#-----------------------------------------------------------------------
+def running_jupyter():
+#-----------------------------------------------------------------------
+    from IPython import get_ipython
+    if get_ipython():
+        return True
+    return False
 #-----------------------------------------------------------------------
 def ordered_intersect(A, B):
 #-----------------------------------------------------------------------
@@ -1178,13 +1184,13 @@ class TimerThread:
 
 
 
+
 #====================================================================================
 class LivePlot:
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, num=1, func=None, **kwargs):                            # Plot
     #--------------------------------------------------------------------------------
-        #pl_close('all')
         from IPython import get_ipython
         if ipython := get_ipython():
             ipython.run_line_magic('matplotlib', 'widget')
@@ -1206,13 +1212,6 @@ class LivePlot:
     #--------------------------------------------------------------------------------
     def loop(self, sleep=1.0, thread=None):                 # Plot
     #--------------------------------------------------------------------------------
-        #from IPython import get_ipython
-        # if ipython := get_ipython():
-        #     ipython.run_line_magic('matplotlib', 'widget')
-        # else:
-        #     msg = f'{self.__class__.__name__}.loop() can only run inside a Jupyter Notebook/IPython session'
-        #     raise SystemError(msg)
-        
         import asyncio
         async def update():
             while thread and thread.is_alive():
