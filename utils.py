@@ -1210,13 +1210,13 @@ class LivePlot:
         self.kwargs = kwargs
 
     #--------------------------------------------------------------------------------
-    def loop(self, sleep=1.0, thread=None):                 # Plot
+    def loop(self, wait=1.0, thread=None):                 # Plot
     #--------------------------------------------------------------------------------
         import asyncio
         async def update():
             while thread and thread.is_alive():
                 self.func(**self.kwargs)
-                await asyncio.sleep(sleep)
+                await asyncio.sleep(wait)
 
         loop = asyncio.get_event_loop()
         loop.create_task(update())

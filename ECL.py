@@ -381,7 +381,7 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
     def blockdata(self, *keys, strip=True, **kwargs):                        # unfmt_file
     #--------------------------------------------------------------------------------
-        return (bl.data(strip=strip) for bl in self.blocks() if bl.key() in keys)
+        return (bl.data(strip=strip) for bl in self.blocks(**kwargs) if bl.key() in keys)
 
 
     #--------------------------------------------------------------------------------
@@ -1155,10 +1155,8 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.UNSMRY')
         self.spec = SMSPEC_file(file)
-        self._days = ()
-        self._data = ()
+        self.start = None
         self._plots = None
-        #self._axes = None
 
     #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
@@ -1166,24 +1164,16 @@ class UNSMRY_file(unfmt_file):
         if self.is_file() and self.spec.welldata(keys=keys, wells=wells, named=named):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
-                days, data = zip(*self.read('days', 'welldata', only_new=True, **kwargs))
+                days, data = zip(*self.read('days', 'welldata', only_new=only_new, **kwargs))
             except ValueError:
                 days, data = (), ()
-            if not only_new:
-                # Append old (previously read) data
-                days, data = self._days + days, self._data + data
-            if days and data:
-                self._days, self._data = days, data
-            else:
-                # No data, return
+            if not data:
                 return ()
             # Add dates
-            start = self.spec.startdate()
-            dates = [start + timedelta(days=day) for day in days]
+            self.start = self.start or self.spec.startdate()
+            dates = (self.start + timedelta(days=day) for day in days)
             # Process keys and wells
-            #print('\nKEYS:', self.spec.keys)
-            #print('WELLS:', self.spec.wells)
-            kwd = zip(self.spec.keys, self.spec.wells, zip_longest(*data, fillvalue=0))
+            kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
             if as_array:
                 kwd = ((k,w,nparray(d)) for k,w,d in kwd)
             if named:
@@ -1193,11 +1183,10 @@ class UNSMRY_file(unfmt_file):
                 Values = namedtuple('Values', wells + ('unit', 'measure'), defaults=len(wells)*((),)+2*(None,))
                 values = {k:Values(**dict(g[1:] for g in gr), **units[k]) for k,gr in grouped}
                 Welldata = namedtuple('Welldata', ('days', 'dates') + self.keys)
-                return Welldata(days=days, dates=dates, **values)
+                return Welldata(days=days, dates=tuple(dates), **values)
             Values = namedtuple('Values','key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
-            Welldata = namedtuple('Welldata','days dates values')
-            return Welldata(days, dates, tuple(values))
+            return namedtuple('Welldata','days dates values')(days, tuple(dates), tuple(values))
         return ()
 
     #--------------------------------------------------------------------------------
@@ -1212,7 +1201,7 @@ class UNSMRY_file(unfmt_file):
                 time = data.days
             _keys = [k for k in keys if k in self.keys] if keys else self.keys
             if not self._plots:
-                # Create new plots
+                # Create figure and axes
                 nrows = -(-len(_keys)//ncols) # -(-a//b) is equivalent of ceil
                 fig = pl_figure(1, clear=True, figsize=(8*ncols,4*nrows))
                 axes = {key:fig.add_subplot(nrows, ncols, i+1) for i,key in enumerate(_keys)}
@@ -1229,27 +1218,24 @@ class UNSMRY_file(unfmt_file):
                     args = {}
                 args.update(**{k:args.get(k) or v for k,v in default.items()})
                 lines = {}
-                for val in data.values:
-                    # Create plot-lines
-                    lines[(val.key, val.well)], = axes[val.key].plot(time, val.data, label=val.well, **args)
-                #pl_show()
-                self._plots = (fig, axes, lines, args)
-            else:
-                # Update existing plots
-                fig, axes, lines, args = self._plots
-                #print('time:', time)
-                for val in data.values:
-                    #print('values',val)
-                    #lines[(val.key, val.well)].set_data(time, val.data)
-                    if line := lines.get((val.key, val.well)):
-                        # Existing well, update line
-                        line.set_data(time, val.data)
-                    else:
-                        # New well, create new line
-                        lines[(val.key, val.well)], = axes[val.key].plot(time, val.data, label=val.well, **args)
-            #print(lines)
+                welldata = {'time': []}
+                self._plots = (fig, axes, lines, args, welldata)
+            # Make plots
+            fig, axes, lines, args, welldata = self._plots
+            welldata['time'].extend(time)
+            for val in data.values:
+                key_well = (val.key, val.well)
+                if data := welldata.get(key_well):
+                    # Existing well, update data and line
+                    data.extend(val.data)
+                    lines[key_well].set_data(welldata['time'][-len(data):], data)
+                else:
+                    # New well, create data and line
+                    data = welldata[key_well] = list(val.data)
+                    lines[key_well], = axes[val.key].plot(welldata['time'][-len(data):], data, label=val.well, **args)
+                #print(key_well, len(welldata['time']), len(welldata[key_well]))
             for ax in axes.values():
-                ax.legend()
+                ax.legend(loc='upper left', fontsize='smaller', ncols=-(-len(ax.lines)//7)) # max 7 labels each column
                 ax.relim()
                 ax.autoscale_view()
             fig.canvas.draw()
@@ -1310,7 +1296,11 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         if all(self.data):
             width = len(self.data.measures)//max(len(self.data.keys), 1)
             keys = keys or set(self.data.keys)
-            wells = wells or set(w for w in self.data.wells if w and not '+' in w)
+            all_wells = set(w for w in self.data.wells if w and not '+' in w)
+            patterns = (w.split('*')[0] for w in wells if '*' in w)
+            matched = [w for p in patterns for w in all_wells if w.startswith(p)]
+            wells = [w for w in wells if '*' not in w]
+            wells = set(wells+matched) or all_wells
             ikw = enumerate(zip(self.data.keys, self.data.wells))
             # index into UNSMRY arrays
             self._ind = tuple(i for i,(k,w) in ikw if k in keys and w in wells)
@@ -1328,12 +1318,11 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         return False
 
     #--------------------------------------------------------------------------------
-    def startdate(self):                                                    # SMSPEC_file
+    def startdate(self):                                                # SMSPEC_file
     #--------------------------------------------------------------------------------
         if start := next(self.blockdata('STARTDAT'), None):
             day, month, year, hour, minute, second = start
             return datetime(year, month, day, hour, minute, second)
-        # return next((bl.data(strip=True) for bl in self.blocks() if 'STARTDAT' in bl), None)
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # SMSPEC_file
@@ -1360,15 +1349,20 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
 class text_file(File):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, **kwargs):
+    def __init__(self, file, **kwargs):                                   # text_file
     #--------------------------------------------------------------------------------
         super().__init__(file, **kwargs)
         self._pattern = {}
         self._convert = {}
 
-    #-----------------------------------------------------------------------
-    def get(self, *var_list, N=0, raise_error=True):
-    #-----------------------------------------------------------------------
+    #--------------------------------------------------------------------------------
+    def __contains__(self, key):                                          # text_file
+    #--------------------------------------------------------------------------------
+        return key.encode() in self.binarydata()
+        
+    #--------------------------------------------------------------------------------
+    def get(self, *var_list, N=0, raise_error=True):                      # text_file
+    #--------------------------------------------------------------------------------
         values = {}
         for var in var_list:
             match = matches(file=self.path, pattern=self._pattern[var])
