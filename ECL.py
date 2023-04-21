@@ -1161,6 +1161,12 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
     #--------------------------------------------------------------------------------
+        """
+        named = False   : Returns days, dates and a tuple of key, well, value for each key-well combination
+        named = True    : Returns days, dates, and all keys as their names
+        only_new = True : Returns only previously un-read data
+        as_array = True : Converts key-well data into a numpy array
+        """
         if self.is_file() and self.spec.welldata(keys=keys, wells=wells, named=named):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             try:
@@ -1192,7 +1198,7 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def plot(self, keys=(), wells=(), ncols=1, date=True, start=0, stop=None, step=None, args=None, **kwargs):                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step):
+        if data := self.welldata(keys=keys, wells=wells, start=start, stop=stop, step=step, **kwargs):
             if date:
                 xlabel = 'Dates'
                 time = data.dates
@@ -1233,7 +1239,6 @@ class UNSMRY_file(unfmt_file):
                     # New well, create data and line
                     data = welldata[key_well] = list(val.data)
                     lines[key_well], = axes[val.key].plot(welldata['time'][-len(data):], data, label=val.well, **args)
-                #print(key_well, len(welldata['time']), len(welldata[key_well]))
             for ax in axes.values():
                 ax.legend(loc='upper left', fontsize='smaller', ncols=-(-len(ax.lines)//7)) # max 7 labels each column
                 ax.relim()
@@ -1251,7 +1256,11 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # UNSMRY_file
     #--------------------------------------------------------------------------------
-        return tuple(set(getattr(self.spec, item)))
+        try:
+            # Look for attribute in File-class first
+            return super().__getattr__(item)
+        except AttributeError:
+            return tuple(set(getattr(self.spec, item)))
 
     #--------------------------------------------------------------------------------
     def energy(self, *wells):                                             # UNSMRY_file
