@@ -1189,7 +1189,7 @@ class TimerThread:
 class LivePlot:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, num=1, func=None, **kwargs):                            # Plot
+    def __init__(self, figure=1, func=None, **kwargs):                            # Plot
     #--------------------------------------------------------------------------------
         from IPython import get_ipython
         if ipython := get_ipython():
@@ -1198,7 +1198,7 @@ class LivePlot:
             msg = 'ERROR! LivePlot can only be used inside a Jupyter Notebook/IPython session'
             raise SystemError(msg)
         pl_close('all')
-        self.fig = pl_figure(num) #, clear=True)
+        self.fig = pl_figure(figure) #, clear=True)
         canvas = self.fig.canvas
         canvas.header_visible = False
         #print(self.fig)
