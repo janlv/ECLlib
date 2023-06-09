@@ -1189,7 +1189,7 @@ class TimerThread:
 class LivePlot:
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, figure=1, func=None, **kwargs):                            # Plot
+    def __init__(self, figure=1, func=None, loop=None, **kwargs):              # Plot
     #--------------------------------------------------------------------------------
         from IPython import get_ipython
         if ipython := get_ipython():
@@ -1208,17 +1208,34 @@ class LivePlot:
         #self.fig.canvas.draw()
         self.func = func
         self.kwargs = kwargs
+        self.running = False
+        self.loop = loop
 
     #--------------------------------------------------------------------------------
-    def loop(self, wait=1.0, thread=None):                 # Plot
+    #def loop(self, wait=1.0, thread=None):                 # Plot
+    def start(self, wait=1.0):                 # Plot
     #--------------------------------------------------------------------------------
         import asyncio
         async def update():
-            while thread and thread.is_alive():
+            self.running = True
+            #while thread and thread.is_alive():
+            while self.running:
                 self.func(**self.kwargs)
                 await asyncio.sleep(wait)
+            #print('LivePlot has stopped!')
+        
+        if self.loop:
+            self.loop.run_until_complete(update())
+        else:
+            loop = asyncio.get_event_loop()
+            loop.create_task(update())
 
-        loop = asyncio.get_event_loop()
-        loop.create_task(update())
-
+    #--------------------------------------------------------------------------------
+    def stop(self):                 # Plot
+    #--------------------------------------------------------------------------------
+        if self.running:
+            print('Stopping LivePlot!')
+            self.running = False
+        else:
+            print('LivePlot is not running!')
 
