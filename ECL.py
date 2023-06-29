@@ -1243,7 +1243,7 @@ class UNSMRY_file(unfmt_file):
                 ax.legend(loc='upper left', fontsize='smaller', ncols=-(-len(ax.lines)//7)) # max 7 labels each column
                 ax.relim()
                 ax.autoscale_view()
-            fig.canvas.draw()
+            fig.canvas.draw_idle()# draw()
 
     #--------------------------------------------------------------------------------
     def key_units(self):                                                # UNSMRY_file

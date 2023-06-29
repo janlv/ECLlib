@@ -1220,14 +1220,19 @@ class LivePlot:
             self.running = True
             #while thread and thread.is_alive():
             while self.running:
+                #print('calling!')
                 self.func(**self.kwargs)
+                self.fig.canvas.draw_idle()
                 await asyncio.sleep(wait)
             #print('LivePlot has stopped!')
-        
+        #loop = asyncio.get_running_loop()
+        #loop.create_task(update())
+        #print(loop)
+        #print(asyncio.get_event_loop())
         if self.loop:
             self.loop.run_until_complete(update())
         else:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             loop.create_task(update())
 
     #--------------------------------------------------------------------------------
