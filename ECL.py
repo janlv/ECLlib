@@ -46,10 +46,16 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
          b'DOUB' : Dtyp('DOUB', 'd', 8, 1000, float64),
          b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
+         b'C008' : Dtyp('C008', 's', 8, 105 , str),
          b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
         
+# def get_dtype(name):
+#     if name[:2] == b'C0':
+#         return Dtyp(name.decode(), 's', int(), 105 , str)
+#     else:
+#         return DTYPE[name]
 
 #====================================================================================
 class unfmt_block:
@@ -150,7 +156,6 @@ class unfmt_block:
         else:
             print()
 
-
     #--------------------------------------------------------------------------------
     def data(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
     #--------------------------------------------------------------------------------
@@ -168,7 +173,9 @@ class unfmt_block:
         if any(i>self._length or i<0 for i in flatten_all(index)):
             raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
         ### Fix CHAR data for strings > 8 char (nchar > 1)
-        if nchar > 1 and self._type == b'CHAR':
+        #if nchar > 1 and self._type == b'CHAR':
+        char_block = self._type[0:1] == b'C'
+        if nchar > 1 and char_block:
             index = [[min(i*nchar,self._length) for i in ind] for ind in index]
         ### List of data chunk start positions, including the 4 byte size int before and after 
         chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))
@@ -180,15 +187,17 @@ class unfmt_block:
         data_chunks = ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
         try:
             ### CHAR data is an 8 character string
-            N = sum(j-i for i,j in index)*(self._type == b'CHAR' and 8 or 1)
+            #N = sum(j-i for i,j in index)*(self._type == b'CHAR' and 8 or 1)
+            N = sum(j-i for i,j in index)*(self._dtype.size if char_block else 1)
             values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in data_chunks))
         except struct_error as err:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}') from err
             return None
         ### Decode string data
-        if self._type == b'CHAR':
-            values = tuple(string_chunks(values[0].decode(), 8*nchar, strip=strip))
+        #if self._type == b'CHAR':
+        if char_block:
+            values = tuple(string_chunks(values[0].decode(), self._dtype.size*nchar, strip=strip))
         ### Return value instead of single-value tuple
         if unwrap_tuple and len(values) == 1:
             return values[0]
@@ -421,6 +430,25 @@ class unfmt_file(File):
                 return False
 
     # #--------------------------------------------------------------------------------
+    # def read_block(self, data, pos=0, size=None):                        # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     size = size or len(data)
+    #     while pos < size:
+    #         start = pos
+    #         ### Header
+    #         try:
+    #             ### Header is 24 bytes, we skip int of length 4 before and after
+    #             key, length, typ = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
+    #             ### Value array
+    #             nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
+    #             pos += 24 + nbytes
+    #         except (ValueError, struct_error):
+    #             return False
+    #         self.endpos = pos
+    #         yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
+    #                         data=data, file=self.path)
+
+    # #--------------------------------------------------------------------------------
     # def blocks(self, only_new=False, start=None):                        # unfmt_file
     # #--------------------------------------------------------------------------------
     #     ' Read blocks without mmap'
@@ -603,6 +631,7 @@ class unfmt_file(File):
             for block in self.blocks():
                 key = block.key()
                 step = check_sync(block, step)
+                #print(inside, key, step)
                 if inside and key in (end_before, end_after):
                     inside = False
                     if key == end_before:
@@ -1098,6 +1127,7 @@ class UNRST_file(unfmt_file):
         block = next(self.tail_blocks(), None)
         if block:
             return block.key()
+
 
 
 #====================================================================================
