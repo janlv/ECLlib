@@ -5,7 +5,7 @@ DEBUG = False
 ENDIAN = '>'  # Big-endian
 
 from dataclasses import dataclass
-from itertools import chain, repeat, accumulate, groupby, zip_longest
+from itertools import chain, repeat, accumulate, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
 from platform import system
@@ -41,6 +41,8 @@ class Dtyp:
     max    : int   # Maximum number of data records in one block
     nptype : type  # Type used in numpy arrays 
 
+    #nbytes = length*self._dtype.size + 8 * -(-length//self._dtype.max) # -(-a//b) is the ceil-function
+
 DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'REAL' : Dtyp('REAL', 'f', 4, 1000, float32),
          b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
@@ -51,11 +53,6 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
         
-# def get_dtype(name):
-#     if name[:2] == b'C0':
-#         return Dtyp(name.decode(), 's', int(), 105 , str)
-#     else:
-#         return DTYPE[name]
 
 #====================================================================================
 class unfmt_block:
@@ -1329,9 +1326,9 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         if not self.is_file():
             return False
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
-        # blockdata = (b.data(strip=True) for b in self.blocks() if b.key() in ('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS'))
-        # self.data = Data(*blockdata)
-        self.data = Data(*self.blockdata('KEYWORDS', 'WGNAMES', 'MEASRMNT', 'UNITS'))
+        # Different keyword for wellnames in ECL (WGNAMES) and IX (NAMES)
+        names = 'WGNAMES' if b'WGNAMES' in self.binarydata() else 'NAMES'
+        self.data = Data(*self.blockdata('KEYWORDS', names, 'MEASRMNT', 'UNITS'))
         if all(self.data):
             width = len(self.data.measures)//max(len(self.data.keys), 1)
             keys = keys or set(self.data.keys)
@@ -1400,19 +1397,21 @@ class text_file(File):
         return key.encode() in self.binarydata()
         
     #--------------------------------------------------------------------------------
-    def get(self, *var_list, N=0, raise_error=True):                      # text_file
+    #def read(self, *var_list, N=0, raise_error=True):                      # text_file
+    def read(self, *var_list):                      # text_file
     #--------------------------------------------------------------------------------
-        values = {}
+        values = []
         for var in var_list:
             match = matches(file=self.path, pattern=self._pattern[var])
-            values[var] = [self._convert[var](m.group(1)) for m in match]
-        if raise_error and not all(values.values()):
-            raise SystemError(f'ERROR Unable to read {var_list} from {self.path.name}')
-        if N == 0:
-            return list(values.values())
-        if N > 0:
-            N -= 1
-        return [[v[N]] if v else [] for v in values.values()]
+            values.append([self._convert[var](m.group(1)) for m in match])
+        return list(zip(*values))
+        #if raise_error and not all(values.values()):
+        #    raise SystemError(f'ERROR Unable to read {var_list} from {self.path.name}')
+        # if N == 0:
+        #     return list(values.values())
+        # if N > 0:
+        #     N -= 1
+        # return [[v[N]] if v else [] for v in values.values()]
 
 
 
@@ -1423,9 +1422,12 @@ class MSG_file(text_file):
     def __init__(self, file):
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.MSG')
-        self._pattern = {'time' : r'<\s*\bmessage\b\s+\bdate\b="[0-9/]+"\s+time="([0-9.]+)"\s*>',
-                        'step' : r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)'}
-        self._convert = {'time' : float,
+        #'time' : r'<\s*\bmessage\b\s+\bdate\b="[0-9/]+"\s+time="([0-9.]+)"\s*>',
+        self._pattern = {'date' : r'<message date="([0-9/]+)"',
+                         'time' : r'<message date="[0-9/]+" time="([0-9.]+)"',
+                         'step' : r'\bRESTART\b\s+\bFILE\b\s+\bWRITTEN\b\s+\bREPORT\b\s+([0-9]+)'}
+        self._convert = {'date' : lambda x: datetime.strptime(x.decode(),'%d/%m/%Y'),
+                         'time' : float,
                          'step' : int}
 
 
