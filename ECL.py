@@ -19,7 +19,7 @@ from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
-from .utils import decode, tail_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks
+from .utils import decode, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks, convert_float_or_str
 
 #
 #
@@ -208,6 +208,7 @@ class File:
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix=None, role=None, ignore_suffix_case=False, exists=False):          # File
     #--------------------------------------------------------------------------------
+        #print(filename, suffix)
         self.path = Path(filename).resolve() if filename else None
         if suffix:
             self.path = self.with_suffix(suffix, ignore_suffix_case, exists)
@@ -350,6 +351,10 @@ class File:
     #--------------------------------------------------------------------------------
         return tail_file(self.path, **kwargs)
 
+    #--------------------------------------------------------------------------------
+    def head(self, **kwargs):
+    #--------------------------------------------------------------------------------
+        return head_file(self.path, **kwargs)
 
 
 
@@ -1318,6 +1323,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         self.measures = ()
         self.wells = ()
         self.data = ()
+        self.wellkey = None
 
     #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), named=False):                 # SMSPEC_file
@@ -1327,8 +1333,9 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             return False
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
         # Different keyword for wellnames in ECL (WGNAMES) and IX (NAMES)
-        names = 'WGNAMES' if b'WGNAMES' in self.binarydata() else 'NAMES'
-        self.data = Data(*self.blockdata('KEYWORDS', names, 'MEASRMNT', 'UNITS'))
+        if not self.wellkey and b'UNITS' in (data:=self.binarydata()):
+            self.wellkey = 'WGNAMES' if b'WGNAMES' in data else 'NAMES'
+        self.data = Data(*self.blockdata('KEYWORDS', self.wellkey, 'MEASRMNT', 'UNITS'))
         if all(self.data):
             width = len(self.data.measures)//max(len(self.data.keys), 1)
             keys = keys or set(self.data.keys)
@@ -1388,8 +1395,9 @@ class text_file(File):
     def __init__(self, file, **kwargs):                                   # text_file
     #--------------------------------------------------------------------------------
         super().__init__(file, **kwargs)
-        self._pattern = {}
+        self._pattern = {} 
         self._convert = {}
+        self._flavor = None          # 'ecl' or 'ix'
 
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                          # text_file
@@ -1397,12 +1405,31 @@ class text_file(File):
         return key.encode() in self.binarydata()
         
     #--------------------------------------------------------------------------------
+    def is_ready(self):
+    #--------------------------------------------------------------------------------
+        return True
+
+    #--------------------------------------------------------------------------------
+    def set_flavor(self, ix='', eclipse=''):
+    #--------------------------------------------------------------------------------
+        if self._flavor is None:
+            if header := next(self.head(size=10*1024), ''):
+                if ix in header:
+                    self._flavor = 'ix'
+                elif eclipse in header:
+                    self._flavor = 'ecl'
+        return bool(self._flavor)
+
+    #--------------------------------------------------------------------------------
     #def read(self, *var_list, N=0, raise_error=True):                      # text_file
     def read(self, *var_list):                      # text_file
     #--------------------------------------------------------------------------------
+        if not self.is_ready():
+            return ()
         values = []
+        pattern = self._pattern[self._flavor] if self._flavor else self._pattern
         for var in var_list:
-            match = matches(file=self.path, pattern=self._pattern[var])
+            match = matches(file=self.path, pattern=pattern[var])
             values.append([self._convert[var](m.group(1)) for m in match])
         return list(zip(*values))
         #if raise_error and not all(values.values()):
@@ -1436,23 +1463,40 @@ class MSG_file(text_file):
 class PRT_file(text_file):
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file):
+    def __init__(self, file, **kwargs):
     #--------------------------------------------------------------------------------
         #self.file = Path(file).with_suffix('.PRT')
-        super().__init__(file, suffix='.PRT')
-        self._pattern = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
-                        'step' : r'\bSTEP\b\s+([0-9]+)'}
-        self._convert = {'time' : float,
-                         'step' : int}
+        super().__init__(file, suffix='.PRT', **kwargs)
+        ecl = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
+               'step' : r'\bSTEP\b\s+([0-9]+)'}
+        # For IX the step number is not printed, only the TSTEP
+        ix  = {'time' : r' (?:Rep |Init|HRep)   ;\s*([0-9.]+)\s+',
+               'step' : r' (?:Rep |Init|HRep)   ;\s*[0-9.]+\s+([0-9.]+)\s+'}
+        # Make 'days' an alias for 'time'
+        ecl['days'] = ecl['time']
+        ix['days'] = ix['time']
+        self._pattern = {'ecl':ecl, 'ix':ix}
+        self._convert = {key:float for key in ecl.keys()}
+
+    #--------------------------------------------------------------------------------
+    def is_ready(self):
+    #--------------------------------------------------------------------------------
+        iamo = ' is a mark of '
+        return self.set_flavor(ix='INTERSECT'+iamo, eclipse='ECLIPSE'+iamo)
 
     #--------------------------------------------------------------------------------
     def last_day(self):
     #--------------------------------------------------------------------------------
-        text = (txt for txt in self.tail(size=10*1024) if 'TIME=' in txt)
+        default = 0
+        if not self.is_ready():
+            return default
+        timetag = {'ecl':'TIME=', 'ix':'Rep    ;'}[self._flavor]
+        pattern = self._pattern[self._flavor]
+        text = (txt for txt in self.tail(size=10*1024) if timetag in txt)
         data = next(text, None)
         if data:
-            days = list(m.group(1) for m in re_compile(self._pattern['time']).finditer(data))
-            return float(days[-1]) if days else 0
+            days = list(m.group(1) for m in re_compile(pattern['time']).finditer(data))
+            return float(days[-1]) if days else default
 
 
 #====================================================================================
@@ -2079,4 +2123,50 @@ class RSM_file(File):                                                      # RSM
                     if nb==2: 
                         return int(n) 
 
+
+#====================================================================================
+class IXF_file(File):
+#====================================================================================
+    """
+    Intersect input-file:
+
+    Node "type" {
+        Node context
+    }
+
+    """
+    #--------------------------------------------------------------------------------
+    def __init__(self, file, suffix=None, **kwargs):                       # IXF_file
+    #--------------------------------------------------------------------------------
+        path = Path(file)
+        ixf_file = None
+        # Find the right ixf-file
+        for ixf in path.parent.glob(path.stem+'*.[iI][xX][fF]'):
+            with open(ixf, 'rb') as fh:
+                if b'Simulation' in fh.read():
+                    ixf_file = ixf
+        super().__init__(ixf_file, role='Intersect input-file', **kwargs)
+        self.data = None
+
+
+    #--------------------------------------------------------------------------------
+    def node(self, *nodes):                                                 # IXF_file
+    #--------------------------------------------------------------------------------
+        self.data = self.data or self.binarydata()
+        pattern = rb'(\w+)\s*{([\s\S]*?)\s*}'
+        matches = re_compile(pattern, flags=MULTILINE).finditer(self.data)
+        values = (m.group(2).decode() for m in matches if m.group(1).decode() in nodes)
+        return [sv for v in ''.join(values).split('\n') if (sv:=v.strip())]
+
+    #--------------------------------------------------------------------------------
+    def start(self):                                                       # IXF_file
+    #--------------------------------------------------------------------------------
+        # Get var,val pairs from node content
+        var, val = zip(*(val.split('=') for val in self.node('Simulation') if 'Start' in val))
+        varnames = list(v.split('Start')[-1].lower() for v in var)
+        values = list(int(v) if v.isnumeric() else v for v in val)
+        args = dict(zip(varnames, values))
+        # Convert month name to month number
+        args['month'] = datetime.strptime(args['month'],'%B').month
+        return datetime(**args)
 

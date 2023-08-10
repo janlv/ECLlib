@@ -48,10 +48,18 @@ def running_jupyter():
     if get_ipython():
         return True
     return False
+
 #-----------------------------------------------------------------------
 def ordered_intersect(A, B):
 #-----------------------------------------------------------------------
-    return [a for a in A if a in B] if A else B
+    B = frozenset(B)
+    return [a for a in A if a in B]
+
+#-----------------------------------------------------------------------
+def ordered_intersect_index(A, B):
+#-----------------------------------------------------------------------
+    B = frozenset(B)
+    return [i for i,a in enumerate(A) if a in B]
 
 #-----------------------------------------------------------------------
 def removeprefix(prefix, string):
@@ -179,6 +187,18 @@ def tail_file(path, size=10*1024):
             if pos == maxsize:
                 return
             pos = min(pos + size, maxsize)
+
+
+#------------------------------------------------
+def head_file(path, size=10*1024):
+#------------------------------------------------
+    path = Path(path)
+    if not path.is_file():
+        return
+    with open(path, 'rb') as file:
+        while data := file.read(size):
+            yield decode(data)
+
 
 #-----------------------------------------------------------------------
 def prepend(value, iterator): # From Itertools Recipes at docs.python.org
