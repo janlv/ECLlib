@@ -42,6 +42,13 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #     return zip(*getgen)
 
 #-----------------------------------------------------------------------
+def split_in_lines(text):
+#-----------------------------------------------------------------------
+    if text:
+        return [word for t in text.split('\n') if (word:=t.strip())] 
+    return []
+
+#-----------------------------------------------------------------------
 def running_jupyter():
 #-----------------------------------------------------------------------
     from IPython import get_ipython

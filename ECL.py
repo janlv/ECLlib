@@ -11,15 +11,20 @@ from pathlib import Path
 from platform import system
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import mmap, ACCESS_READ
-from re import MULTILINE, finditer, compile as re_compile, search
+from re import MULTILINE, finditer, compile as re_compile, search as re_search
+from subprocess import Popen, STDOUT
 from copy import deepcopy
+from time import sleep
 from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
-from .utils import decode, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, string_chunks, convert_float_or_str
+from .utils import (decode, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, 
+                    list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, 
+                    string_chunks, convert_float_or_str, split_in_lines, safeopen)
+from .runner import Process
 
 #
 #
@@ -33,6 +38,7 @@ from .utils import decode, tail_file, head_file, index_limits, flatten, flatten_
 #
 #
 
+#....................................................................................
 @dataclass
 class Dtyp:
     name   : str   # ECL type name
@@ -52,7 +58,16 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
+#....................................................................................
         
+#....................................................................................
+@dataclass
+class Restart:
+    days: float = 0
+    step: int = 0
+    file: str = ''
+    run : bool = False
+#....................................................................................
 
 #====================================================================================
 class unfmt_block:
@@ -761,10 +776,33 @@ class DATA_file(File):
         return bool(self.search(key, regex=rf'^[ \t]*{key}', comments=True))
         
     #--------------------------------------------------------------------------------
+    def mode(self):                                                       # DATA_file
+    #--------------------------------------------------------------------------------
+        return 'backward' if ('READDATA' in self) else 'forward'
+
+
+    #--------------------------------------------------------------------------------
+    def restart(self):                                                  # DATA_file
+    #--------------------------------------------------------------------------------
+        # Check if this is a restart-run
+        file, step = self.get('RESTART')
+        if file and step:
+            # Get time and step from the restart-file
+            file = UNRST_file(file)
+            if not file.is_file():
+                raise SystemError(f'ERROR Restart file {file.path} is missing')
+            days, n = next(file.read('time', 'step', drop=lambda x:x[1]<step))
+            if n != step:
+                raise SystemError(f'ERROR Step {step} is missing in restart file {file}')
+            return Restart(days=days, step=n, file=file, run=True)
+        return Restart()
+
+
+    #--------------------------------------------------------------------------------
     def binarydata(self, raise_error=False):                              # DATA_file
     #--------------------------------------------------------------------------------
         self.data = super().binarydata(raise_error)
-        end = b'END' in self.data and search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
+        end = b'END' in self.data and re_search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
         return end and self.data[:end.end()] or self.data
 
     #--------------------------------------------------------------------------------
@@ -789,7 +827,7 @@ class DATA_file(File):
             self.data = self._remove_comments(data)
         else:
             self.data = decode(b''.join(data))
-        return search(regex, self.data, flags=MULTILINE)
+        return re_search(regex, self.data, flags=MULTILINE)
 
     #--------------------------------------------------------------------------------
     def is_empty(self):                                                  # DATA_file
@@ -815,9 +853,14 @@ class DATA_file(File):
         return self
 
     #--------------------------------------------------------------------------------
-    def tsteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
+    def start(self):                                                      # DATA_file
     #--------------------------------------------------------------------------------
-        ''' Return timesteps, if DATES are present they are converted to timesteps '''
+        return self.get('START')[0]
+
+    #--------------------------------------------------------------------------------
+    def timesteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
+    #--------------------------------------------------------------------------------
+        ''' Return tsteps, if DATES are present they are converted to tsteps '''
         _start, tsteps, dates = self.get('START','TSTEP','DATES', pos=True)
         #print(_start, tsteps, dates)
         if skiprest:
@@ -2125,48 +2168,137 @@ class RSM_file(File):                                                      # RSM
 
 
 #====================================================================================
-class IXF_file(File):
+class IXF_file(File):                                                      # IXF_file
 #====================================================================================
     """
     Intersect input-file:
 
-    Node "type" {
-        Node context
+    type "name" {
+        lines[0]
+        lines[1]
     }
 
     """
     #--------------------------------------------------------------------------------
-    def __init__(self, file, suffix=None, **kwargs):                       # IXF_file
+    def __init__(self, file, suffix=None, check=False, **kwargs):          # IXF_file
     #--------------------------------------------------------------------------------
-        path = Path(file)
-        ixf_file = None
-        # Find the right ixf-file
+        self.data = None
+        self._node = namedtuple('Node','type name lines', defaults=(None, None, ()))
+        self._checked = False
+        # Find the right ixf-file among several ixf-files 
+        ixf_file = self.find_ixf(file)
+        # If the ixf-file is still missing, try to convert from an Eclipse DATA-file 
+        if not ixf_file and DATA_file(file).is_file():
+            ixf_file = self.ecl2ix(file, progress='Creating Intersect input from Eclipse DATA-file')
+        super().__init__(ixf_file, role='Intersect input-file', **kwargs)
+        if check:
+            self.check()
+
+    #--------------------------------------------------------------------------------
+    def ecl2ix(self, path, progress=''):                                   # IXF_file
+    #--------------------------------------------------------------------------------
+        # Create IX input from Eclipse input
+        path = Path(path)
+        cmd = ['eclrun', 'ecl2ix', path]
+        with open(path.with_name('ecl2ix.log'), 'w') as log:
+            popen = Popen(cmd, stdout=log, stderr=STDOUT)
+            proc = Process(pid=popen.pid)
+            i = 0
+            while (proc.is_running()):
+                if progress:
+                    i += 1
+                    dots = ((1+i%5)*'.').ljust(5)
+                    print(f'\r   {progress} {dots}', end='')
+                sleep(0.5)
+            print('\r',' '*80, end='')
+            return self.find_ixf(path)
+
+    #--------------------------------------------------------------------------------
+    def find_ixf(self, path):                                              # IXF_file
+    #--------------------------------------------------------------------------------
+        # Find the right ixf-file by searching for the 'Simulation' node
+        path = Path(path)
         for ixf in path.parent.glob(path.stem+'*.[iI][xX][fF]'):
             with open(ixf, 'rb') as fh:
                 if b'Simulation' in fh.read():
-                    ixf_file = ixf
-        super().__init__(ixf_file, role='Intersect input-file', **kwargs)
-        self.data = None
-
+                    return ixf
+        return None
 
     #--------------------------------------------------------------------------------
-    def node(self, *nodes):                                                 # IXF_file
+    def __contains__(self, key):                                          # IXF_file
     #--------------------------------------------------------------------------------
         self.data = self.data or self.binarydata()
-        pattern = rb'(\w+)\s*{([\s\S]*?)\s*}'
+        return bool(re_search(rf'^[ \t]*{key}'.encode(), self.data, flags=MULTILINE))
+
+    #--------------------------------------------------------------------------------
+    def include_files(self):                                               # IXF_file
+    #--------------------------------------------------------------------------------
+        return (self.with_name(node.name) for node in self.node('INCLUDE'))
+
+    #--------------------------------------------------------------------------------
+    def check(self, include=True):                                         # IXF_file
+    #--------------------------------------------------------------------------------
+        self._checked = True
+        # Check if file exists
+        self.exists(raise_error=True)
+        # Check if included files exists
+        if include and (missing := [f for f in self.include_files() if not f.is_file()]):
+            raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
+        return True
+
+    #--------------------------------------------------------------------------------
+    def node(self, *nodes, convert=()):                                    # IXF_file
+    #--------------------------------------------------------------------------------
+        self.data = self.data or self.binarydata()
+        # The pattern is explained at https://regex101.com/r/Oy2HHn/3
+        pattern = rb'^[ \t]*(\w+) *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
         matches = re_compile(pattern, flags=MULTILINE).finditer(self.data)
-        values = (m.group(2).decode() for m in matches if m.group(1).decode() in nodes)
-        return [sv for v in ''.join(values).split('\n') if (sv:=v.strip())]
+        for m in matches:
+            if (m1 := m.group(1).decode()) in nodes:
+                val = [v.decode().strip() if v else v for v in m.groups()]
+                if convert:
+                    ind = nodes.index(m1)
+                    val[1] = convert[ind](val[1])
+                yield self._node(val[0], val[1], split_in_lines(val[2]))
+
 
     #--------------------------------------------------------------------------------
     def start(self):                                                       # IXF_file
     #--------------------------------------------------------------------------------
-        # Get var,val pairs from node content
-        var, val = zip(*(val.split('=') for val in self.node('Simulation') if 'Start' in val))
-        varnames = list(v.split('Start')[-1].lower() for v in var)
-        values = list(int(v) if v.isnumeric() else v for v in val)
+        # Combine all 'Simulation' nodes
+        lines = flatten(node.lines for node in self.node('Simulation'))
+        # Extract lines with 'Start'
+        var, val = zip(*(line.split('=') for line in lines if 'Start' in line))
+        # Convert name and value
+        varnames = (v.split('Start')[-1].lower() for v in var)
+        values = (int(v) if v.isnumeric() else v for v in val)
+        # Arguments for datetime
         args = dict(zip(varnames, values))
         # Convert month name to month number
         args['month'] = datetime.strptime(args['month'],'%B').month
         return datetime(**args)
 
+    #--------------------------------------------------------------------------------
+    def timesteps(self, start=None, **args):                               # IXF_file
+    #--------------------------------------------------------------------------------
+        """ 
+        Return list of timesteps for each report step
+        The TIME node gives the cumulative timesteps, but a list of
+        separate timesteps is returned, similar to how TSTEP is used
+        in ECLIPSE (DATA-file) 
+        """
+        start = start or self.start()
+        def date(string):
+            return (datetime.strptime(string, '%d-%b-%Y') - start).total_seconds()/86400
+        cum_steps = (node.name for node in self.node('DATE','TIME', convert=(date, float)))
+        return [b-a for a,b in pairwise(chain([0], cum_steps))]
+
+    #--------------------------------------------------------------------------------
+    def mode(self):                                                        # IXF_file
+    #--------------------------------------------------------------------------------
+        return 'forward'
+
+    #--------------------------------------------------------------------------------
+    def restart(self):                                                     # IXF_file
+    #--------------------------------------------------------------------------------
+        return Restart()
