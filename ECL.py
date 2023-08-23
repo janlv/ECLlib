@@ -11,7 +11,7 @@ from pathlib import Path
 from platform import system
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import mmap, ACCESS_READ
-from re import MULTILINE, finditer, compile as re_compile, search as re_search
+from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
 from copy import deepcopy
 from time import sleep
@@ -23,7 +23,7 @@ from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
 from .utils import (decode, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, 
                     list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, 
-                    string_chunks, convert_float_or_str, split_in_lines, safeopen)
+                    string_chunks, split_in_lines)
 from .runner import Process
 
 #
@@ -218,12 +218,12 @@ class unfmt_block:
 
 
 #====================================================================================
-class File:
+class File:                                                                    # File
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix=None, role=None, ignore_suffix_case=False, exists=False):          # File
     #--------------------------------------------------------------------------------
-        #print(filename, suffix)
+        #print('init',filename, suffix)
         self.path = Path(filename).resolve() if filename else None
         if suffix:
             self.path = self.with_suffix(suffix, ignore_suffix_case, exists)
@@ -231,6 +231,7 @@ class File:
         self.debug = DEBUG and self.__class__.__name__ == File.__name__
         if self.debug:
             print(f'Creating {repr(self)}')
+        #print('path', self.path)
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
@@ -314,25 +315,31 @@ class File:
         return (self.path.parent/file).resolve()
 
     #--------------------------------------------------------------------------------
-    def with_suffix(self, suffix, ignore_case=False, exists=False):        # File
+    def with_suffix(self, suffix, ignore_case=False, exists=False):            # File
     #--------------------------------------------------------------------------------
         """
-            exists = True:  return first existing file with filename = self.stem + suffix
+            exists = True:  return first existing file with filename = self.stem + suffix or None
                    = False: return Path.with_suffix()
         """
+
         if not self.path:
             return None
-        if ignore_case:
-            exists = True
-        if not exists:
-            return self.path.with_suffix(suffix)
+        # if ignore_case:
+        #     exists = True
+        # if not exists:
+        #     return self.path.with_suffix(suffix)
         # Require suffix starting with .
         if suffix[0] != '.':
             raise ValueError(f"Invalid suffix '{suffix}'")
+        ext = suffix
         if ignore_case:
             # 'abc' -> '[aA][bB][cC]'
-            suffix = '.[' + ']['.join(s+s.swapcase() for s in suffix[1:]) + ']'
-        return next(self.glob(suffix), None)
+            ext = '.[' + ']['.join(s+s.swapcase() for s in suffix[1:]) + ']'
+        #return next(self.glob(suffix), None)
+        path = next(self.glob(ext), None)
+        if not exists and path is None:
+            path = self.path.with_suffix(suffix)
+        return path
         #return next(self.file.parent.glob(self.file.stem+suffix), None)
         
     #--------------------------------------------------------------------------------
@@ -362,15 +369,19 @@ class File:
         return size
 
     #--------------------------------------------------------------------------------
-    def tail(self, **kwargs):
+    def tail(self, **kwargs):                                                  # File
     #--------------------------------------------------------------------------------
         return tail_file(self.path, **kwargs)
 
     #--------------------------------------------------------------------------------
-    def head(self, **kwargs):
+    def head(self, **kwargs):                                                  # File
     #--------------------------------------------------------------------------------
         return head_file(self.path, **kwargs)
 
+    #--------------------------------------------------------------------------------
+    def stat(self, *args):                                                     # File
+    #--------------------------------------------------------------------------------
+        return attrgetter(*args)(self.path.stat())
 
 
 #====================================================================================
@@ -715,7 +726,7 @@ class DATA_file(File):
     common_kw = ('TITLE','CART','DIMENS','FMTIN','FMTOUT','GDFILE', 'FMTOUT','UNIFOUT','UNIFIN',
                  'OIL','WATER','GAS','VAPOIL','DISGAS','FIELD','METRIC','LAB','START','WELLDIMS',
                  'REGDIMS','TRACERS', 'NSTACK','TABDIMS','NOSIM','GRIDFILE','DX','DY','DZ','PORO',
-                 'BOX','PERMX','PERMY','PERMZ','TOPS', 'INIT','RPTGRID','PVCDO','PVTW','SGOF','SWOF',
+                 'BOX','PERMX','PERMY','PERMZ','TOPS', 'INIT','RPTGRID','PVCDO','PVTW','PVTO','SGOF','SWOF',
                  'DENSITY','PVDG','ROCK','RPTPROPS','SPECROCK','SPECHEAT','TRACER','TRACERKP', 'TRDIFPAR',
                  'TRDIFIDE','SATNUM','FIPNUM','TRKPFPAR','TRKPFIDE','RPTSOL','RESTART','PRESSURE','SWAT',
                  'SGAS','RTEMPA','TBLKFA1','TBLKFIDE','TBLKFPAR','FOPR','FOPT','FGPR','FGPT',
@@ -728,7 +739,7 @@ class DATA_file(File):
                  'WCONHIST','WTEMP','RPTSCHED', 'RPTRST','TUNING','READDATA', 'ROCKTABH',
                  'GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP', 'GRIDOPTS',
                  'VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS',
-                 'MINPV','COPY','MULTIPLY')
+                 'MINPV','COPY','MULTIPLY', 'SPECGRID', 'COORD', 'ZCORN', 'ACTNUM')
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, suffix=None, check=False, sections=True, **kwargs):      # DATA_file
@@ -2167,106 +2178,252 @@ class RSM_file(File):                                                      # RSM
                         return int(n) 
 
 
+
+#####################################################################################
+#                                                                                   #
+#                                 INTERSECT FILES                                   #
+#                                                                                   #
+#####################################################################################
+
+
+#====================================================================================
+class AFI_file(File):                                                      # AFI_file
+#====================================================================================
+    include_regex = rb'^[ \t]*\bINCLUDE\b\s*"*([\w.-]+)"*'
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, file, check=False, **kwargs):                       # AFI_file
+    #--------------------------------------------------------------------------------
+        super().__init__(file, suffix='.afi', role='Top level Intersect input-file', ignore_suffix_case=True, **kwargs)
+        self.data = None
+        if check:
+            self.exists(raise_error=True)
+
+    #--------------------------------------------------------------------------------
+    def ixf_files(self):
+    #--------------------------------------------------------------------------------
+        self.data = self.data or self.binarydata()
+        matches = findall(self.include_regex, self.data, flags=MULTILINE)
+        files = (Path(m.decode()) for m in matches)
+        return (self.with_name(file) for file in files if file.suffix.lower() == '.ixf')
+
+    #--------------------------------------------------------------------------------
+    def include_files(self):                                               # AFI_file
+    #--------------------------------------------------------------------------------
+        return (f[0] for f in self._included_file_data(self.data))
+
+    #--------------------------------------------------------------------------------
+    def _included_file_data(self, data:bytes=None):                        # AFI_file
+    #--------------------------------------------------------------------------------
+        ''' Return tuple of filename and binary-data for each include file '''
+        data = data or self.binarydata()
+        regex = self.include_regex
+        files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
+        # Loop over files included in self
+        for file in files:
+            inc_file = self.with_name(file)
+            inc_data = File(inc_file).binarydata()
+            yield (inc_file, inc_data)
+            # Recursive call for files included deeper down
+            if b'INCLUDE' in inc_data:
+                for inc_inc in self._included_file_data(inc_data):
+                    yield inc_inc
+
+
 #====================================================================================
 class IXF_file(File):                                                      # IXF_file
 #====================================================================================
+
     """
-    Intersect input-file:
+    Intersect Input Format (IXF):
 
     type "name" {
         lines[0]
         lines[1]
+        ...
+        lines[-1]
     }
 
     """
     #--------------------------------------------------------------------------------
-    def __init__(self, file, suffix=None, check=False, **kwargs):          # IXF_file
+    def __init__(self, file, check=False, **kwargs):  # IXF_file
     #--------------------------------------------------------------------------------
+        super().__init__(file, role='Intersect input-file', **kwargs)
         self.data = None
         self._node = namedtuple('Node','type name lines', defaults=(None, None, ()))
-        self._checked = False
-        # Find the right ixf-file among several ixf-files 
-        ixf_file = self.find_ixf(file)
-        # If the ixf-file is still missing, try to convert from an Eclipse DATA-file 
-        if not ixf_file and DATA_file(file).is_file():
-            ixf_file = self.ecl2ix(file, progress='Creating Intersect input from Eclipse DATA-file')
-        super().__init__(ixf_file, role='Intersect input-file', **kwargs)
+        #self._checked = False
         if check:
-            self.check()
+            self.exists(raise_error=True)
+            
 
     #--------------------------------------------------------------------------------
-    def ecl2ix(self, path, progress=''):                                   # IXF_file
-    #--------------------------------------------------------------------------------
-        # Create IX input from Eclipse input
-        path = Path(path)
-        cmd = ['eclrun', 'ecl2ix', path]
-        with open(path.with_name('ecl2ix.log'), 'w') as log:
-            popen = Popen(cmd, stdout=log, stderr=STDOUT)
-            proc = Process(pid=popen.pid)
-            i = 0
-            while (proc.is_running()):
-                if progress:
-                    i += 1
-                    dots = ((1+i%5)*'.').ljust(5)
-                    print(f'\r   {progress} {dots}', end='')
-                sleep(0.5)
-            print('\r',' '*80, end='')
-            return self.find_ixf(path)
-
-    #--------------------------------------------------------------------------------
-    def find_ixf(self, path):                                              # IXF_file
-    #--------------------------------------------------------------------------------
-        # Find the right ixf-file by searching for the 'Simulation' node
-        path = Path(path)
-        for ixf in path.parent.glob(path.stem+'*.[iI][xX][fF]'):
-            with open(ixf, 'rb') as fh:
-                if b'Simulation' in fh.read():
-                    return ixf
-        return None
-
-    #--------------------------------------------------------------------------------
-    def __contains__(self, key):                                          # IXF_file
+    def __contains__(self, key):                                           # IXF_file
     #--------------------------------------------------------------------------------
         self.data = self.data or self.binarydata()
         return bool(re_search(rf'^[ \t]*{key}'.encode(), self.data, flags=MULTILINE))
 
-    #--------------------------------------------------------------------------------
-    def include_files(self):                                               # IXF_file
-    #--------------------------------------------------------------------------------
-        return (self.with_name(node.name) for node in self.node('INCLUDE'))
-
-    #--------------------------------------------------------------------------------
-    def check(self, include=True):                                         # IXF_file
-    #--------------------------------------------------------------------------------
-        self._checked = True
-        # Check if file exists
-        self.exists(raise_error=True)
-        # Check if included files exists
-        if include and (missing := [f for f in self.include_files() if not f.is_file()]):
-            raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
-        return True
 
     #--------------------------------------------------------------------------------
     def node(self, *nodes, convert=()):                                    # IXF_file
     #--------------------------------------------------------------------------------
         self.data = self.data or self.binarydata()
         # The pattern is explained at https://regex101.com/r/Oy2HHn/3
-        pattern = rb'^[ \t]*(\w+) *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
+        keys = '|'.join(nodes).encode()
+        #pattern = rb'^[ \t]*(\w+) *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
+        pattern = rb'^[ \t]*(' + keys + rb') *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
         matches = re_compile(pattern, flags=MULTILINE).finditer(self.data)
         for m in matches:
-            if (m1 := m.group(1).decode()) in nodes:
-                val = [v.decode().strip() if v else v for v in m.groups()]
-                if convert:
-                    ind = nodes.index(m1)
-                    val[1] = convert[ind](val[1])
-                yield self._node(val[0], val[1], split_in_lines(val[2]))
+            #if (m1 := m.group(1).decode()) in nodes:
+            val = [g.decode().strip() if g else g for g in m.groups()]
+            if convert:
+                ind = nodes.index(val[0])
+                val[1] = convert[ind](val[1])
+            yield self._node(val[0], val[1], split_in_lines(val[2]))
+
+
+    
+
+#====================================================================================
+class IX_input:                                                            # IX_input
+#====================================================================================
+    STAT_FILE = '.ecl2ix'
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, case, check=False, convert=False, **kwargs):         # IX_input
+    #--------------------------------------------------------------------------------
+        #print('IX_input', 'case',case,'check',check,'convert',convert,'kwargs',**kwargs)
+        # If the afi-file is missing, try to convert from an Eclipse DATA-file 
+        # if convert and self.need_convert(case):
+        #     self.from_eclipse(case)
+        self.afi = AFI_file(case)
+        self.path = self.afi.path
+        self.ixf_files = [IXF_file(file) for file in self.afi.ixf_files()]
+        self._checked = False
+        if check:
+            self.check()
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                                     # IX_input
+    #--------------------------------------------------------------------------------
+        return f'{self.afi}'
+
+    #--------------------------------------------------------------------------------
+    def __getattr__(self, item):                                           # IX_input
+    #--------------------------------------------------------------------------------
+        #print('IX_INPUT GETATTR')
+        return getattr(self.path, item)
+
+    #--------------------------------------------------------------------------------
+    def __contains__(self, key):                                           # IX_input
+    #--------------------------------------------------------------------------------
+        return any(key in ixf for ixf in self.ixf_files)
+
+    @classmethod
+    #--------------------------------------------------------------------------------
+    def need_convert(self, path):                                          # IX_input
+    #--------------------------------------------------------------------------------
+        path = Path(path)
+        #afi_file = File(path).with_suffix('.afi', ignore_case=True)
+        afi_file = AFI_file(path)
+        data_file = DATA_file(path)
+        if not afi_file.is_file():
+            if not data_file.is_file():
+                raise SystemError('ERROR Eclipse input is missing, unable to create Intersect input.')
+            return 'Intersect input is missing for this case, but can be created from the Eclipse input.'
+        # Check if input is complete
+        if any(file for file in afi_file.include_files() if not file.is_file()):
+            return 'Intersect input is incomplete for this case (missing include files).'            
+        # Check if DATA-file has changed since last convert
+        stat_file = path.with_name(self.STAT_FILE)
+        mtime, size = data_file.stat('st_mtime_ns', 'st_size')
+        if stat_file.is_file():
+            old_mtime, old_size = map(int, stat_file.read_text().split())
+            if mtime > old_mtime and size > old_size:
+                return 'Intersect input exists for this case, but the Eclipse input has changed since the previous convert.'
+        else:
+            stat_file.write_text(f'{data_file} {mtime} {size}')
+        return None
+
+
+    @classmethod
+    #--------------------------------------------------------------------------------
+    def from_eclipse(self, path, progress=None, abort=None, freq=20):      # IX_input
+    #--------------------------------------------------------------------------------
+        # Create IX input from Eclipse input
+        if not DATA_file(path).is_file():
+            raise SystemError('ERROR Eclipse input is missing, convert aborted...')
+        path = Path(path)
+        cmd = ['eclrun', 'ecl2ix', path]
+        #msg = 'Creating Intersect input from Eclipse input'
+        sec = 1/freq
+        with open(path.with_name('ecl2ix.log'), 'w') as log:
+            popen = Popen(cmd, stdout=log, stderr=STDOUT)
+            proc = Process(pid=popen.pid)
+            i = 0
+            while (proc.is_running()):
+                if abort and abort():
+                    proc.kill(children=True)
+                    return False
+                if progress:
+                    i += 1
+                    progress(i)
+                    #dots = ((1+i%5)*'.').ljust(5)
+                    #print(f'\r   {msg} {dots}', end='')
+                sleep(sec)
+            #print('\r',' '*80, end='')
+            if not AFI_file(path).is_file():
+                return False
+            # If successful, save modification time and current size of DATA_file
+            mtime, size = DATA_file(path).stat('st_mtime_ns', 'st_size')
+            path.with_name(self.STAT_FILE).write_text(f'{mtime} {size}')
+            return True
 
 
     #--------------------------------------------------------------------------------
-    def start(self):                                                       # IXF_file
+    def check(self, include=True):                                         # IX_input
     #--------------------------------------------------------------------------------
-        # Combine all 'Simulation' nodes
-        lines = flatten(node.lines for node in self.node('Simulation'))
+        self._checked = True
+        # Check if top level afi-file exist
+        self.afi.exists(raise_error=True)
+        # # Check if top level afi-file ex        
+        # for file in self.ixf_files:
+        #     file.exists(raise_error=True)
+        # Check if included files exists
+        if include and (missing := [f for f in self.include_files() if not f.is_file()]):
+            raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
+        return True
+
+
+
+    #--------------------------------------------------------------------------------
+    def file_containing(self, key):                                        # IX_input
+    #--------------------------------------------------------------------------------
+        return (ixf for ixf in self.ixf_files if key in ixf)
+
+    #--------------------------------------------------------------------------------
+    def include_files(self):                                               # IX_input
+    #--------------------------------------------------------------------------------
+        return self.afi.include_files()
+
+    #--------------------------------------------------------------------------------
+    def including(self, *files):                                           # IX_input
+    #--------------------------------------------------------------------------------
+        """ For compatibility with DATA_file """
+        return self
+
+    #--------------------------------------------------------------------------------
+    def nodes(self, *types, **args):
+    #--------------------------------------------------------------------------------
+        # Only return nodes from relevant files (might be faster for large files)
+        files = (f for f in self.ixf_files if any(t in f for t in types))
+        #files = self.ixf_files
+        return chain.from_iterable(file.node(*types, **args) for file in files)
+
+    #--------------------------------------------------------------------------------
+    def start(self):                                                       # IX_input
+    #--------------------------------------------------------------------------------
+        # Get all 'Simulation' nodes
+        lines = flatten(node.lines for node in self.nodes('Simulation'))
         # Extract lines with 'Start'
         var, val = zip(*(line.split('=') for line in lines if 'Start' in line))
         # Convert name and value
@@ -2279,7 +2436,7 @@ class IXF_file(File):                                                      # IXF
         return datetime(**args)
 
     #--------------------------------------------------------------------------------
-    def timesteps(self, start=None, **args):                               # IXF_file
+    def timesteps(self, start=None, **args):                               # IX_input
     #--------------------------------------------------------------------------------
         """ 
         Return list of timesteps for each report step
@@ -2290,15 +2447,30 @@ class IXF_file(File):                                                      # IXF
         start = start or self.start()
         def date(string):
             return (datetime.strptime(string, '%d-%b-%Y') - start).total_seconds()/86400
-        cum_steps = (node.name for node in self.node('DATE','TIME', convert=(date, float)))
+        cum_steps = (node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
         return [b-a for a,b in pairwise(chain([0], cum_steps))]
 
     #--------------------------------------------------------------------------------
-    def mode(self):                                                        # IXF_file
+    def wellnames(self):                                                   # IX_input
+    #--------------------------------------------------------------------------------
+        return tuple(set(node.name for node in self.nodes('WellDef')))
+
+    #--------------------------------------------------------------------------------
+    def summary_keys(self, matching=()):                                   # IX_input
+    #--------------------------------------------------------------------------------
+        lines = flatten(node.lines for node in self.nodes('WellProperties','FieldProperties'))
+        text = ''.join(l for line in lines if (l:=line.split('#')[0]))
+        keys = (m.group(1) for m in finditer(r'report_label *= *"*(\w+)', text))
+        return [key for key in keys if key in matching]
+
+
+    #--------------------------------------------------------------------------------
+    def mode(self):                                                        # IX_input
     #--------------------------------------------------------------------------------
         return 'forward'
 
     #--------------------------------------------------------------------------------
-    def restart(self):                                                     # IXF_file
+    def restart(self):                                                     # IX_input
     #--------------------------------------------------------------------------------
         return Restart()
+
