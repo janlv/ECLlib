@@ -13,6 +13,7 @@ from itertools import chain, groupby, islice, tee, zip_longest
 from collections import deque
 from collections.abc import Iterable
 from shutil import copy2
+import stat
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
@@ -40,6 +41,14 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #         #
 #         getgen = ((getter(o),) for o in objects)
 #     return zip(*getgen)
+
+#-----------------------------------------------------------------------
+def make_user_executable(path):
+#-----------------------------------------------------------------------
+    path = Path(path)
+    print('before:', path, stat.filemode(path.stat().st_mode))
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+    print('after:', path, stat.filemode(path.stat().st_mode))
 
 #-----------------------------------------------------------------------
 def split_in_lines(text):
