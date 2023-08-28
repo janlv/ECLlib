@@ -110,7 +110,8 @@ def string_chunks(str, l, strip=False):
 def copy_recursive(src, dst, log=None) -> None:
 #-----------------------------------------------------------------------
     """ Copy a src file or a src folder recursively to the
-        dst file or dst folder """
+        dst file or dst folder 
+    """
     src = Path(src)
     dst = Path(dst)
     if src.is_file():
@@ -418,14 +419,16 @@ def remove_leading_nondigits(txt):
     return sub(r'^[a-zA-Z-+._]*', '', txt)
 
 #-----------------------------------------------------------------------
-def try_except_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, func=None, **kwargs):
+def try_except_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, func=None, log=None, **kwargs):
 #-----------------------------------------------------------------------
     for i in range(limit):
         #print(f'{func.__qualname__}({args},{kwargs}): {i}')
         try:
             result = func(*args, **kwargs)
             break
-        except error:
+        except error as err:
+            if log:
+                log(i, err)
             sleep(pause)
     if i==limit-1 and raise_error:
         raise SystemError(f'Unable to complete {func.__qualname__} within {limit} tries during {limit*pause} seconds: {error}')
