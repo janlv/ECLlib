@@ -21,7 +21,7 @@ from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
-from .utils import (decode, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, 
+from .utils import (decode, last_line, match_in_wildlist, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, 
                     list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, 
                     string_chunks, split_in_lines)
 from .runner import Process
@@ -55,6 +55,7 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'DOUB' : Dtyp('DOUB', 'd', 8, 1000, float64),
          b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
          b'C008' : Dtyp('C008', 's', 8, 105 , str),
+         b'C009' : Dtyp('C009', 's', 9, 105 , str),
          b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
@@ -276,6 +277,7 @@ class File:                                                                    #
             raise SystemError(f'File {self} does not exist')
         return b''
  
+
     # #--------------------------------------------------------------------------------
     # def decode(self, data):
     # #--------------------------------------------------------------------------------        
@@ -359,7 +361,6 @@ class File:                                                                    #
             #raise SystemError(f'ERROR {" ".join((self.role, str(self.name))).lstrip()} is missing in folder {self.parent}')
         return False
 
-
     #--------------------------------------------------------------------------------
     def size(self):                                                            # File
     #--------------------------------------------------------------------------------
@@ -382,6 +383,19 @@ class File:                                                                    #
     def stat(self, *args):                                                     # File
     #--------------------------------------------------------------------------------
         return attrgetter(*args)(self.path.stat())
+
+    #--------------------------------------------------------------------------------
+    def lines(self):                                                           # File
+    #--------------------------------------------------------------------------------
+        if self.is_file():
+            with open(self.path, 'r') as file:
+                yield file.readline()
+        return ()
+
+    #--------------------------------------------------------------------------------
+    def last_line(self):                                                       # File
+    #--------------------------------------------------------------------------------
+        return last_line(self.path)
 
 
 #====================================================================================
@@ -416,9 +430,16 @@ class unfmt_file(File):
         return self.size() - self.endpos
 
     #--------------------------------------------------------------------------------
-    def blockdata(self, *keys, strip=True, **kwargs):                        # unfmt_file
+    def blockdata(self, *keys, strip=True, **kwargs):                    # unfmt_file
     #--------------------------------------------------------------------------------
-        return (bl.data(strip=strip) for bl in self.blocks(**kwargs) if bl.key() in keys)
+        """ Return data in the order of the given keys, not the reading order.
+            The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
+        data = dict(zip(keys, repeat(None)))
+        for block in self.blocks(**kwargs):
+            if key:=match_in_wildlist(block.key(), keys):
+                data[key] = block.data(strip=strip)
+        return (data[key] for key in keys)
+        #return (bl.data(strip=strip) for bl in self.blocks(**kwargs) if bl.key() in keys)
 
 
     #--------------------------------------------------------------------------------
@@ -444,10 +465,12 @@ class unfmt_file(File):
                         ### Header
                         try:
                             ### Header is 24 bytes, we skip int of length 4 before and after
+                            #print(self, data[pos+4:pos+20])
                             key, length, typ = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
                             ### Value array
                             nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
                             pos += 24 + nbytes
+                            #print(key, length, typ, nbytes, pos)
                         except (ValueError, struct_error):
                             return False
                         self.endpos = pos
@@ -456,6 +479,7 @@ class unfmt_file(File):
             except ValueError: # as error: # Catch 'cannot mmap an empty file'
                 #print(error)
                 return False
+        #print('BLOCKS END')
 
     # #--------------------------------------------------------------------------------
     # def read_block(self, data, pos=0, size=None):                        # unfmt_file
@@ -1049,8 +1073,10 @@ class DATA_file(File):
         #regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
         # Allow filenames without quotes ('"), i.e. !#%& and ASCII 28 - 126 (7e)
         # Details at: https://regex101.com/r/jTYq16/1
-        regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([!#%&\x28-\x7e]+)['\s]*/.*$"
-        files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
+        #regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([!#%&\x28-\x7e]+)['\s]*/.*$"
+        regex = rb"^\s*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([^' ]+)['\s]*/.*$"
+        #files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
+        files = (m.group(1).decode() for m in finditer(regex, data, flags=MULTILINE))
         #print('self.file',self.file)
         for file in chain(files, self._added_files):
             #print('file',file)
@@ -1151,7 +1177,7 @@ class UNRST_file(unfmt_file):
         return tuple(unique_wells)
 
     #--------------------------------------------------------------------------------
-    def last_day(self):                                                  # UNRST_file
+    def end_time(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
         time = next(self.read('time', tail=True), None) or [0]
         return time[0]
@@ -1209,7 +1235,7 @@ class RFT_file(unfmt_file):                                                # RFT
         return False
         
     #--------------------------------------------------------------------------------
-    def last_day(self):                                                   # RFT_file
+    def end_time(self):                                                   # RFT_file
     #--------------------------------------------------------------------------------
         # Return data from last check if it exists
         if data := self.check.data():
@@ -1349,7 +1375,7 @@ class UNSMRY_file(unfmt_file):
             return tuple(set(getattr(self.spec, item)))
 
     #--------------------------------------------------------------------------------
-    def energy(self, *wells):                                             # UNSMRY_file
+    def energy(self, *wells):                                           # UNSMRY_file
     #--------------------------------------------------------------------------------
         from scipy.integrate import cumtrapz
         data = self.welldata(keys=('WBHP','WTHP','WWIR'), wells=wells, as_array=True, named=True)
@@ -1377,20 +1403,25 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         self.measures = ()
         self.wells = ()
         self.data = ()
-        self.wellkey = None
+        #self.wellkey = None
 
     #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), named=False):                 # SMSPEC_file
     #--------------------------------------------------------------------------------
+        # print('SMSPEC WELLDATA', self.is_file())
         self._inkeys = keys
         if not self.is_file():
             return False
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
         # Different keyword for wellnames in ECL (WGNAMES) and IX (NAMES)
-        if not self.wellkey and b'UNITS' in (data:=self.binarydata()):
-            self.wellkey = 'WGNAMES' if b'WGNAMES' in data else 'NAMES'
-        self.data = Data(*self.blockdata('KEYWORDS', self.wellkey, 'MEASRMNT', 'UNITS'))
+        #if not self.wellkey and b'UNITS' in (data:=self.binarydata()):
+        #    self.wellkey = 'WGNAMES' if b'WGNAMES' in data else 'NAMES'
+        #    print('!!!!!!!!!!!!!!!!SMSPEC SET WELLKEY!!!!!!!!!!!!!!!', self.wellkey)
+        #self.data = Data(*self.blockdata('KEYWORDS', self.wellkey, 'MEASRMNT', 'UNITS'))
+        self.data = Data(*self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS'))
+        # print('SMSPEC DATA', self.data)
         if all(self.data):
+            # print('DATA')
             width = len(self.data.measures)//max(len(self.data.keys), 1)
             keys = keys or set(self.data.keys)
             all_wells = set(w for w in self.data.wells if w and not '+' in w)
@@ -1443,7 +1474,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
 
 
 #====================================================================================
-class text_file(File):
+class text_file(File):                                                    # text_file
 #====================================================================================
     #--------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):                                   # text_file
@@ -1451,32 +1482,31 @@ class text_file(File):
         super().__init__(file, **kwargs)
         self._pattern = {} 
         self._convert = {}
-        self._flavor = None          # 'ecl' or 'ix'
+        # self._flavor = None          # 'ecl' or 'ix'
 
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                          # text_file
     #--------------------------------------------------------------------------------
         return key.encode() in self.binarydata()
         
-    #--------------------------------------------------------------------------------
-    def is_ready(self):
-    #--------------------------------------------------------------------------------
-        return True
+    # #--------------------------------------------------------------------------------
+    # def is_ready(self):                                                   # text_file
+    # #--------------------------------------------------------------------------------
+    #     return True
+
+    # #--------------------------------------------------------------------------------
+    # def set_flavor(self, ix='', eclipse=''):                              # text_file
+    # #--------------------------------------------------------------------------------
+    #     if self._flavor is None:
+    #         if header := next(self.head(size=10*1024), ''):
+    #             if ix in header:
+    #                 self._flavor = 'ix'
+    #             elif eclipse in header:
+    #                 self._flavor = 'ecl'
+    #     return bool(self._flavor)
 
     #--------------------------------------------------------------------------------
-    def set_flavor(self, ix='', eclipse=''):
-    #--------------------------------------------------------------------------------
-        if self._flavor is None:
-            if header := next(self.head(size=10*1024), ''):
-                if ix in header:
-                    self._flavor = 'ix'
-                elif eclipse in header:
-                    self._flavor = 'ecl'
-        return bool(self._flavor)
-
-    #--------------------------------------------------------------------------------
-    #def read(self, *var_list, N=0, raise_error=True):                      # text_file
-    def read(self, *var_list):                      # text_file
+    def read(self, *var_list):                                            # text_file
     #--------------------------------------------------------------------------------
         if not self.is_ready():
             return ()
@@ -1486,13 +1516,6 @@ class text_file(File):
             match = matches(file=self.path, pattern=pattern[var])
             values.append([self._convert[var](m.group(1)) for m in match])
         return list(zip(*values))
-        #if raise_error and not all(values.values()):
-        #    raise SystemError(f'ERROR Unable to read {var_list} from {self.path.name}')
-        # if N == 0:
-        #     return list(values.values())
-        # if N > 0:
-        #     N -= 1
-        # return [[v[N]] if v else [] for v in values.values()]
 
 
 
@@ -1514,44 +1537,78 @@ class MSG_file(text_file):
 
 
 #====================================================================================
-class PRT_file(text_file):
+class PRT_file(text_file):                                                # PRT_file
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, file, **kwargs):
+    def __init__(self, file, **kwargs):                                    # PRT_file
     #--------------------------------------------------------------------------------
         #self.file = Path(file).with_suffix('.PRT')
         super().__init__(file, suffix='.PRT', **kwargs)
-        ecl = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
-               'step' : r'\bSTEP\b\s+([0-9]+)'}
-        # For IX the step number is not printed, only the TSTEP
-        ix  = {'time' : r' (?:Rep |Init|HRep)   ;\s*([0-9.]+)\s+',
-               'step' : r' (?:Rep |Init|HRep)   ;\s*[0-9.]+\s+([0-9.]+)\s+'}
-        # Make 'days' an alias for 'time'
-        ecl['days'] = ecl['time']
-        ix['days'] = ix['time']
-        self._pattern = {'ecl':ecl, 'ix':ix}
-        self._convert = {key:float for key in ecl.keys()}
+        # ecl = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
+        #        'step' : r'\bSTEP\b\s+([0-9]+)'}
+        # # For IX the step number is not printed, only the TSTEP
+        # ix  = {'time' : r' (?:Rep |Init|HRep)   ;\s*([0-9.]+)\s+',
+        #        'step' : r' (?:Rep |Init|HRep)   ;\s*[0-9.]+\s+([0-9.]+)\s+'}
+        # # Make 'days' an alias for 'time'
+        # ecl['days'] = ecl['time']
+        # ix['days'] = ix['time']
+        # #self._pattern = {'ecl':ecl, 'ix':ix}
+        self._pattern['time'] = ' (?:Rep    ;|Init   ;|TIME=)\s*([0-9.]+)\s+'
+        self._pattern['days'] = self._pattern['time']
+        self._convert = {key:float for key in self._pattern.keys()}
+
+    # #--------------------------------------------------------------------------------
+    # def is_ready(self):                                                    # PRT_file
+    # #--------------------------------------------------------------------------------
+    #     iamo = ' is a mark of '
+    #     return self.set_flavor(ix='INTERSECT'+iamo, eclipse='ECLIPSE'+iamo)
 
     #--------------------------------------------------------------------------------
-    def is_ready(self):
-    #--------------------------------------------------------------------------------
-        iamo = ' is a mark of '
-        return self.set_flavor(ix='INTERSECT'+iamo, eclipse='ECLIPSE'+iamo)
-
-    #--------------------------------------------------------------------------------
-    def last_day(self):
+    def end_time(self):                                                    # PRT_file
     #--------------------------------------------------------------------------------
         default = 0
-        if not self.is_ready():
-            return default
-        timetag = {'ecl':'TIME=', 'ix':'Rep    ;'}[self._flavor]
-        pattern = self._pattern[self._flavor]
-        text = (txt for txt in self.tail(size=10*1024) if timetag in txt)
-        data = next(text, None)
-        if data:
-            days = list(m.group(1) for m in re_compile(pattern['time']).finditer(data))
+        # if not self.is_ready():
+        #     return default
+        #timetag = {'ecl':'TIME=', 'ix':'Rep    ;'}[self._flavor]
+        #pattern = self._pattern[self._flavor]
+        #text = (txt for txt in self.tail(size=10*1024) if timetag in txt)
+        timetags = ('TIME=', 'Rep    ;', 'Init   ;')
+        chunks = (txt for txt in self.tail(size=10*1024) if any(tag in txt for tag in timetags))        
+        if data:=next(chunks, None):
+            #days = list(m.group(1) for m in re_compile(pattern['time']).finditer(data))
+            #days = list(m.group(1) for m in finditer(self._pattern['time'], data))
+            days = findall(self._pattern['time'], data)
             return float(days[-1]) if days else default
 
+
+#====================================================================================
+class PRTX_file(text_file):                                                # PRTX_file
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, file, **kwargs):                                    # PRTX_file
+    #--------------------------------------------------------------------------------
+        super().__init__(file, suffix='.PRTX', **kwargs)
+        self._var_index = {}
+
+    #--------------------------------------------------------------------------------
+    def var_index(self):                                                   # PRTX_file
+    #--------------------------------------------------------------------------------
+        if not self._var_index:
+            names = next(self.lines(), '').split(',')
+            self._var_index = {name:i for i,name in enumerate(names)}
+        return self._var_index
+
+    #--------------------------------------------------------------------------------
+    def end_time(self):                                                   # PRTX_file
+    #--------------------------------------------------------------------------------
+        """
+        Note that time in PRTX seems to be delayed compared to PRT and RFT
+        """
+        time = 0
+        if (line:=self.last_line()) and (index:=self.var_index()):
+            time = line.split(',')[index['Simulation Time']]
+            time = float(time) if time[0] != 'S' else 0 
+        return time
 
 #====================================================================================
 class check_blocks:                                                    # check_blocks

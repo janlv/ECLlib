@@ -14,6 +14,8 @@ from collections import deque
 from collections.abc import Iterable
 from shutil import copy2
 import stat
+from fnmatch import fnmatch
+from os import SEEK_END, SEEK_CUR
 from numpy import array, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
@@ -41,6 +43,14 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #         #
 #         getgen = ((getter(o),) for o in objects)
 #     return zip(*getgen)
+
+#-----------------------------------------------------------------------
+def match_in_wildlist(string, wildlist):
+#-----------------------------------------------------------------------
+    """ Return matched string in a list of strings that can include wildcards """
+    return next((pattern for pattern in wildlist if fnmatch(string, pattern)), None)
+    #return any(fnmatch(string, pattern) for pattern in wildlist)
+
 
 #-----------------------------------------------------------------------
 def make_user_executable(path):
@@ -188,6 +198,22 @@ def tail(n, iterable): # From Itertools Recipes at docs.python.org
 #         with open(fname) as f:
 #             return tail(n,f)
 #     return iter(())
+
+#------------------------------------------------
+def last_line(path):
+#------------------------------------------------
+#
+# Taken from https://stackoverflow.com/questions/46258499/how-to-read-the-last-line-of-a-file-in-python
+#
+    with open(path, 'rb') as file:
+        try:  # catch OSError in case of a one line file 
+            file.seek(-2, SEEK_END)
+            while file.read(1) != b'\n':
+                file.seek(-2, SEEK_CUR)
+        except OSError:
+            file.seek(0)
+        return file.readline().decode()
+
 
 #------------------------------------------------
 def tail_file(path, size=10*1024):
