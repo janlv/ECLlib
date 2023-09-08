@@ -82,7 +82,7 @@ class unfmt_block:
     #  |              |4i|8d| 
 
     #--------------------------------------------------------------------------------
-    def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, file=None):
+    def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, file=None, file_obj=None):
     #--------------------------------------------------------------------------------
         self._key = key
         self._length = length
@@ -90,15 +90,16 @@ class unfmt_block:
         self._dtype = DTYPE[type]
         self._data = data
         self._file = file
+        self._file_obj = file_obj
         self._startpos = start
-        self._end = end
+        self._endpos = end
         self._data_start = start + 24
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        return f'key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._end:8d}'
+        return f'key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._endpos:8d}'
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_block
@@ -148,7 +149,7 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def end(self):                                                      # unfmt_block
     #--------------------------------------------------------------------------------
-        return self._end
+        return self._endpos
 
     #--------------------------------------------------------------------------------
     def info(self, details=False):                                      # unfmt_block
@@ -157,7 +158,7 @@ class unfmt_block:
         if details:
             s += f' block of {self._length*self._dtype.size} bytes' 
             s += f' holding {self.length()} {self._dtype.name}'
-            s += f' at [{self._startpos}, {self._end}]'
+            s += f' at [{self._startpos}, {self._endpos}]'
         return s
 
     #--------------------------------------------------------------------------------
@@ -172,46 +173,52 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def data(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
     #--------------------------------------------------------------------------------
-        ### Abort if no data to return
+        # Abort if no data to return
         if self._length == 0:
             return ()
-        ### Return all data if no argument given
+        # Return all data if no argument given
         if index == () or () in index:
             index = ((0, self._length),)
             unwrap_tuple = False
-        ### Fix negative positions, and create tuple if not tuple
+        # Fix negative positions, and create tuple if not tuple
         fix_lim = lambda x: x+self._length if x < 0 else x
         index = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in index]
-        ### Out of index error
+        # Out of index error
         if any(i>self._length or i<0 for i in flatten_all(index)):
             raise IndexError(f'index out of range for {self.key()}-block of length {self._length}')
-        ### Fix CHAR data for strings > 8 char (nchar > 1)
-        #if nchar > 1 and self._type == b'CHAR':
+        # Fix CHAR data for strings > 8 char (nchar > 1)
         char_block = self._type[0:1] == b'C'
         if nchar > 1 and char_block:
             index = [[min(i*nchar,self._length) for i in ind] for ind in index]
-        ### List of data chunk start positions, including the 4 byte size int before and after 
-        chunk_limits = list(range(self._data_start, self._end, self._dtype.max*self._dtype.size+8))
+        # List of data chunk start positions, including the 4 byte size int before and after 
+        chunk_limits = list(range(self._data_start, self._endpos, self._dtype.max*self._dtype.size+8))
         chunk_pos = lambda x: chunk_limits[ slice( *(1+(i//self._dtype.max) for i in x) ) ]
         byte_pos = lambda x: self._data_start + x*self._dtype.size + 8*(x//self._dtype.max) + 4
-        ### Modify byte_pos by -4/+4 at start/end to match chunk-limits 
+        # Modify byte_pos by -4/+4 at start/end to match chunk-limits 
         limits = ([byte_pos(a)-4]+chunk_pos((a,b))+[byte_pos(b)+4] for a,b in index)
-        ### Compensate for the 4-byte size int
+        # Compensate for the 4-byte size int
         data_chunks = ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
         try:
-            ### CHAR data is an 8 character string
-            #N = sum(j-i for i,j in index)*(self._type == b'CHAR' and 8 or 1)
+            # CHAR data is an 8 character string
             N = sum(j-i for i,j in index)*(self._dtype.size if char_block else 1)
-            values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', b''.join(self._data[a:b] for a,b in data_chunks))
+            # Join chunks of data
+            if self._data:
+                data = b''.join(self._data[a:b] for a,b in data_chunks)
+            else:
+                # Read data from file-object and shift positions from absolute to relative
+                start = self._startpos
+                self._file_obj.seek(start)
+                bytedata = self._file_obj.read(self._endpos - start)
+                data = b''.join(bytedata[a-start:b-start] for a,b in data_chunks)         
+            values = unpack(ENDIAN+f'{N}{self._dtype.unpack}', data)
         except struct_error as err:
             if raise_error:
                 raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}') from err
             return None
-        ### Decode string data
-        #if self._type == b'CHAR':
+        # Decode string data
         if char_block:
             values = tuple(string_chunks(values[0].decode(), self._dtype.size*nchar, strip=strip))
-        ### Return value instead of single-value tuple
+        # Return value instead of single-value tuple
         if unwrap_tuple and len(values) == 1:
             return values[0]
         return values
@@ -430,12 +437,16 @@ class unfmt_file(File):
         return self.size() - self.endpos
 
     #--------------------------------------------------------------------------------
-    def blockdata(self, *keys, strip=True, **kwargs):                    # unfmt_file
+    def blockdata(self, *keys, strip=True, mmap=True, **kwargs):                    # unfmt_file
     #--------------------------------------------------------------------------------
         """ Return data in the order of the given keys, not the reading order.
             The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
+        if mmap:
+            blocks = self.blocks
+        else:
+            blocks = self.blocks_no_mmap
         data = dict(zip(keys, repeat(None)))
-        for block in self.blocks(**kwargs):
+        for block in blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
                 data[key] = block.data(strip=strip)
         return (data[key] for key in keys)
@@ -452,7 +463,6 @@ class unfmt_file(File):
             startpos = self.endpos
         if start:
             startpos = start
-        #print(f'{self}, start:{start}, only_new:{only_new}, {self.size()} - {startpos} = {self.size() - startpos}')
         if self.size() - startpos < 24: # Header is 24 bytes
             return False
         with open(self.path, mode='rb') as file:
@@ -475,11 +485,46 @@ class unfmt_file(File):
                             return False
                         self.endpos = pos
                         yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
-                                        data=data, file=self.path)
+                                          data=data, file=self.path)
             except ValueError: # as error: # Catch 'cannot mmap an empty file'
                 #print(error)
                 return False
         #print('BLOCKS END')
+
+    #--------------------------------------------------------------------------------
+    def blocks_no_mmap(self, only_new=False, start=None):                        # unfmt_file
+    #--------------------------------------------------------------------------------
+        """ Read blocks without mmap. 
+            Useful for files that may be truncated while reading, causing a bus-error
+            if mmap is used (SMSPEC is one example) """
+        if not self.is_file():
+            return False
+        startpos = 0
+        if only_new:
+            startpos = self.endpos
+        if start:
+            startpos = start
+        if self.size() - startpos < 24: # Header is 24 bytes
+            return False
+        with open(self.path, mode='rb') as file:
+            size = self.size()
+            pos = startpos
+            while pos < size:
+                start = pos
+                file.seek(start)
+                ### Header
+                try:
+                    ### Header is 24 bytes, we skip int of length 4 before and after
+                    _, key, length, typ = unpack(ENDIAN+'i8si4s', file.read(20))
+                    ### Value array
+                    nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
+                    pos += 24 + nbytes
+                except (ValueError, struct_error): 
+                    return False
+                self.endpos = pos
+                yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
+                                  file_obj=file, file=self.path)
+    
 
     # #--------------------------------------------------------------------------------
     # def read_block(self, data, pos=0, size=None):                        # unfmt_file
@@ -499,39 +544,6 @@ class unfmt_file(File):
     #         self.endpos = pos
     #         yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
     #                         data=data, file=self.path)
-
-    # #--------------------------------------------------------------------------------
-    # def blocks(self, only_new=False, start=None):                        # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     ' Read blocks without mmap'
-    #     if not self.is_file():
-    #         return False
-    #     startpos = 0
-    #     if only_new:
-    #         startpos = self.endpos
-    #     if start:
-    #         startpos = start
-    #     if self.size() - startpos < 24: # Header is 24 bytes
-    #         return False
-    #     size = self.size()
-    #     with open(self.file, mode='rb') as file:
-    #         pos = startpos
-    #         while pos < size:
-    #             start = pos
-    #             file.seek(start)
-    #             ### Header
-    #             try:
-    #                 ### Header is 24 bytes, we skip int of length 4 before and after
-    #                 _, key, length, type = unpack(ENDIAN+'i8si4s', file.read(20))
-    #                 ### Value array
-    #                 bytes = length*DTYPE[type].size + 8 * -(-length//DTYPE[type].max) # -(-a//b) is the ceil-function
-    #                 pos += 24+bytes
-    #             except (ValueError, struct_error): 
-    #                 return False
-    #             self.endpos = pos
-    #             yield unfmt_block(key=key, length=length, type=type, start=start, end=pos, 
-    #                                 data=file, file=self.file)
-    
 
     #--------------------------------------------------------------------------------
     def tail_blocks(self, **kwargs):                                               # unfmt_file
@@ -1413,15 +1425,10 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         if not self.is_file():
             return False
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
-        # Different keyword for wellnames in ECL (WGNAMES) and IX (NAMES)
-        #if not self.wellkey and b'UNITS' in (data:=self.binarydata()):
-        #    self.wellkey = 'WGNAMES' if b'WGNAMES' in data else 'NAMES'
-        #    print('!!!!!!!!!!!!!!!!SMSPEC SET WELLKEY!!!!!!!!!!!!!!!', self.wellkey)
-        #self.data = Data(*self.blockdata('KEYWORDS', self.wellkey, 'MEASRMNT', 'UNITS'))
-        self.data = Data(*self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS'))
-        # print('SMSPEC DATA', self.data)
+        # Do not use mmap here because the SMSPEC-file might get truncated while 
+        # mmap'ed causing a bus-error
+        self.data = Data(*self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', mmap=False))
         if all(self.data):
-            # print('DATA')
             width = len(self.data.measures)//max(len(self.data.keys), 1)
             keys = keys or set(self.data.keys)
             all_wells = set(w for w in self.data.wells if w and not '+' in w)
@@ -1435,10 +1442,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             if self._ind:
                 getter = itemgetter(*self._ind)
                 measure_strings = map(''.join, grouper(self.data.measures, width))
-                #self.measures = itemgetter(*self._ind)(tuple(measure_strings))
                 self.measures = getter(tuple(measure_strings))
                 if named:
-                    #self.wells = itemgetter(*self._ind)(tuple(w.replace('-','_') for w in self.data.wells))
                     self.wells = getter(tuple(w.replace('-','_') for w in self.data.wells))
                 else:
                     self.wells = getter(tuple(self.data.wells))
@@ -1542,7 +1547,6 @@ class PRT_file(text_file):                                                # PRT_
     #--------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):                                    # PRT_file
     #--------------------------------------------------------------------------------
-        #self.file = Path(file).with_suffix('.PRT')
         super().__init__(file, suffix='.PRT', **kwargs)
         # ecl = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
         #        'step' : r'\bSTEP\b\s+([0-9]+)'}
