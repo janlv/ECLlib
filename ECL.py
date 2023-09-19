@@ -253,7 +253,6 @@ class File:                                                                    #
 
 
 #====================================================================================
-@dataclass
 class unfmt_header:
 #====================================================================================
     #  | h e a d e r  |   d a t a     |
@@ -261,18 +260,18 @@ class unfmt_header:
     #  |    24 bytes  |
     #  |              |4i|8d| 
 
-    key: str = b''
-    length: int = 0
-    type: str = b''
-    startpos: int = 0
-    endpos: int = 0
 
     #--------------------------------------------------------------------------------
-    def __post_init__(self):
+    def __init__(self, key:str=b'', length:int=0, type:str=b'', startpos:int=0, endpos:int=0):
     #--------------------------------------------------------------------------------
+        self.key = key
+        self.length = length
+        self.type = type
+        self.startpos = startpos
+        self.endpos = endpos
         self.dtype = DTYPE[self.type]
         self.bytes = self.length*self.dtype.size
-        if not self.endpos:
+        if not endpos:
             extra_bytes = 8 * -(-self.length//self.dtype.max) # -(-a//b) is the ceil-function
             self.endpos = self.startpos + 24 + self.bytes + extra_bytes
 
@@ -283,17 +282,17 @@ class unfmt_header:
                 f'length={self.length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
     #--------------------------------------------------------------------------------
-    def chunk_positions(self, index):
+    def data_positions(self, index):
     #--------------------------------------------------------------------------------
         # List of [start, end] positions of the data-chunks
         # Data layout: |4i|0..999 elements|4i||4i|999..1999 elements|4i|...|4i|rest data|4i|
         # The 4i byte size int's are skipped
         data_start = self.startpos + 24
-        chunk_limits = list(range(data_start, self.endpos, self.dtype.max*self.dtype.size+8))
-        chunk_pos = lambda x: chunk_limits[ slice( *(1+(i//self.dtype.max) for i in x) ) ]
+        data_limits = list(range(data_start, self.endpos, self.dtype.max*self.dtype.size+8))
+        data_pos = lambda x: data_limits[ slice( *(1+(i//self.dtype.max) for i in x) ) ]
         byte_pos = lambda x: data_start + x*self.dtype.size + 8*(x//self.dtype.max) + 4
         # Modify byte_pos by -4/+4 at start/end to match chunk-limits 
-        limits = ([byte_pos(a)-4]+chunk_pos((a,b))+[byte_pos(b)+4] for a,b in index)
+        limits = ([byte_pos(a)-4]+data_pos((a,b))+[byte_pos(b)+4] for a,b in index)
         # Compensate for the 4-byte size int
         return ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
 
@@ -321,32 +320,23 @@ class unfmt_block:
     #  |              |4i|8d| 
 
     #--------------------------------------------------------------------------------
-    #def __init__(self, key=b'', length=0, type=b'', start=0, end=0, data=None, file=None, file_obj=None):
     def __init__(self, header:unfmt_header=None, data=None, file=None, file_obj=None):
     #--------------------------------------------------------------------------------
         self.header = header
-        # self._key = key
-        # self._length = length
-        # self._type = type
-        # self._dtype = DTYPE[type]
         self._data = data
         self._file = file
         self._file_obj = file_obj
-        # self._startpos = start
-        # self._endpos = end
-        #self._data_start = header.startpos + 24
         DEBUG and print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
         return str(self.header)
-        # return f'key={self.key():8s}, type={self.type():4s}, bytes={self.bytes():8d}, length={self.length():8d}, start={self._startpos:8d}, end={self._endpos:8d}'
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        return f'<{type(self)}, {self}>'
+        return f'<{self}>'
 
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                        # unfmt_block
@@ -363,61 +353,16 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
         return getattr(self.header, item)
 
-    # #--------------------------------------------------------------------------------
-    # def length(self):                                                   # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     return self.header.length
-    #     #return self._length
-
-    # #--------------------------------------------------------------------------------
-    # def bytes(self):                                                    # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     return self.header.bytes
-    #     #return self._type and self._length*self._dtype.size or 0
-
     #--------------------------------------------------------------------------------
     def key(self):                                                      # unfmt_block
     #--------------------------------------------------------------------------------
         return self.header.key.decode().strip()
-        # return self._key.decode().strip()
 
     #--------------------------------------------------------------------------------
     def type(self):                                                     # unfmt_block
     #--------------------------------------------------------------------------------
-        #return self._type.decode()
         return self.header.type.decode()
         
-    # #--------------------------------------------------------------------------------
-    # def startpos(self):                                                    # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     return self.header.startpos
-    #     # return self._startpos
-
-    # #--------------------------------------------------------------------------------
-    # def endpos(self):                                                      # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     return self.header.endpos
-    #     # return self._endpos
-
-    # #--------------------------------------------------------------------------------
-    # def info(self, details=False):                                      # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     s = f'{self._key.decode()}'
-    #     if details:
-    #         s += f' block of {self._length*self._dtype.size} bytes' 
-    #         s += f' holding {self.length()} {self._dtype.name}'
-    #         s += f' at [{self._startpos}, {self._endpos}]'
-    #     return s
-
-    # #--------------------------------------------------------------------------------
-    # def print(self, data=False, details=False):                         # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     print(self.info(details=details), end='')
-    #     if data:
-    #         print(':',self.data())
-    #     else:
-    #         print()
-
     #--------------------------------------------------------------------------------
     def data(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
     #--------------------------------------------------------------------------------
@@ -436,21 +381,11 @@ class unfmt_block:
         if any(i>length or i<0 for i in flatten_all(index)):
             raise IndexError(f'index out of range for {self.key()}-block of length {length}')
         # Fix CHAR data for strings > 8 char (nchar > 1)
-        #char_block = self.header.type[0:1] == b'C'
-        if nchar > 1 and self.header.is_char(): #char_block:
+        if nchar > 1 and self.header.is_char(): 
             index = [[min(i*nchar, length) for i in ind] for ind in index]
         # List of data chunk [start,end] positions, stepping over the 4 byte size int before and after 
-        data_chunks = self.header.chunk_positions(index)
-        # data_start = self.header.startpos + 24
-        # chunk_limits = list(range(data_start, self.header.endpos, self._dtype.max*self._dtype.size+8))
-        # chunk_pos = lambda x: chunk_limits[ slice( *(1+(i//self._dtype.max) for i in x) ) ]
-        # byte_pos = lambda x: data_start + x*self._dtype.size + 8*(x//self._dtype.max) + 4
-        # # Modify byte_pos by -4/+4 at start/end to match chunk-limits 
-        # limits = ([byte_pos(a)-4]+chunk_pos((a,b))+[byte_pos(b)+4] for a,b in index)
-        # # Compensate for the 4-byte size int
-        # data_chunks = ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
+        data_chunks = self.header.data_positions(index)
         try:
-            # N = sum(j-i for i,j in index)*(self._dtype.size if char_block else 1)
             # Join chunks of data
             if self._data:
                 # Join mmap'ed data
@@ -514,10 +449,6 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         """ Return data in the order of the given keys, not the reading order.
             The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
-        # if mmap:
-        #     blocks = self.blocks
-        # else:
-        #     blocks = self.blocks_no_mmap
         data = dict(zip(keys, repeat(None)))
         for block in self.blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
@@ -534,46 +465,82 @@ class unfmt_file(File):
             return unfmt_header(key, length, typ, startpos)
         except (ValueError, struct_error):
             return False
-        #return unfmt_header(key, length, typ, nbytes, startpos, endpos)
 
     #--------------------------------------------------------------------------------
     def blocks(self, only_new=False, start=None, use_mmap=True):             # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file():
-            return False
+            return ()
         startpos = 0
         if only_new:
             startpos = self.endpos
         if start:
             startpos = start
         if self.size() - startpos < 24: # Header is 24 bytes
-            return False
-        with open(self.path, mode='rb') as file:
-            if use_mmap:
-                try:
-                    with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                        size = data.size()
-                        pos = startpos
-                        while pos < size:
-                            header = self.read_header(data[pos+4:pos+20], pos)
-                            if not header:
-                                return False
-                            pos = self.endpos = header.endpos
-                            yield unfmt_block(header=header, data=data, file=self.path)
-                except ValueError: # Catch 'cannot mmap an empty file'
-                    return False
-            else:
-                # No mmap
-                size = self.size()
-                pos = startpos
-                while pos < size:
-                    file.seek(pos+4) # +4 to skip size int
-                    header = self.read_header(file.read(16), pos)
-                    if not header:
-                        return False
-                    pos = self.endpos = header.endpos
-                    yield unfmt_block(header=header, file_obj=file, file=self.path)
+            return () #False
+        if use_mmap:
+            return self.blocks_from_mmap(startpos)
+        else:
+            return self.blocks_from_file(startpos)
 
+        #for block in blocks(startpos):
+        #    yield block
+        # with open(self.path, mode='rb') as file:
+        #     if use_mmap:
+        #         try:
+        #             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
+        #                 size = data.size()
+        #                 pos = startpos
+        #                 while pos < size:
+        #                     header = self.read_header(data[pos+4:pos+20], pos)
+        #                     if not header:
+        #                         return False
+        #                     pos = self.endpos = header.endpos
+        #                     yield unfmt_block(header=header, data=data, file=self.path)
+        #         except ValueError: # Catch 'cannot mmap an empty file'
+        #             return False
+        #     else:
+        #         # No mmap
+        #         size = self.size()
+        #         pos = startpos
+        #         while pos < size:
+        #             file.seek(pos+4) # +4 to skip size int
+        #             header = self.read_header(file.read(16), pos)
+        #             if not header:
+        #                 return False
+        #             pos = self.endpos = header.endpos
+        #             yield unfmt_block(header=header, file_obj=file, file=self.path)
+
+    #--------------------------------------------------------------------------------
+    def blocks_from_mmap(self, startpos):
+    #--------------------------------------------------------------------------------
+        with open(self.path, mode='rb') as file:
+            try:
+                with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
+                    size = data.size()
+                    pos = startpos
+                    while pos < size:
+                        header = self.read_header(data[pos+4:pos+20], pos)
+                        if not header:
+                            return #() #False
+                        pos = self.endpos = header.endpos
+                        yield unfmt_block(header=header, data=data, file=self.path)
+            except ValueError: # Catch 'cannot mmap an empty file'
+                return #() #False
+
+    #--------------------------------------------------------------------------------
+    def blocks_from_file(self, startpos):
+    #--------------------------------------------------------------------------------
+        with open(self.path, mode='rb') as file:
+            size = self.size()
+            pos = startpos
+            while pos < size:
+                file.seek(pos+4) # +4 to skip size int
+                header = self.read_header(file.read(16), pos)
+                if not header:
+                    return #() #False
+                pos = self.endpos = header.endpos
+                yield unfmt_block(header=header, file_obj=file, file=self.path)
 
     # #--------------------------------------------------------------------------------
     # def blocks_no_mmap(self, only_new=False, start=None):                        # unfmt_file
@@ -640,8 +607,8 @@ class unfmt_file(File):
                 data.seek(0, 2)
                 while data.tell() > 0:
                     end = data.tell()
-                    ### Header
-                    ### Rewind until we find a header
+                    # Header
+                    # Rewind until we find a header
                     while data.tell() > 0:
                         try:
                             data.seek(-4, 1)
@@ -654,10 +621,11 @@ class unfmt_file(File):
                                 start = data.tell()-4
                                 key, length, typ = unpack(ENDIAN+'8si4s', data.read(16))
                                 data.seek(4, 1)
-                                break
+                                # Found header
+                                break 
                             data.seek(-4, 1)
                         except (ValueError, struct_error):
-                            return ()
+                            return #()
                     ### Value array
                     #data_start = data.tell()
                     data.seek(start, 0)
@@ -721,7 +689,7 @@ class unfmt_file(File):
                 # A pos < 0 in self.var_pos makes index_limits return () 
                 # which cause the whole array to be read
                 if () in positions:
-                    out_slice = [slice(0,block.length())]
+                    out_slice = [slice(0,block.length)]
                 section.extend(block.data(*positions, unwrap_tuple=False))
             if end_key in block and section: # and i > 0:
                 data = [section[s] for s in out_slice]
@@ -1070,8 +1038,9 @@ class DATA_file(File):
             return FAIL
         result = ()
         for keyword, getter in zip(keywords, getters):
-            match_list = re_compile(getter.pattern).finditer(self.data)
-            val_span = tuple((m.group(1), m.span()) for m in match_list) 
+            # match_list = re_compile(getter.pattern).finditer(self.data)
+            # val_span = tuple((m.group(1), m.span()) for m in match_list) 
+            val_span = tuple((m.group(1), m.span()) for m in finditer(getter.pattern, self.data)) 
             if not val_span:
                 result += (getter.default,)
                 continue
@@ -1753,7 +1722,7 @@ class check_blocks:                                                    # check_b
             if block.header.key == self._keys[end]:
                 self._keys[end_val] += 1
                 if self.steps_complete() and self._keys[end_val] == nblocks:
-                    ### nblocks complete blocks read, reset counters and return True
+                    # nblocks complete blocks read, reset counters and return True
                     self._data = self._keys[:start_val+1]
                     self._keys[start_val], self._keys[end_val] = [], 0
                     return True
@@ -1762,7 +1731,7 @@ class check_blocks:                                                    # check_b
     #--------------------------------------------------------------------------------
     def steps_complete(self):
     #--------------------------------------------------------------------------------
-        ### 1: start_list, 3: end_count
+        # 1: start_list, 3: end_count
         return len(self._keys[1]) == self._keys[3]
 
 
