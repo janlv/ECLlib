@@ -828,7 +828,7 @@ class DATA_file(File):
                  'WCONHIST','WTEMP','RPTSCHED', 'RPTRST','TUNING','READDATA', 'ROCKTABH',
                  'GRIDUNIT','NEWTRAN','MAPAXES','EQLDIMS','ROCKCOMP','TEMP', 'GRIDOPTS',
                  'VFPPDIMS','VFPIDIMS','AQUDIMS','SMRYDIMS','CPR','FAULTDIM','MEMORY','EQUALS',
-                 'MINPV','COPY','MULTIPLY', 'SPECGRID', 'COORD', 'ZCORN', 'ACTNUM')
+                 'MINPV','COPY','ADD','MULTIPLY', 'SPECGRID', 'COORD', 'ZCORN', 'ACTNUM')
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, suffix=None, check=False, sections=True, **kwargs):      # DATA_file
@@ -1427,7 +1427,8 @@ class UNSMRY_file(unfmt_file):
     def key_units(self):                                                # UNSMRY_file
     #--------------------------------------------------------------------------------
         Var = namedtuple('Var','unit measure')
-        kum = zip(*attrgetter('keys', 'units', 'measures')(self.spec))
+        # If 'measures' is None, just use empty string
+        kum = zip(*attrgetter('keys', 'units')(self.spec), self.spec.measures or repeat(''))
         var = {k:Var(u, m.split(':')[-1].replace('_',' ')) for k,u,m in set(kum)}
         return namedtuple('Keys', self.keys)(**var)
 
@@ -1482,8 +1483,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         # Do not use mmap here because the SMSPEC-file might 
         # get truncated while mmap'ed causing a bus-error
         self.data = Data(*self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False))
-        if all(self.data):
-            width = len(self.data.measures)//max(len(self.data.keys), 1)
+        #if all(self.data):
+        if self.data.keys and self.data.wells and self.data.units:
             keys = keys or set(self.data.keys)
             all_wells = set(w for w in self.data.wells if w and not '+' in w)
             patterns = (w.split('*')[0] for w in wells if '*' in w)
@@ -1495,8 +1496,10 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             self._ind = tuple(i for i,(k,w) in ikw if k in keys and w in wells)
             if self._ind:
                 getter = itemgetter(*self._ind)
-                measure_strings = map(''.join, grouper(self.data.measures, width))
-                self.measures = getter(tuple(measure_strings))
+                if self.data.measures:
+                    width = len(self.data.measures)//max(len(self.data.keys), 1)
+                    measure_strings = map(''.join, grouper(self.data.measures, width))
+                    self.measures = getter(tuple(measure_strings))
                 if named:
                     self.wells = getter(tuple(w.replace('-','_') for w in self.data.wells))
                 else:
