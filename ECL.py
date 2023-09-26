@@ -9,7 +9,6 @@ from itertools import chain, repeat, accumulate, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
 from platform import system
-from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from mmap import mmap, ACCESS_READ
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
@@ -19,6 +18,10 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
+#import warnings
+#warnings.filterwarnings("error")
+from warnings import catch_warnings, filterwarnings
+from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
 from .utils import (decode, last_line, match_in_wildlist, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, 
@@ -38,22 +41,34 @@ from .runner import Process
 #
 #
 
+
 #====================================================================================
 @dataclass
 class Dtyp:
 #====================================================================================
-    name   : str   # ECL type name
-    unpack : str   # Char used by struct.unpack/pack to read/write binary data
-    size   : int   # Bytesize 
-    max    : int   # Maximum number of data records in one block
-    nptype : type  # Type used in numpy arrays 
+    name   : str = ''   # ECL type name
+    unpack : str = ''  # Char used by struct.unpack/pack to read/write binary data
+    size   : int = 0   # Bytesize 
+    max    : int = 0  # Maximum number of data records in one block
+    nptype : type = None  # Type used in numpy arrays 
+    #limit  : any = None  # min, max limits
 
-    #nbytes = length*self._dtype.size + 8 * -(-length//self._dtype.max) # -(-a//b) is the ceil-function
+    # #--------------------------------------------------------------------------------
+    # def __str__(self):
+    # #--------------------------------------------------------------------------------
+    #     return self.nptype
+
+    # #--------------------------------------------------------------------------------
+    # def nbytes(self, length):
+    # #--------------------------------------------------------------------------------
+    #     return length*self.size + 8 * -(-length//self.max) # -(-a//b) is the ceil-function
+
+
 
 DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
          b'REAL' : Dtyp('REAL', 'f', 4, 1000, float32),
-         b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
          b'DOUB' : Dtyp('DOUB', 'd', 8, 1000, float64),
+         b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
          b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
          b'C008' : Dtyp('C008', 's', 8, 105 , str),
          b'C009' : Dtyp('C009', 's', 9, 105 , str),
