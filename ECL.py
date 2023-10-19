@@ -474,9 +474,10 @@ class unfmt_file(File):
     def read_header(self, data, startpos):                               # unfmt_file
     #--------------------------------------------------------------------------------
         try:
-            # Header is 24 bytes, we skip int of length 4 before and after
+            # Header is 24 bytes, but we skip size int of length 4 before and after
             # Length of data must be 24 - 8 = 16 
             key, length, typ = unpack(ENDIAN+'8si4s', data)
+            #key, length, typ = unpack(ENDIAN+'4x8si4s', data) # x is pad byte
             return unfmt_header(key, length, typ, startpos)
         except (ValueError, struct_error):
             return False
@@ -498,33 +499,6 @@ class unfmt_file(File):
         else:
             return self.blocks_from_file(startpos)
 
-        #for block in blocks(startpos):
-        #    yield block
-        # with open(self.path, mode='rb') as file:
-        #     if use_mmap:
-        #         try:
-        #             with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-        #                 size = data.size()
-        #                 pos = startpos
-        #                 while pos < size:
-        #                     header = self.read_header(data[pos+4:pos+20], pos)
-        #                     if not header:
-        #                         return False
-        #                     pos = self.endpos = header.endpos
-        #                     yield unfmt_block(header=header, data=data, file=self.path)
-        #         except ValueError: # Catch 'cannot mmap an empty file'
-        #             return False
-        #     else:
-        #         # No mmap
-        #         size = self.size()
-        #         pos = startpos
-        #         while pos < size:
-        #             file.seek(pos+4) # +4 to skip size int
-        #             header = self.read_header(file.read(16), pos)
-        #             if not header:
-        #                 return False
-        #             pos = self.endpos = header.endpos
-        #             yield unfmt_block(header=header, file_obj=file, file=self.path)
 
     #--------------------------------------------------------------------------------
     def blocks_from_mmap(self, startpos):
@@ -536,6 +510,7 @@ class unfmt_file(File):
                     pos = startpos
                     while pos < size:
                         header = self.read_header(data[pos+4:pos+20], pos)
+                        #header = self.read_header(data[pos:pos+20], pos)
                         if not header:
                             return #() #False
                         pos = self.endpos = header.endpos
@@ -552,6 +527,7 @@ class unfmt_file(File):
             while pos < size:
                 file.seek(pos+4) # +4 to skip size int
                 header = self.read_header(file.read(16), pos)
+                #header = self.read_header(file.read(20), pos)
                 if not header:
                     return #() #False
                 pos = self.endpos = header.endpos
@@ -977,6 +953,8 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         ''' Return tsteps, if DATES are present they are converted to tsteps '''
         _start, tsteps, dates = self.get('START','TSTEP','DATES', pos=True)
+        if not tsteps and not dates:
+            return ()
         #print(_start, tsteps, dates)
         if skiprest:
             tsteps = []
@@ -2393,7 +2371,7 @@ class IXF_file(File):                                                      # IXF
     def __contains__(self, key):                                           # IXF_file
     #--------------------------------------------------------------------------------
         self.data = self.data or self.binarydata()
-        return bool(re_search(rf'^[ \t]*{key}'.encode(), self.data, flags=MULTILINE))
+        return bool(re_search(rf'^[ \t]*\b{key}\b'.encode(), self.data, flags=MULTILINE))
 
 
     #--------------------------------------------------------------------------------
@@ -2419,7 +2397,7 @@ class IXF_file(File):                                                      # IXF
 #====================================================================================
 class IX_input:                                                            # IX_input
 #====================================================================================
-    STAT_FILE = '.ecl2ix'
+    STAT_FILE = '.ecl2ix' # Check if ECL-input has changed and new conversion is needed
 
     #--------------------------------------------------------------------------------
     def __init__(self, case, check=False, convert=False, **kwargs):         # IX_input
@@ -2488,6 +2466,7 @@ class IX_input:                                                            # IX_
         path = Path(path)
         cmd = ['eclrun', 'ecl2ix', path]
         #msg = 'Creating Intersect input from Eclipse input'
+        # How often to check if convert is completed
         sec = 1/freq
         with open(path.with_name('ecl2ix.log'), 'w') as log:
             popen = Popen(cmd, stdout=log, stderr=STDOUT)
@@ -2526,11 +2505,10 @@ class IX_input:                                                            # IX_
             raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
         return True
 
-
-
     #--------------------------------------------------------------------------------
-    def file_containing(self, key):                                        # IX_input
+    def files_matching(self, key):                                        # IX_input
     #--------------------------------------------------------------------------------
+        """ Return only ixf-files that match the given key """
         return (ixf for ixf in self.ixf_files if key in ixf)
 
     #--------------------------------------------------------------------------------
@@ -2545,10 +2523,10 @@ class IX_input:                                                            # IX_
         return self
 
     #--------------------------------------------------------------------------------
-    def nodes(self, *types, **args):
+    def nodes(self, *types, files=None, **args):
     #--------------------------------------------------------------------------------
         # Only return nodes from relevant files (might be faster for large files)
-        files = (f for f in self.ixf_files if any(t in f for t in types))
+        files = files or (f for f in self.ixf_files if any(t in f for t in types))
         #files = self.ixf_files
         return chain.from_iterable(file.node(*types, **args) for file in files)
 
@@ -2580,7 +2558,8 @@ class IX_input:                                                            # IX_
         start = start or self.start()
         def date(string):
             return (datetime.strptime(string, '%d-%b-%Y') - start).total_seconds()/86400
-        cum_steps = (node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
+        files = self.files_matching('Simulation')
+        cum_steps = (node.name for node in self.nodes('DATE','TIME', files=files, convert=(date, float)))
         return [b-a for a,b in pairwise(chain([0], cum_steps))]
 
     #--------------------------------------------------------------------------------
