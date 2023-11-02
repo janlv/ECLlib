@@ -45,6 +45,26 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #     return zip(*getgen)
 
 #-----------------------------------------------------------------------
+def has_write_access(path, error=False):
+#-----------------------------------------------------------------------
+    path = Path(path)
+    name = 'write.access'
+    if path.is_file():
+        test = path.with_name(name)
+    else:
+        test = path/name
+    try:
+        test.touch()
+    except PermissionError as perm_err:
+        if error:
+            raise SystemError(error) from perm_err
+        return False
+    test.unlink()
+    return True
+
+
+
+#-----------------------------------------------------------------------
 def match_in_wildlist(string, wildlist):
 #-----------------------------------------------------------------------
     """ Return matched string in a list of strings that can include wildcards """
@@ -258,8 +278,7 @@ def flatten(list_or_tuple): # From Itertools Recipes at docs.python.org
         flat = chain.from_iterable(list_or_tuple)
         if isinstance(list_or_tuple, list):
             return list(flat)
-        else:
-            return tuple(flat)
+        return tuple(flat)
     except TypeError:
         return list_or_tuple
 

@@ -1,9 +1,6 @@
 
 # -*- coding: utf-8 -*-
 
-DEBUG = False
-ENDIAN = '>'  # Big-endian
-
 from dataclasses import dataclass
 from itertools import chain, repeat, accumulate, groupby
 from operator import attrgetter, itemgetter
@@ -18,16 +15,21 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
+#from traceback import print_stack
 #import warnings
 #warnings.filterwarnings("error")
-from warnings import catch_warnings, filterwarnings
+#from warnings import catch_warnings, filterwarnings
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
-from .utils import (decode, last_line, match_in_wildlist, tail_file, head_file, index_limits, flatten, flatten_all, groupby_sorted, grouper, 
-                    list2text, pairwise, remove_chars, safezip, list2str, float_or_str, matches, split_by_words, 
-                    string_chunks, split_in_lines)
+from .utils import (decode, last_line, match_in_wildlist, tail_file, head_file, index_limits, 
+                    flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, 
+                    safezip, list2str, float_or_str, matches, split_by_words, string_chunks, split_in_lines)
 from .runner import Process
+
+
+DEBUG = False
+ENDIAN = '>'  # Big-endian
 
 #
 #
@@ -240,6 +242,12 @@ class File:                                                                    #
 
     #--------------------------------------------------------------------------------
     def tail(self, **kwargs):                                                  # File
+    #--------------------------------------------------------------------------------
+        #return tail_file(self.path, **kwargs)
+        return next(tail_file(self.path, **kwargs), '')
+
+    #--------------------------------------------------------------------------------
+    def reversed(self, **kwargs):                                             # File
     #--------------------------------------------------------------------------------
         return tail_file(self.path, **kwargs)
 
@@ -1627,7 +1635,8 @@ class PRT_file(text_file):                                                # PRT_
         #pattern = self._pattern[self._flavor]
         #text = (txt for txt in self.tail(size=10*1024) if timetag in txt)
         timetags = ('TIME=', 'Rep    ;', 'Init   ;')
-        chunks = (txt for txt in self.tail(size=10*1024) if any(tag in txt for tag in timetags))        
+        #chunks = (txt for txt in self.tail(size=10*1024) if any(tag in txt for tag in timetags))
+        chunks = (txt for txt in self.reversed(size=10*1024) if any(tag in txt for tag in timetags))
         if data:=next(chunks, None):
             #days = list(m.group(1) for m in re_compile(pattern['time']).finditer(data))
             #days = list(m.group(1) for m in finditer(self._pattern['time'], data))
@@ -2437,13 +2446,16 @@ class IX_input:                                                            # IX_
         #afi_file = File(path).with_suffix('.afi', ignore_case=True)
         afi_file = AFI_file(path)
         data_file = DATA_file(path)
+        if afi_file.is_file() and not data_file.is_file():
+            # No need for convert
+            return
         if not afi_file.is_file():
             if not data_file.is_file():
                 raise SystemError('ERROR Eclipse input is missing, unable to create Intersect input.')
             return 'Intersect input is missing for this case, but can be created from the Eclipse input.'
         # Check if input is complete
         if any(file for file in afi_file.include_files() if not file.is_file()):
-            return 'Intersect input is incomplete for this case (missing include files).'            
+            return 'Intersect input is incomplete for this case (missing include files).'
         # Check if DATA-file has changed since last convert
         stat_file = path.with_name(self.STAT_FILE)
         mtime, size = data_file.stat('st_mtime_ns', 'st_size')
@@ -2453,7 +2465,6 @@ class IX_input:                                                            # IX_
                 return 'Intersect input exists for this case, but the Eclipse input has changed since the previous convert.'
         else:
             stat_file.write_text(f'{data_file} {mtime} {size}')
-        return None
 
 
     @classmethod
