@@ -244,6 +244,7 @@ class File:                                                                    #
     def tail(self, **kwargs):                                                  # File
     #--------------------------------------------------------------------------------
         #return tail_file(self.path, **kwargs)
+        #print(self.path, kwargs)
         return next(tail_file(self.path, **kwargs), '')
 
     #--------------------------------------------------------------------------------
@@ -2314,7 +2315,8 @@ class AFI_file(File):                                                      # AFI
     #--------------------------------------------------------------------------------
     def __init__(self, file, check=False, **kwargs):                       # AFI_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, suffix='.afi', role='Top level Intersect input-file', ignore_suffix_case=True, **kwargs)
+        super().__init__(file, suffix='.afi', role='Top level Intersect input-file', 
+                         ignore_suffix_case=True, **kwargs)
         self.data = None
         if check:
             self.exists(raise_error=True)
@@ -2323,8 +2325,8 @@ class AFI_file(File):                                                      # AFI
     def ixf_files(self):
     #--------------------------------------------------------------------------------
         self.data = self.data or self.binarydata()
-        matches = findall(self.include_regex, self.data, flags=MULTILINE)
-        files = (Path(m.decode()) for m in matches)
+        matches_ = findall(self.include_regex, self.data, flags=MULTILINE)
+        files = (Path(m.decode()) for m in matches_)
         return (self.with_name(file) for file in files if file.suffix.lower() == '.ixf')
 
     #--------------------------------------------------------------------------------
@@ -2391,10 +2393,8 @@ class IXF_file(File):                                                      # IXF
         keys = '|'.join(nodes).encode()
         #pattern = rb'^[ \t]*(\w+) *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
         pattern = rb'^[ \t]*(' + keys + rb') *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
-        matches = re_compile(pattern, flags=MULTILINE).finditer(self.data)
-        for m in matches:
-            #if (m1 := m.group(1).decode()) in nodes:
-            val = [g.decode().strip() if g else g for g in m.groups()]
+        for match in finditer(pattern, self.data, flags=MULTILINE):
+            val = [g.decode().strip() if g else g for g in match.groups()]
             if convert:
                 ind = nodes.index(val[0])
                 val[1] = convert[ind](val[1])
@@ -2517,10 +2517,10 @@ class IX_input:                                                            # IX_
         return True
 
     #--------------------------------------------------------------------------------
-    def files_matching(self, key):                                        # IX_input
+    def files_matching(self, *keys):                                        # IX_input
     #--------------------------------------------------------------------------------
         """ Return only ixf-files that match the given key """
-        return (ixf for ixf in self.ixf_files if key in ixf)
+        return (ixf for ixf in self.ixf_files if any(key in ixf for key in keys))
 
     #--------------------------------------------------------------------------------
     def include_files(self):                                               # IX_input
@@ -2537,7 +2537,7 @@ class IX_input:                                                            # IX_
     def nodes(self, *types, files=None, **args):
     #--------------------------------------------------------------------------------
         # Only return nodes from relevant files (might be faster for large files)
-        files = files or (f for f in self.ixf_files if any(t in f for t in types))
+        files = files or (ixf for ixf in self.ixf_files if any(t in ixf for t in types))
         #files = self.ixf_files
         return chain.from_iterable(file.node(*types, **args) for file in files)
 
@@ -2569,9 +2569,15 @@ class IX_input:                                                            # IX_
         start = start or self.start()
         def date(string):
             return (datetime.strptime(string, '%d-%b-%Y') - start).total_seconds()/86400
-        files = self.files_matching('Simulation')
-        cum_steps = (node.name for node in self.nodes('DATE','TIME', files=files, convert=(date, float)))
-        return [b-a for a,b in pairwise(chain([0], cum_steps))]
+        #files = self.files_matching('Simulation')
+        #cum_steps = (node.name for node in self.nodes('DATE','TIME', files=files, convert=(date, float)))
+        cum_steps = (node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
+        steps = [b-a for a,b in pairwise(chain([0], cum_steps))]
+        # Check for negative steps (could happen if the same DATE/TIME is given in more than one file)
+        if neg := next((i for i,val in enumerate(steps) if val <= 0), None):
+            # Ignore steps after the negative step
+            steps = steps[:neg]
+        return steps
 
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                   # IX_input

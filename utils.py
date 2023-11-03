@@ -236,20 +236,32 @@ def last_line(path):
 
 
 #------------------------------------------------
-def tail_file(path, size=10*1024):
+def tail_file(path, size=10*1024, size_limit=False):
 #------------------------------------------------
+    """ 
+    A generator that yields chunks the file starting from the end.
+    
+    Arguments:
+        size : default, 10 kilobytes
+            byte-size of the file-chunks
+            
+        size_limit : default, False
+            return None if the size of the file is less than size   
+    """
     path = Path(path)
     if not path.is_file():
         return
-    maxsize = path.stat().st_size
-    size = pos = min(size, maxsize)
+    filesize = path.stat().st_size
+    if size_limit and filesize < size:
+        return
+    size = pos = min(size, filesize)
     with open(path, 'rb') as file:
-        while pos <= maxsize:
+        while pos <= filesize:
             file.seek(-pos, 2)
             yield decode(file.read(size))
-            if pos == maxsize:
+            if pos == filesize:
                 return
-            pos = min(pos + size, maxsize)
+            pos = min(pos + size, filesize)
 
 
 #------------------------------------------------
