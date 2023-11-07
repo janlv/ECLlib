@@ -505,8 +505,7 @@ class unfmt_file(File):
             return () #False
         if use_mmap:
             return self.blocks_from_mmap(startpos)
-        else:
-            return self.blocks_from_file(startpos)
+        return self.blocks_from_file(startpos)
 
 
     #--------------------------------------------------------------------------------
@@ -2372,7 +2371,8 @@ class IXF_file(File):                                                      # IXF
     #--------------------------------------------------------------------------------
         super().__init__(file, role='Intersect input-file', **kwargs)
         self.data = None
-        self._node = namedtuple('Node','type name lines', defaults=(None, None, ()))
+        self._node = namedtuple('Node','type name content', defaults=(None, None, ''))
+        #self._node = namedtuple('Node','type name lines', defaults=(None, None, ()))
         #self._checked = False
         if check:
             self.exists(raise_error=True)
@@ -2386,21 +2386,27 @@ class IXF_file(File):                                                      # IXF
 
 
     #--------------------------------------------------------------------------------
-    def node(self, *nodes, convert=()):                                    # IXF_file
+    def node(self, *nodes, convert=(), begin=rb'{', end=rb'}'):                                    # IXF_file
     #--------------------------------------------------------------------------------
         self.data = self.data or self.binarydata()
-        # The pattern is explained at https://regex101.com/r/Oy2HHn/3
         keys = '|'.join(nodes).encode()
-        #pattern = rb'^[ \t]*(\w+) *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
-        pattern = rb'^[ \t]*(' + keys + rb') *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
+        # The pattern is explained at https://regex101.com/r/Oy2HHn/3
+        #pattern = rb'^[ \t]*(' + keys + rb') *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
+        # The pattern is explained at https://regex101.com/r/4FVBxU/3
+        #pattern = rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *({(?:[^{}]*|{[^{}]*})+})?'
+        not_brackets = rb'[^' + begin + end + rb']*'
+        nested_brackets = begin + not_brackets + end
+        pattern = ( rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *(' + begin +
+                    rb'(?:' + not_brackets + rb'|' + nested_brackets + rb')+'+ end + rb')?' )
+        #print(pattern)
+        #pattern = rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *({(?:[^{}]*|{[^{}]*})+})?'
         for match in finditer(pattern, self.data, flags=MULTILINE):
             val = [g.decode().strip() if g else g for g in match.groups()]
             if convert:
                 ind = nodes.index(val[0])
                 val[1] = convert[ind](val[1])
-            yield self._node(val[0], val[1], split_in_lines(val[2]))
-
-
+            yield self._node(val[0], val[1], val[2][1:-1] if val[2] else '')
+            #yield self._node(val[0], val[1], split_in_lines(val[2]))
     
 
 #====================================================================================
@@ -2519,7 +2525,7 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
     def files_matching(self, *keys):                                        # IX_input
     #--------------------------------------------------------------------------------
-        """ Return only ixf-files that match the given key """
+        """ Return only ixf-files that match the given keys """
         return (ixf for ixf in self.ixf_files if any(key in ixf for key in keys))
 
     #--------------------------------------------------------------------------------
@@ -2534,31 +2540,67 @@ class IX_input:                                                            # IX_
         return self
 
     #--------------------------------------------------------------------------------
-    def nodes(self, *types, files=None, **args):
+    def nodes(self, *types, files=None, **args):                           # IX_input
     #--------------------------------------------------------------------------------
+        """
+        Return nodes with context syntax: 
+            
+            node_type "node_name" {
+                node_content
+            }
+        """
         # Only return nodes from relevant files (might be faster for large files)
-        files = files or (ixf for ixf in self.ixf_files if any(t in ixf for t in types))
+        files = files or self.files_matching(*types)
+        #files = files or (ixf for ixf in self.ixf_files if any(t in ixf for t in types))
         #files = self.ixf_files
         return chain.from_iterable(file.node(*types, **args) for file in files)
 
     #--------------------------------------------------------------------------------
-    def start(self):                                                       # IX_input
+    def tables(self, *types, files=None, **args):                          # IX_input
     #--------------------------------------------------------------------------------
-        # Get all 'Simulation' nodes
-        lines = flatten(node.lines for node in self.nodes('Simulation'))
-        # Extract lines with 'Start'
-        var, val = zip(*(line.split('=') for line in lines if 'Start' in line))
-        # Convert name and value
-        varnames = (v.split('Start')[-1].lower() for v in var)
-        values = (int(v) if v.isnumeric() else v for v in val)
-        # Arguments for datetime
-        args = dict(zip(varnames, values))
-        # Convert month name to month number
-        args['month'] = datetime.strptime(args['month'],'%B').month
-        return datetime(**args)
+        """
+        Return nodes with table syntax: 
+            
+            node_type "node_name" [
+                node_content
+            ]
+            
+        where node_content is 
+
+            col1_name        col2_name        ... coln_name
+            col1_row1_value  col2_row1_value  ... coln_row1_value
+            ...              ...              ... ...
+            col1_rowm_value  col2_rowm_value  ... coln_rowm_value
+            
+            
+        """
+        table = namedtuple('Table','type name data', defaults=(None, None, ()))
+        # Only return nodes from relevant files (might be faster for large files)
+        files = files or self.files_matching(*types)
+        nodes = chain.from_iterable(file.node(*types, begin=rb'\[', end=rb'\]', **args) for file in files)
+        for node in nodes:
+            data = tuple(l.split() for line in node.content.split('\n') if (l:=line.strip()))
+            if data:
+                yield table(node.type, node.name, data)
+
 
     #--------------------------------------------------------------------------------
-    def timesteps(self, start=None, **args):                               # IX_input
+    def start(self):                                                       # IX_input
+    #--------------------------------------------------------------------------------
+        pattern = r'Start(\w+) *= *(\w+)'
+        key_val = findall(pattern, next(self.nodes('Simulation')).content)
+        # Use lowerkey names
+        values = {k.lower():v for k,v in key_val}
+        # Convert year, day, hour, minute, second
+        int_values = {k:int(v) for k,v in values.items() if v.isnumeric()}
+        values.update(int_values)
+        # Convert month name to month number
+        values['month'] = datetime.strptime(values['month'],'%B').month
+        return datetime(**values)
+
+
+    #--------------------------------------------------------------------------------
+    def timesteps(self, start=None, **kwargs):                     # IX_input
     #--------------------------------------------------------------------------------
         """ 
         Return list of timesteps for each report step
@@ -2568,10 +2610,13 @@ class IX_input:                                                            # IX_
         """
         start = start or self.start()
         def date(string):
-            return (datetime.strptime(string, '%d-%b-%Y') - start).total_seconds()/86400
+            pattern = '%d-%b-%Y'
+            if ':' in string:
+                pattern += ' %H:%M:%S.%f'
+            return (datetime.strptime(string, pattern) - start).total_seconds()/86400
         #files = self.files_matching('Simulation')
         #cum_steps = (node.name for node in self.nodes('DATE','TIME', files=files, convert=(date, float)))
-        cum_steps = (node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
+        cum_steps = list(node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
         steps = [b-a for a,b in pairwise(chain([0], cum_steps))]
         # Check for negative steps (could happen if the same DATE/TIME is given in more than one file)
         if neg := next((i for i,val in enumerate(steps) if val <= 0), None):
@@ -2587,11 +2632,25 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
     def summary_keys(self, matching=()):                                   # IX_input
     #--------------------------------------------------------------------------------
-        lines = flatten(node.lines for node in self.nodes('WellProperties','FieldProperties'))
-        text = ''.join(l for line in lines if (l:=line.split('#')[0]))
-        keys = (m.group(1) for m in finditer(r'report_label *= *"*(\w+)', text))
-        return [key for key in keys if key in matching]
-
+        """
+        Summary keys can be in table format (using []) or in node format (using {}).
+        Hence, we need to extract keys from both formats.
+        """
+        keys = ('WellProperties', 'FieldProperties')
+        # Extract keys in table format
+        # Skip first header row
+        table_data = (table.data[1:] for table in self.tables(*keys))
+        # Get last (second) column
+        table_keys = (d[-1].replace('"','') for d in chain.from_iterable(table_data) if d)
+        # Extract keys in node format
+        node_data = ''.join(node.content for node in self.nodes(*keys))
+        # Ignore commented lines [^#]+? (?=lazy expansion) 
+        pattern = r'^[^#]+?report_label *= *"*(\w+)'
+        node_keys = (m.group(1) for m in finditer(pattern, node_data, flags=MULTILINE))
+        keys = set(chain(table_keys, node_keys))
+        if matching:
+            return [key for key in keys if key in matching]
+        return list(keys)
 
     #--------------------------------------------------------------------------------
     def mode(self):                                                        # IX_input
