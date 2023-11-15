@@ -19,11 +19,11 @@ from locale import getpreferredencoding
 #import warnings
 #warnings.filterwarnings("error")
 #from warnings import catch_warnings, filterwarnings
-from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend 
+from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
-from .utils import (decode, last_line, match_in_wildlist, tail_file, head_file, index_limits, 
-                    flatten, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars, 
+from .utils import (cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
+                    flat_list, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars,
                     safezip, list2str, float_or_str, matches, split_by_words, string_chunks, split_in_lines)
 from .runner import Process
 
@@ -350,7 +350,8 @@ class unfmt_block:
         self._data = data
         self._file = file
         self._file_obj = file_obj
-        DEBUG and print(f'Creating {self}')
+        if DEBUG:
+            print(f'Creating {self}')
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                  # unfmt_block
@@ -405,7 +406,7 @@ class unfmt_block:
         if any(i>length or i<0 for i in flatten_all(index)):
             raise IndexError(f'index out of range for {self.key()}-block of length {length}')
         # Fix CHAR data for strings > 8 char (nchar > 1)
-        if nchar > 1 and self.header.is_char(): 
+        if nchar > 1 and self.header.is_char():
             index = [[min(i*nchar, length) for i in ind] for ind in index]
         # List of data chunk [start,end] positions, stepping over the 4 byte size int before and after 
         data_chunks = self.header.data_positions(index)
@@ -596,7 +597,7 @@ class unfmt_file(File):
     #                         data=data, file=self.path)
 
     #--------------------------------------------------------------------------------
-    def tail_blocks(self, **kwargs):                                               # unfmt_file
+    def tail_blocks(self, **kwargs):                                     # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file() or self.size() < 24: # Header is 24 bytes
             return ()
@@ -660,12 +661,12 @@ class unfmt_file(File):
             # Reverse start/end keywords
             end_key = self.start
         # keyword : ([pos1], size1, name1, [pos2], size2, name2)
-        tmp = {k:flatten((v[:-1], len(v[:-1]), v[-1]) for v in pn) for k,pn in key_pos_name}
-        values = flatten(tmp.values())
+        tmp = {k:flat_list((v[:-1], len(v[:-1]), v[-1]) for v in pn) for k,pn in key_pos_name}
+        values = flat_list(tmp.values())
         var_limits = list(pairwise(accumulate((0,)+values[1::3])))
         read_order = values[2::3]
         # Get positions for each keyword: INTEHEAD:[66, 207]
-        keypos_to_read = {k:index_limits(flatten(v[0::3])) for k,v in tmp.items()}
+        keypos_to_read = {k:index_limits(flat_list(v[0::3])) for k,v in tmp.items()}
         #print(keypos_to_read)
         # Map input to read-order limits: [(1,2), (0,1)] if ('min','year') is input
         out_limits = [var_limits[read_order.index(v)] for v in varnames]
@@ -1049,7 +1050,7 @@ class DATA_file(File):
             values = getter.convert(values, keyword, raise_error=raise_error)
             if pos:
                 values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
-            result += (flatten(values),)
+            result += (flat_list(values),)
         if len(result) == 1:
             return result[0]
         return result
@@ -1182,7 +1183,7 @@ class DATA_file(File):
             # Process x*y statements
             return list(repeat(float(y),int(x)))
         values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
-        values = tuple(flatten(v) for v in values)
+        values = tuple(flat_list(v) for v in values)
         return values or self._getter[key].default
 
     #--------------------------------------------------------------------------------
@@ -1445,7 +1446,6 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
     def energy(self, *wells):                                           # UNSMRY_file
     #--------------------------------------------------------------------------------
-        from scipy.integrate import cumtrapz
         data = self.welldata(keys=('WBHP','WTHP','WWIR'), wells=wells, as_array=True, named=True)
         wells = wells or self.wells
         # Power = (WBHP - WTHP) * WWIR
@@ -1615,9 +1615,9 @@ class PRT_file(text_file):                                                # PRT_
         # ecl['days'] = ecl['time']
         # ix['days'] = ix['time']
         # #self._pattern = {'ecl':ecl, 'ix':ix}
-        self._pattern['time'] = ' (?:Rep    ;|Init   ;|TIME=)\s*([0-9.]+)\s+'
+        self._pattern['time'] = r' (?:Rep    ;|Init   ;|TIME=)\s*([0-9.]+)\s+'
         self._pattern['days'] = self._pattern['time']
-        self._convert = {key:float for key in self._pattern.keys()}
+        self._convert = {key:float for key in self._pattern}
 
     # #--------------------------------------------------------------------------------
     # def is_ready(self):                                                    # PRT_file
@@ -1872,7 +1872,7 @@ class fmt_file(File):                                                      # fmt
     #--------------------------------------------------------------------------------
         keyword = ''
         if not self.is_file():
-             return
+            return
         with open(self.path, encoding=getpreferredencoding()) as self.fh:
             for line in self.fh:
                 try:
@@ -2198,7 +2198,7 @@ class RSM_block:                                                          # RSM_
     def get_data(self):                                                   # RSM_block
     #--------------------------------------------------------------------------------
         for col,(v,u,w) in enumerate(zip(self.var, self.unit, self.well)):
-                yield (v, u, w, [self.data[row][col] for row in range(self.nrow)])
+            yield (v, u, w, [self.data[row][col] for row in range(self.nrow)])
         
         
 #====================================================================================
@@ -2288,14 +2288,14 @@ class RSM_file(File):                                                      # RSM
     #--------------------------------------------------------------------------------
     def block_length(self):                                                # RSM_file
     #--------------------------------------------------------------------------------
-        with open(self.path) as fh: 
-            nb, n = 0, 0 
-            for line in fh: 
-                n += 1 
-                if line[0]==self.tag: 
-                    nb += 1 
-                    if nb==2: 
-                        return int(n) 
+        with open(self.path) as fh:
+            nb, n = 0, 0
+            for line in fh:
+                n += 1
+                if line[0]==self.tag:
+                    nb += 1
+                    if nb==2:
+                        return int(n)
 
 
 
@@ -2350,6 +2350,22 @@ class AFI_file(File):                                                      # AFI
                 for inc_inc in self._included_file_data(inc_data):
                     yield inc_inc
 
+#====================================================================================
+@dataclass
+class IXF_node:                                                            # IXF_node
+#====================================================================================
+    type    : str = ''
+    name    : str = ''
+    content : str = ''
+    pos     : any = None
+    file    : str = ''
+    brace   : any = None
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                                     # IXF_node
+    #--------------------------------------------------------------------------------
+        return f'{self.type} \"{self.name}\" {self.brace[0]}{self.content}{self.brace[1]}\n'
+
 
 #====================================================================================
 class IXF_file(File):                                                      # IXF_file
@@ -2358,22 +2374,17 @@ class IXF_file(File):                                                      # IXF
     """
     Intersect Input Format (IXF):
 
-    type "name" {
-        lines[0]
-        lines[1]
-        ...
-        lines[-1]
-    }
+    type "name" { (or [)
+        content
+    } (or ])
 
     """
+
     #--------------------------------------------------------------------------------
-    def __init__(self, file, check=False, **kwargs):  # IXF_file
+    def __init__(self, file, check=False, **kwargs):                       # IXF_file
     #--------------------------------------------------------------------------------
         super().__init__(file, role='Intersect input-file', **kwargs)
         self.data = None
-        self._node = namedtuple('Node','type name content', defaults=(None, None, ''))
-        #self._node = namedtuple('Node','type name lines', defaults=(None, None, ()))
-        #self._checked = False
         if check:
             self.exists(raise_error=True)
             
@@ -2386,28 +2397,23 @@ class IXF_file(File):                                                      # IXF
 
 
     #--------------------------------------------------------------------------------
-    def node(self, *nodes, convert=(), begin=rb'{', end=rb'}'):                                    # IXF_file
+    def node(self, *nodes, convert=(), begin=rb'{', end=rb'}'):            # IXF_file
     #--------------------------------------------------------------------------------
         self.data = self.data or self.binarydata()
         keys = '|'.join(nodes).encode()
-        # The pattern is explained at https://regex101.com/r/Oy2HHn/3
-        #pattern = rb'^[ \t]*(' + keys + rb') *(?:\"?([\w.-]+)\"? *)?(?:{([\s\S]*?)\s*})?'
         # The pattern is explained at https://regex101.com/r/4FVBxU/3
         #pattern = rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *({(?:[^{}]*|{[^{}]*})+})?'
         not_brackets = rb'[^' + begin + end + rb']*'
         nested_brackets = begin + not_brackets + end
         pattern = ( rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *(' + begin +
                     rb'(?:' + not_brackets + rb'|' + nested_brackets + rb')+'+ end + rb')?' )
-        #print(pattern)
-        #pattern = rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *({(?:[^{}]*|{[^{}]*})+})?'
         for match in finditer(pattern, self.data, flags=MULTILINE):
             val = [g.decode().strip() if g else g for g in match.groups()]
             if convert:
                 ind = nodes.index(val[0])
                 val[1] = convert[ind](val[1])
-            yield self._node(val[0], val[1], val[2][1:-1] if val[2] else '')
-            #yield self._node(val[0], val[1], split_in_lines(val[2]))
-    
+            yield IXF_node(val[0], val[1], val[2][1:-1] if val[2] else '', match.span(), self.path)
+
 
 #====================================================================================
 class IX_input:                                                            # IX_input
@@ -2415,12 +2421,8 @@ class IX_input:                                                            # IX_
     STAT_FILE = '.ecl2ix' # Check if ECL-input has changed and new conversion is needed
 
     #--------------------------------------------------------------------------------
-    def __init__(self, case, check=False, convert=False, **kwargs):         # IX_input
+    def __init__(self, case, check=False, **kwargs):         # IX_input
     #--------------------------------------------------------------------------------
-        #print('IX_input', 'case',case,'check',check,'convert',convert,'kwargs',**kwargs)
-        # If the afi-file is missing, try to convert from an Eclipse DATA-file 
-        # if convert and self.need_convert(case):
-        #     self.from_eclipse(case)
         self.afi = AFI_file(case)
         self.path = self.afi.path
         self.ixf_files = [IXF_file(file) for file in self.afi.ixf_files()]
@@ -2449,7 +2451,6 @@ class IX_input:                                                            # IX_
     def need_convert(self, path):                                          # IX_input
     #--------------------------------------------------------------------------------
         path = Path(path)
-        #afi_file = File(path).with_suffix('.afi', ignore_case=True)
         afi_file = AFI_file(path)
         data_file = DATA_file(path)
         if afi_file.is_file() and not data_file.is_file():
@@ -2514,12 +2515,10 @@ class IX_input:                                                            # IX_
         self._checked = True
         # Check if top level afi-file exist
         self.afi.exists(raise_error=True)
-        # # Check if top level afi-file ex        
-        # for file in self.ixf_files:
-        #     file.exists(raise_error=True)
         # Check if included files exists
         if include and (missing := [f for f in self.include_files() if not f.is_file()]):
-            raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
+            raise SystemError(f'ERROR {list2text([f.name for f in missing])} '
+                              'included from {self} is missing in folder {missing[0].parent}')
         return True
 
     #--------------------------------------------------------------------------------
@@ -2540,48 +2539,41 @@ class IX_input:                                                            # IX_
         return self
 
     #--------------------------------------------------------------------------------
-    def nodes(self, *types, files=None, **args):                           # IX_input
+    def nodes(self, *types, files=None, **kwargs):                         # IX_input
     #--------------------------------------------------------------------------------
         """
-        Return nodes with context syntax: 
+        Return generator of nodes with node syntax: 
             
             node_type "node_name" {
                 node_content
             }
+        
+        Will also return nodes without content
         """
         # Only return nodes from relevant files (might be faster for large files)
         files = files or self.files_matching(*types)
-        #files = files or (ixf for ixf in self.ixf_files if any(t in ixf for t in types))
-        #files = self.ixf_files
-        return chain.from_iterable(file.node(*types, **args) for file in files)
+        return chain.from_iterable(file.node(*types, **kwargs) for file in files)
 
     #--------------------------------------------------------------------------------
-    def tables(self, *types, files=None, **args):                          # IX_input
+    def contexts(self, *types, **kwargs):                                  # IX_input
     #--------------------------------------------------------------------------------
         """
-        Return nodes with table syntax: 
+        Return only nodes with content, i.e. with context
+        """
+        return (node for node in self.nodes(*types, **kwargs) if node.content)
+
+    #--------------------------------------------------------------------------------
+    def tables(self, *types, **kwargs):                                    # IX_input
+    #--------------------------------------------------------------------------------
+        """
+        Return generator of nodes with table syntax: 
             
             node_type "node_name" [
                 node_content
-            ]
-            
-        where node_content is 
-
-            col1_name        col2_name        ... coln_name
-            col1_row1_value  col2_row1_value  ... coln_row1_value
-            ...              ...              ... ...
-            col1_rowm_value  col2_rowm_value  ... coln_rowm_value
-            
-            
+            ]            
         """
-        table = namedtuple('Table','type name data', defaults=(None, None, ()))
-        # Only return nodes from relevant files (might be faster for large files)
-        files = files or self.files_matching(*types)
-        nodes = chain.from_iterable(file.node(*types, begin=rb'\[', end=rb'\]', **args) for file in files)
-        for node in nodes:
-            data = tuple(l.split() for line in node.content.split('\n') if (l:=line.strip()))
-            if data:
-                yield table(node.type, node.name, data)
+        kwargs.update({'begin':b'\\[', 'end':b'\\]'})
+        return (node for node in self.nodes(*types, **kwargs) if node.content)
 
 
     #--------------------------------------------------------------------------------
@@ -2600,7 +2592,7 @@ class IX_input:                                                            # IX_
 
 
     #--------------------------------------------------------------------------------
-    def timesteps(self, start=None, **kwargs):                     # IX_input
+    def timesteps(self, start=None, **kwargs):                             # IX_input
     #--------------------------------------------------------------------------------
         """ 
         Return list of timesteps for each report step
@@ -2614,8 +2606,6 @@ class IX_input:                                                            # IX_
             if ':' in string:
                 pattern += ' %H:%M:%S.%f'
             return (datetime.strptime(string, pattern) - start).total_seconds()/86400
-        #files = self.files_matching('Simulation')
-        #cum_steps = (node.name for node in self.nodes('DATE','TIME', files=files, convert=(date, float)))
         cum_steps = list(node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
         steps = [b-a for a,b in pairwise(chain([0], cum_steps))]
         # Check for negative steps (could happen if the same DATE/TIME is given in more than one file)
@@ -2638,19 +2628,98 @@ class IX_input:                                                            # IX_
         """
         keys = ('WellProperties', 'FieldProperties')
         # Extract keys in table format
-        # Skip first header row
-        table_data = (table.data[1:] for table in self.tables(*keys))
+        # Skip first line/row (header)
+        table_lines = flatten(list(split_in_lines(table.content))[1:] for table in self.tables(*keys))
         # Get last (second) column
-        table_keys = (d[-1].replace('"','') for d in chain.from_iterable(table_data) if d)
+        table_keys = (key.strip().replace('"','') for line in table_lines if (key:=line.split()[-1]))
         # Extract keys in node format
         node_data = ''.join(node.content for node in self.nodes(*keys))
         # Ignore commented lines [^#]+? (?=lazy expansion) 
         pattern = r'^[^#]+?report_label *= *"*(\w+)'
         node_keys = (m.group(1) for m in finditer(pattern, node_data, flags=MULTILINE))
+        # Set of unique keys
         keys = set(chain(table_keys, node_keys))
         if matching:
             return [key for key in keys if key in matching]
         return list(keys)
+
+    #--------------------------------------------------------------------------------
+    def add_iorsim_input(self):                                            # IX_input
+    #--------------------------------------------------------------------------------
+        file = IX_input('IORlib/iorsim_ix_fix')
+        keys = ('Recurrent3DReport', 'RFTPLTReport')
+        contexts = (self.merge_node(file, context=key) for key in keys)
+        tables = (self.merge_node(file, table=key) for key in keys)
+        nodes = list(flatten(zip(contexts, tables)))
+        self.write_nodes(nodes)
+
+    #--------------------------------------------------------------------------------
+    def merge_node(self, file, context=None, table=None):                  # IX_input
+    #--------------------------------------------------------------------------------
+        if not context and not table:
+            raise SystemError("ERROR 'context' or 'table' must be set")
+        #new = IX_input(file)
+        node = {}
+        vals = {}
+        get_func = 'contexts' if context else 'tables'
+        brace = ('{', '}') if context else ('[', ']')
+        for name, get in zip(('new', 'self'), (getattr(o, get_func) for o in (file, self))):
+            node[name] = next(get(context or table), None)
+            if node[name]:
+                lines = split_in_lines(node[name].content)
+                if context:
+                    vals[name] = dict(line.split('=') if '=' in line else (line,'') for line in lines)
+                else:
+                    # Table node
+                    vals[name] = {row[0]:row[1:] for line in lines if (row:=line.split())}
+        if node['self']:
+            # Update the existing node with new values
+            vals['self'].update(vals['new'])
+            # Make sure the first line in the new node is
+            # also the first line in the merged node
+            top_key = next(iter(vals['new'].keys()))
+            top_val = vals['self'].pop(top_key, None)
+            if context:
+                # For context nodes the value is a string
+                rows = [(top_key, top_val)] + list(vals['self'].items())
+                content = '\n'.join(f'    {k}{"=" if v else ""}{v}' for k,v in rows)
+            else:
+                # For table nodes the value is a list of strings
+                rows = [(top_key, *top_val)] + [(k,*v) for k,v in vals['self'].items()]
+                width = [max(map(len, col)) for col in zip(*rows)]
+                lines = (''.join(f'    {v:>{w}s}' for v,w in zip(row, width)) for row in rows)
+                content = '\n'.join(lines)
+            node = node['self']
+            return IXF_node(node.type, node.name, '\n'+content+'\n', node.pos, node.file, brace)
+        # No existing node, return only new node
+        node = node['new']
+        return IXF_node(node.type, node.name, node.content, pos=None, file=None, brace=brace)
+
+
+    #--------------------------------------------------------------------------------
+    def write_nodes(self, nodes=()):     # IX_input
+    #--------------------------------------------------------------------------------
+        shift = 0
+        # Use same file for all nodes
+        filename = next((n.file for n in nodes if n.file), None)
+        if not filename:
+            raise SystemError('ERROR Missing filename')
+        file = File(filename)
+        data = file.binarydata().decode()
+        merge_nodes = sorted((n for n in nodes if n.pos), key=lambda x:x.pos[0])
+        for node in merge_nodes:
+            #new_node = f'{node.type} \"{node.name}\" {node.brace[0]}\n{node.content}\n{node.brace[1]}\n'
+            new_data = data[:node.pos[0]+1+shift] + str(node) + data[node.pos[1]+shift:]
+            shift += len(new_data) - len(data)
+            data = new_data
+        # Add the new nodes, i.e. nodes without pos
+        data += '\n\n' + '\n'.join(str(n) for n in nodes if not n.pos)
+        # Write to file, but backup original file first
+        backup = Path(file.with_name(file.stem+'_NO_IORSIM'+file.suffix))
+        if not backup.exists():
+            file.rename(backup)
+        file.write_text(data)
+        
 
     #--------------------------------------------------------------------------------
     def mode(self):                                                        # IX_input
@@ -2661,4 +2730,3 @@ class IX_input:                                                            # IX_
     def restart(self):                                                     # IX_input
     #--------------------------------------------------------------------------------
         return Restart()
-

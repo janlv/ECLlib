@@ -16,7 +16,7 @@ from shutil import copy2
 import stat
 from fnmatch import fnmatch
 from os import SEEK_END, SEEK_CUR
-from numpy import array, sum as npsum
+from numpy import array, trapz, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
 from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_close
@@ -64,6 +64,19 @@ def has_write_access(path, error=False):
     return True
 
 
+#-----------------------------------------------------------------------
+def cumtrapz(y, x, *args, **kwargs):
+#-----------------------------------------------------------------------
+    """
+    Alternative to scipy cumptrapz using numpy trapz
+    
+    Example:
+        x = np.linspace(0, 2*np.pi)
+        pl.figure()
+        pl.plot(x, cumtrapz(np.sin(x), x), 'ro')
+        pl.plot(x, -np.cos(x) + 1, 'b-')
+    """
+    return array([trapz(y[:i], x[:i], *args, **kwargs) for i in range(1, len(x)+1)])
 
 #-----------------------------------------------------------------------
 def match_in_wildlist(string, wildlist):
@@ -84,9 +97,10 @@ def make_user_executable(path):
 #-----------------------------------------------------------------------
 def split_in_lines(text):
 #-----------------------------------------------------------------------
-    if text:
-        return [word for t in text.split('\n') if (word:=t.strip())]
-    return []
+    return (line for t in text.split('\n') if (line:=t.strip()))
+    # if text:
+    #     return [line for t in text.split('\n') if (line:=t.strip())]
+    # return []
 
 #-----------------------------------------------------------------------
 def running_jupyter():
@@ -123,7 +137,7 @@ def index_limits(index):
     Return () if first < 0
     """
     # index_lim((1,2,3,4,8,9,10)) --> (1,5),(8,11)
-    jumps = (index[0],) + flatten((a,b) for a,b in pairwise(index) if b-a>1) + (index[-1],)
+    jumps = (index[0],) + flat_list((a,b) for a,b in pairwise(index) if b-a>1) + (index[-1],)
     #limits = [(a,b+1) if a>=0 else () for a,b in grouper(jumps, 2)]
     limits = [() if a<0 else (a,b+1) for a,b in grouper(jumps, 2)]
     return limits
@@ -284,7 +298,12 @@ def prepend(value, iterator): # From Itertools Recipes at docs.python.org
     return chain([value], iterator)
 
 #-----------------------------------------------------------------------
-def flatten(list_or_tuple): # From Itertools Recipes at docs.python.org
+def flatten(list_of_lists): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    return chain.from_iterable(list_of_lists)
+
+#-----------------------------------------------------------------------
+def flat_list(list_or_tuple): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
     "Flatten one level of nesting"
     try:
@@ -299,11 +318,11 @@ def flatten(list_or_tuple): # From Itertools Recipes at docs.python.org
 def flatten_all(list_of_lists):  #https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists        
 #-----------------------------------------------------------------------
     "Flatten arbitrarily nested lists"
-    for list in list_of_lists:
-        if isinstance(list, Iterable) and not isinstance(list, (str, bytes)):
-            yield from flatten_all(list)
+    for list_ in list_of_lists:
+        if isinstance(list_, Iterable) and not isinstance(list_, (str, bytes)):
+            yield from flatten_all(list_)
         else:
-            yield list
+            yield list_
 
 
 #-----------------------------------------------------------------------
@@ -694,7 +713,7 @@ def date_to_datetime(dates):
 #--------------------------------------------------------------------------------
 def upper_and_lower(alist):
 #--------------------------------------------------------------------------------
-    return flatten([[item.upper(),item.lower()] for item in alist])
+    return flat_list([[item.upper(),item.lower()] for item in alist])
 
 #--------------------------------------------------------------------------------
 def is_file_ignore_suffix_case(file):
