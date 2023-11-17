@@ -402,10 +402,10 @@ def unique_names(names, sep='-'):
 #-----------------------------------------------------------------------
 def split_by_words(string, words): #, wb=r'\b'):
 #-----------------------------------------------------------------------
-    '''
+    """
     Split a string (possibly bytes-like), with comments, into sections based on a list of unique words.
     Returns a dict with words as keys and a tuple of begin and end positins
-    '''
+    """
     #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*(\b' + r'\b|\b'.join(words) + r'\b)' #(--)*[\s=]*(--)*'
     regex =  r'^\s*(\b' + r'\b|\b'.join(words) + r'\b)'
     #print(regex)
@@ -470,11 +470,11 @@ def string_in_file(string, file):
 #-----------------------------------------------------------------------
 def safezip(*gen):
 #-----------------------------------------------------------------------
-    '''
+    """
     Zip generators and close them if the zip exits. Zip exits when the first generator 
     is exhausted. The __exit__() function for the non-exhausted generators will not be 
     called. This routine closes the generators explicitly.
-    '''
+    """
     try:
         yield zip(*gen)
     finally:
