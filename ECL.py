@@ -15,6 +15,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 from locale import getpreferredencoding
+from shutil import copy
 #from traceback import print_stack
 #import warnings
 #warnings.filterwarnings("error")
@@ -257,32 +258,36 @@ class File:                                                                    #
         return last_line(self.path)
 
     #--------------------------------------------------------------------------------
-    def backup(self, tag, overwrite=False):                     # File
+    def backup(self, tag, overwrite=False):                                    # File
     #--------------------------------------------------------------------------------
-        assert isinstance(tag, str)
         backup_file = self.path.with_name(f'{self.stem}{tag}{self.suffix}')
         if overwrite or not backup_file.exists():
-            self.path.rename(backup_file)
-            
-            
+            copy(self.path, backup_file)
+            return backup_file
+
+
     #--------------------------------------------------------------------------------
-    def replace_text(self, text=(), pos=(), backup=False):                     # File
+    def replace_text(self, text=(), pos=()):                                   # File
     #--------------------------------------------------------------------------------
+        """
+        Replace or append text. Replace text if pos is a (start, stop) tuple, append text
+        at the end if pos is None.
+        """
         data = self.binarydata().decode()
         size = len(data)
-        shift = 0
         # Sort on ascending position, and put texts without positions at the end
         text_pos = sorted(zip(text, pos), key=lambda x:x[1][0] if x[1] else 9e9)
         for txt,p in text_pos:
             if p:
+                # Need to shift pos because pos is given for the input text
+                shift = len(data) - size
                 new_data = data[:p[0]+1+shift] + txt + data[p[1]+shift:]
-                shift += len(new_data) - size
             else:
+                # Append new text with no pos at the end
                 new_data = data + '\n' + txt
             data = new_data
-        if backup:
-            self.backup(backup)
         self.write_text(data)
+        
 
 
 #====================================================================================
@@ -2384,8 +2389,8 @@ class IXF_node:                                                            # IXF
         type: str, default: ''
             Type of node
             
-        name: str, default: ''
-            Name of node (not including quotes)
+        name: any, default: None
+            Name of node (not including quotes). Can also hold numbers, datetime, etc. 
             
         content: str, default: ''
             Content of node including the braces which is used to define the
@@ -2399,7 +2404,7 @@ class IXF_node:                                                            # IXF
             Name of file holding node                
     """
     type : str = ''
-    name : str = ''
+    name : any = None
     content : str = ''
     pos : any = None
     file : str = ''
@@ -2524,10 +2529,6 @@ class IXF_file(File):                                                      # IXF
             if convert:
                 ind = nodes.index(val[0])
                 val[1] = convert[ind](val[1])
-            #content = brace = None
-            #if val[2]:
-            #    content = val[2][1:-1]
-            #    brace = (val[2][0], val[2][-1])
             yield IXF_node(type=val[0], name=val[1], content=val[2], pos=match.span(), file=self.path)
 
 
@@ -2689,23 +2690,6 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
         return next(self.nodes(node.type, table=node.is_table, context=node.is_context), None)
 
-    # #--------------------------------------------------------------------------------
-    # def context_nodes(self, *types, **kwargs):                             # IX_input
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Generator of nodes with context content inside { }
-    #     """
-    #     return (node for node in self.nodes(*types, **kwargs) if node.is_context)
-
-    # #--------------------------------------------------------------------------------
-    # def table_nodes(self, *types, **kwargs):                                    # IX_input
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Generator of nodes with table content inside [ ]
-    #     """
-    #     kwargs.update({'begin':b'\\[', 'end':b'\\]'})
-    #     return (node for node in self.nodes(*types, **kwargs) if node.is_table)
-
 
     #--------------------------------------------------------------------------------
     def start(self):                                                       # IX_input
@@ -2775,8 +2759,11 @@ class IX_input:                                                            # IX_
 
 
     #--------------------------------------------------------------------------------
-    def add_iorsim_input(self):                                            # IX_input
+    def make_iorsim_compatible(self, backup='_NO_IORSIM_'):                # IX_input
     #--------------------------------------------------------------------------------
+        """
+        Update nodes in IXF-files with values found in 'iorsim_ix_fix.ixf'
+        """
         ior = IX_input('IORlib/iorsim_ix_fix')
         ior_nodes = list(ior.nodes('all', context=True, table=True))
         nodes = [self.get_node(node) for node in ior_nodes]
@@ -2784,21 +2771,19 @@ class IX_input:                                                            # IX_
             if nodes[i]:
                 nodes[i].update(ior, on_top=True)
             else:
-                nodes[i] = ior.copy() 
-        self.write_nodes(nodes)
+                nodes[i] = ior.copy()
+        # Get the name of the file holding the relevant nodes
+        filename = list(set(n.file for n in nodes if n.file))
+        if len(filename) > 1:
+            print(f'WARNING! More than one filename in ECL.IX_input.make_iorsim_compatible(): {filename}')
+        file = File(filename[0])
+        if backup:
+            backup = file.backup(tag=backup)
+        # Split text and pos in separate tuples, and add '\n' if pos is None
+        text, pos = zip(*[(str(n), n.pos) if n.pos else (f'\n{n}', None) for n in nodes])
+        file.replace_text(text, pos)
+        return (file, backup)
 
-
-    #--------------------------------------------------------------------------------
-    def write_nodes(self, nodes=()):                                       # IX_input
-    #--------------------------------------------------------------------------------
-        # Use same file for all nodes
-        filename = next((n.file for n in nodes if n.file), None)
-        if not filename:
-            raise SystemError('ERROR Missing filename in IX_input.write_nodes()')
-        file = File(filename)
-        text, pos = zip(*[(str(n), n.pos) for n in nodes])
-        file.replace_text(text, pos, backup='_NO_IORSIM_')
-        
 
     #--------------------------------------------------------------------------------
     def mode(self):                                                        # IX_input
