@@ -270,21 +270,19 @@ class File:                                                                    #
     def replace_text(self, text=(), pos=()):                                   # File
     #--------------------------------------------------------------------------------
         """
-        Replace or append text. Replace text if pos is a (start, stop) tuple, append text
-        at the end if pos is None.
+        Replace or append text. Replace text if pos is a (start, len+start) tuple, 
+        append '\n'+text if pos is a (start, start) tuple
         """
         data = self.binarydata().decode()
         size = len(data)
-        # Sort on ascending position, and put texts without positions at the end
-        text_pos = sorted(zip(text, pos), key=lambda x:x[1][0] if x[1] else 9e9)
-        for txt,p in text_pos:
-            if p:
-                # Need to shift pos because pos is given for the input text
-                shift = len(data) - size
-                new_data = data[:p[0]+1+shift] + txt + data[p[1]+shift:]
-            else:
-                # Append new text with no pos at the end
-                new_data = data + '\n' + txt
+        # Sort on ascending position
+        for txt, (a,b) in sorted(zip(text, pos), key=lambda x:x[1][0]):
+            if b - a == 0:
+                # Append text
+                txt = '\n' + txt
+            # Shift pos because pos is relative to the input text
+            shift = len(data) - size
+            new_data = data[:a+1+shift] + txt + data[b+shift:]
             data = new_data
         self.write_text(data)
         
@@ -815,6 +813,7 @@ class unfmt_file(File):
                 raise SystemError('ERROR ' + msg)
             print('WARNING ' + msg)
 
+
 #====================================================================================
 class DATA_file(File):
 #====================================================================================
@@ -920,17 +919,21 @@ class DATA_file(File):
         return end and self.data[:end.end()] or self.data
 
     #--------------------------------------------------------------------------------
-    def check(self, include=True):                                        # DATA_file
+    def check(self, include=True, uppercase=False):                          # DATA_file
     #--------------------------------------------------------------------------------
         self._checked = True
         # Check if file exists
         self.exists(raise_error=True)
-        # If Linux, check that file name is all capital letters to avoid I/O error in Eclipse
-        if self.suffix == '.DATA' and system() == 'Linux' and not self.name.isupper():
-            raise SystemError(f"ERROR Invalid filename format' {self.name}'. Under Linux, Eclipse only accepts uppercase letters")
+        # If Linux, check that file name is all capital letters to avoid I/O error in Eclipse        
+        if uppercase and self.suffix == '.DATA' and system() == 'Linux' and not self.name.isupper():
+            err = (f'ERROR *{self.name}* must all be in uppercase letters. Under Linux, Eclipse only '
+                   'accepts DATA-files with uppercase letters')
+            raise SystemError(err)
         # Check if included files exists
         if include and (missing := [f for f in self.include_files() if not f.is_file()]):
-            raise SystemError(f'ERROR {list2text([f.name for f in missing])} included from {self} is missing in folder {missing[0].parent}')
+            err = (f'ERROR {list2text([f.name for f in missing])} included from {self} is '
+                   'missing in folder {missing[0].parent}')
+            raise SystemError(err)
         return True
 
     #--------------------------------------------------------------------------------
@@ -2581,14 +2584,15 @@ class IX_input:                                                            # IX_
         if any(file for file in afi_file.include_files() if not file.is_file()):
             return 'Intersect input is incomplete for this case (missing include files).'
         # Check if DATA-file has changed since last convert
-        stat_file = path.with_name(self.STAT_FILE)
+        stat_file = path.with_suffix(self.STAT_FILE)
         mtime, size = data_file.stat('st_mtime_ns', 'st_size')
         if stat_file.is_file():
             old_mtime, old_size = map(int, stat_file.read_text().split())
             if mtime > old_mtime and size > old_size:
                 return 'Intersect input exists for this case, but the Eclipse input has changed since the previous convert.'
         else:
-            stat_file.write_text(f'{data_file} {mtime} {size}')
+            stat_file.write_text(f'{mtime} {size}')
+            #stat_file.write_text(f'{data_file.name} {mtime} {size}')
 
 
     @classmethod
@@ -2767,6 +2771,8 @@ class IX_input:                                                            # IX_
         ior = IX_input('IORlib/iorsim_ix_fix')
         ior_nodes = list(ior.nodes('all', context=True, table=True))
         nodes = [self.get_node(node) for node in ior_nodes]
+        if any('add_property' in n.content for n in nodes if n):
+            raise SystemError('ERROR Unable to update *add_property* nodes')
         for i,ior in enumerate(ior_nodes):
             if nodes[i]:
                 nodes[i].update(ior, on_top=True)
@@ -2779,8 +2785,10 @@ class IX_input:                                                            # IX_
         file = File(filename[0])
         if backup:
             backup = file.backup(tag=backup)
-        # Split text and pos in separate tuples, and add '\n' if pos is None
-        text, pos = zip(*[(str(n), n.pos) if n.pos else (f'\n{n}', None) for n in nodes])
+        # Place new nodes just after the last updated nodes
+        max_pos = 2*[max(max(n.pos for n in nodes if n.pos))]
+        # Split text and pos in separate tuples
+        text, pos = zip(*[(str(n), n.pos or max_pos) for n in nodes])
         file.replace_text(text, pos)
         return (file, backup)
 
