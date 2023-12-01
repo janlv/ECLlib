@@ -2774,25 +2774,32 @@ class IX_input:                                                            # IX_
         """
         ior = IX_input('IORlib/iorsim_ix_fix')
         ior_nodes = list(ior.nodes('all', context=True, table=True))
-        nodes = [self.get_node(node) for node in ior_nodes]
-        if any('add_property' in n.content for n in nodes if n):
-            raise SystemError('ERROR Unable to update *add_property* nodes')
+        ix_nodes = [self.get_node(node) for node in ior_nodes]
+        # If common node types, choose node name from ix_nodes
+        common = (b for a,b in zip(ior_nodes, ix_nodes) if a and b and (a.type == b.type))
+        node_name = (dict(set( (c.type, c.name) for c in common )))
+        if any('add_property' in n.content for n in ix_nodes if n):
+            raise SystemError(
+                'ERROR Currently unable to update nodes with *add_property* statements')
         for i,ior in enumerate(ior_nodes):
-            if nodes[i]:
-                nodes[i].update(ior) #, on_top=True)
+            if ix_nodes[i]:
+                ix_nodes[i].update(ior) #, on_top=True)
             else:
-                nodes[i] = ior.copy()
+                ix_nodes[i] = ior.copy()
+                # Choose ix-node name over ior-node name
+                if name:=node_name.get(ix_nodes[i].type):
+                    ix_nodes[i].name = name
         # Get the name of the file holding the relevant nodes
-        filename = list(set(n.file for n in nodes if n.file))
+        filename = list(set(n.file for n in ix_nodes if n.file))
         if len(filename) > 1:
             print(f'WARNING! More than one filename in ECL.IX_input.make_iorsim_compatible(): {filename}')
         file = File(filename[0])
         if backup:
             backup = file.backup(tag=backup)
         # Place new nodes just after the last updated nodes
-        max_pos = 2*[max(max(n.pos for n in nodes if n.pos))]
+        max_pos = 2*[max(max(n.pos for n in ix_nodes if n.pos))]
         # Split text and pos in separate tuples
-        text, pos = zip(*[(str(n), n.pos or max_pos) for n in nodes])
+        text, pos = zip(*[(str(n), n.pos or max_pos) for n in ix_nodes])
         file.replace_text(text, pos)
         return (file, backup)
 
