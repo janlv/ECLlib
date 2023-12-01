@@ -856,20 +856,19 @@ class DATA_file(File):
             self.section_names = ()
         getter = namedtuple('getter', 'section default convert pattern')
         self._getter = {
-            'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,  r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
-            'START'   : getter('RUNSPEC',  (0,),    self._convert_date,   r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
-            'DATES'   : getter('SCHEDULE', (),      self._convert_date,   r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'), 
-            'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,   r"\bRESTART\b\s+('*[\w./\\-]+'*\s+[0-9]+)\s*/"),
-            'WELSPECS': getter('SCHEDULE', (),      self._convert_string, r'\bWELSPECS\b((\s+\'*[\w/-]+?.*/\s*)+/)')}
+            'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,
+                               r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
+            'START'   : getter('RUNSPEC',  (0,),    self._convert_date,
+                               r'\bSTART\b\s+(\d+\s+\'*\w+\'*\s+\d+)'),
+            'DATES'   : getter('SCHEDULE', (),      self._convert_date,
+                               r'\bDATES\b\s+((\d{1,2}\s+\'*\w{3}\'*\s+\d{4}\s*\s*/\s*)+)/\s*'),
+            'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,
+                               r"\bRESTART\b\s+('*[\w./\\-]+'*\s+[0-9]+)\s*/"),
+            'WELSPECS': getter('SCHEDULE', (),      self._convert_string,
+                               r'\bWELSPECS\b((\s+\'*[\w/-]+?.*/\s*)+/)')}
         if check:
             self.check()
-        # Extract whole record: r"^[ \t]*EQUALS(?:.|[\r\n])*?^[ \t]*/"
-        # Remove comments and empty lines: r"^(?:(?!--).)*[\w/']+"
-        # Alt. DATES: r'\bDATES\b\s+(\d+\s+\'*\w+\'*\s+\d+)\s*/\s*/\s*')
-        # 'INCLUDE' : getter(None,       [''],    self._convert_file,   r"\bINCLUDE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-        # 'GDFILE'  : getter(None,       [''],    self._convert_file,   r"\bGDFILE\b\s+'*([a-zA-Z0-9_./\\-]+)'*\s*/"), 
-        # 'SUMMARY' : getter('SUMMARY',  (),      self._convert_string, r'\bSUMMARY\b((\s*\w+\s*/*\s*)+)\bSCHEDULE\b'),
-        # 'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,   r"\bRESTART\b\s+('*[a-zA-Z0-9_./\\-]+'*\s+[0-9]+)\s*/"),
+
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                   # DATA_file
@@ -930,9 +929,10 @@ class DATA_file(File):
                    'accepts DATA-files with uppercase letters')
             raise SystemError(err)
         # Check if included files exists
-        if include and (missing := [f for f in self.include_files() if not f.is_file()]):
+        files = chain(self.include_files(), self.grid_files())
+        if include and (missing := [f for f in files if not f.is_file()]):
             err = (f'ERROR {list2text([f.name for f in missing])} included from {self} is '
-                   'missing in folder {missing[0].parent}')
+                   f'missing in folder {missing[0].parent}')
             raise SystemError(err)
         return True
 
@@ -957,6 +957,30 @@ class DATA_file(File):
     #--------------------------------------------------------------------------------
         """ Return full path of INCLUDE files as a generator """
         return (f[0] for f in self._included_file_data(data))
+
+    #--------------------------------------------------------------------------------
+    def _included_file_data(self, data:bytes=None):                           # DATA_file
+    #--------------------------------------------------------------------------------
+        """ Return tuple of filename and binary-data for each include file """
+        data = data or self.binarydata()
+        # This regex is explained at: https://regex101.com/r/jTYq16/2
+        regex = rb"^\s*(?:\bINCLUDE\b)(?:\s*--.*\s*|\s*)*'*([^' ]+)['\s]*/.*$"
+        files = (m.group(1).decode() for m in finditer(regex, data, flags=MULTILINE))
+        for file in chain(files, self._added_files):
+            new_filename = self.with_name(file)
+            file_data = DATA_file(new_filename).binarydata()
+            yield (new_filename, file_data)
+            if b'INCLUDE' in file_data:
+                for inc in self._included_file_data(file_data):
+                    yield inc
+
+    #--------------------------------------------------------------------------------
+    def grid_files(self, data:bytes=None):                           # DATA_file
+    #--------------------------------------------------------------------------------
+        data = data or self.binarydata()
+        regex = rb"^\s*(?:\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([^' ]+)['\s]*/.*$"
+        files = (self.with_name(m.group(1).decode()) for m in finditer(regex, data, flags=MULTILINE))
+        return (file.with_suffix(file.suffix or '.EGRID') for file in files)
 
     #--------------------------------------------------------------------------------
     def including(self, *files):                                          # DATA_file
@@ -1148,30 +1172,6 @@ class DATA_file(File):
         for file, data in self._included_file_data(self.data):
             if keys == [] or any(key in data for key in keys):
                 yield data
-
-    #--------------------------------------------------------------------------------
-    def _included_file_data(self, data:bytes=None):                           # DATA_file
-    #--------------------------------------------------------------------------------
-        """ Return tuple of filename and binary-data for each include file """
-        #print('_included_file_data', self._added_files)
-        data = data or self.binarydata()
-        #regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:.*--.*\s*|\s*)*'*(.*?)['\s]*/\s*(?:--.*)*$"
-        # Allow filenames without quotes ('"), i.e. !#%& and ASCII 28 - 126 (7e)
-        # Details at: https://regex101.com/r/jTYq16/1
-        #regex = rb"^[ \t]*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([!#%&\x28-\x7e]+)['\s]*/.*$"
-        regex = rb"^\s*(?:\bINCLUDE\b|\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([^' ]+)['\s]*/.*$"
-        #files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
-        files = (m.group(1).decode() for m in finditer(regex, data, flags=MULTILINE))
-        #print('self.file',self.file)
-        for file in chain(files, self._added_files):
-            #print('file',file)
-            new_filename = self.with_name(file)
-            #print('new_file',new_filename)
-            file_data = DATA_file(new_filename).binarydata()
-            yield (new_filename, file_data)
-            if b'INCLUDE' in file_data:
-                for inc in self._included_file_data(file_data):
-                    yield inc
 
     #--------------------------------------------------------------------------------
     def _days(self, time_pos, start=None):                           # DATA_file
@@ -2456,7 +2456,9 @@ class IXF_node:                                                            # IXF
     #--------------------------------------------------------------------------------
         delimiter = '=' if self.is_context else None # None equals any whitespace
         data = (row for line in self.lines() if (row:=line.split(delimiter)))
-        return tuple(zip_longest(*data, fillvalue=''))
+        # Use repeat('', 2) to get two columns also if data = (('key',),)
+        # instead of data = (('key','value'),)
+        return tuple(v[:-1] for v in zip_longest(*data, ('', ''), fillvalue=''))
 
     #--------------------------------------------------------------------------------
     def rows(self):                                                        # IXF_node
@@ -2469,16 +2471,16 @@ class IXF_node:                                                            # IXF
         return {k:v for k,*v in self.rows()}
 
     #--------------------------------------------------------------------------------
-    def update(self, node=None, on_top=False):                              # IXF_node
+    def update(self, node=None): #, on_top=False):                              # IXF_node
     #--------------------------------------------------------------------------------
         adict = self.as_dict()
         ndict = node.as_dict()
         adict.update(ndict)
-        if on_top:
-            # Top line of node is also the top line of adict
-            key, val = next(iter(ndict.items()))
-            adict.pop(key, None)
-            adict = {key:val, **adict}
+        # if on_top:
+        #     # Top line of node is also the top line of adict
+        #     key, val = next(iter(ndict.items()))
+        #     adict.pop(key, None)
+        #     adict = {key:val, **adict}
         rows = [(k,*v) for k,v in adict.items()]
         self.set_content(rows)
         
@@ -2723,7 +2725,9 @@ class IX_input:                                                            # IX_
         def date(string):
             pattern = '%d-%b-%Y'
             if ':' in string:
-                pattern += ' %H:%M:%S.%f'
+                pattern += ' %H:%M:%S'
+            if '.' in string:
+                pattern += '.%f'
             return (datetime.strptime(string, pattern) - start).total_seconds()/86400
         cum_steps = list(node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
         steps = [b-a for a,b in pairwise(chain([0], cum_steps))]
@@ -2775,7 +2779,7 @@ class IX_input:                                                            # IX_
             raise SystemError('ERROR Unable to update *add_property* nodes')
         for i,ior in enumerate(ior_nodes):
             if nodes[i]:
-                nodes[i].update(ior, on_top=True)
+                nodes[i].update(ior) #, on_top=True)
             else:
                 nodes[i] = ior.copy()
         # Get the name of the file holding the relevant nodes
