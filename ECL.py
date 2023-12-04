@@ -2432,6 +2432,12 @@ class IXF_node:                                                            # IXF
         return f'{self.type} \"{self.name}\" {self.brace[0]}{self.content}{self.brace[1]}'
 
     #--------------------------------------------------------------------------------
+    def __repr__(self):                                                     # IXF_node
+    #--------------------------------------------------------------------------------
+        return (f'<IXF_node type={self.type}, name={self.name}, '
+                f'is_table={self.is_table}, is_context={self.is_context} >')
+
+    #--------------------------------------------------------------------------------
     def copy(self):                                                        # IXF_node
     #--------------------------------------------------------------------------------
         return IXF_node(self.type, self.name, self.brace[0]+self.content+self.brace[1])
@@ -2774,21 +2780,22 @@ class IX_input:                                                            # IX_
         """
         ior = IX_input('IORlib/iorsim_ix_fix')
         ior_nodes = list(ior.nodes('all', context=True, table=True))
+        # Get relevant nodes from IX files or None if missing 
         ix_nodes = [self.get_node(node) for node in ior_nodes]
-        # If common node types, choose node name from ix_nodes
-        common = (b for a,b in zip(ior_nodes, ix_nodes) if a and b and (a.type == b.type))
-        node_name = (dict(set( (c.type, c.name) for c in common )))
+        # Syntax with 'add_property' currently not supported
         if any('add_property' in n.content for n in ix_nodes if n):
             raise SystemError(
                 'ERROR Currently unable to update nodes with *add_property* statements')
+        # Use node name from ix_nodes if node type exists
+        node_name = {n.type:n.name for n in ior_nodes}
+        node_name.update({n.type:n.name for n in ix_nodes if n})
+        # Update ix_nodes with values from ior_nodes
         for i,ior in enumerate(ior_nodes):
             if ix_nodes[i]:
-                ix_nodes[i].update(ior) #, on_top=True)
+                ix_nodes[i].update(ior)
             else:
                 ix_nodes[i] = ior.copy()
-                # Choose ix-node name over ior-node name
-                if name:=node_name.get(ix_nodes[i].type):
-                    ix_nodes[i].name = name
+            ix_nodes[i].name = node_name[ix_nodes[i].type]
         # Get the name of the file holding the relevant nodes
         filename = list(set(n.file for n in ix_nodes if n.file))
         if len(filename) > 1:
