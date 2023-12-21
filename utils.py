@@ -241,7 +241,7 @@ def last_line(path):
 # Taken from https://stackoverflow.com/questions/46258499/how-to-read-the-last-line-of-a-file-in-python
 #
     with open(path, 'rb') as file:
-        try:  # catch OSError in case of a one line file 
+        try:  # catch OSError in case of a one line file
             file.seek(-2, SEEK_END)
             while file.read(1) != b'\n':
                 file.seek(-2, SEEK_CUR)

@@ -139,7 +139,7 @@ class File:                                                                    #
         return None
 
     #--------------------------------------------------------------------------------
-    def binarydata(self, raise_error=False):                                    # File
+    def binarydata(self, raise_error=False):                                   # File
     #--------------------------------------------------------------------------------
         ### Open as binary file to avoid encoding errors
         if self.is_file():
@@ -149,6 +149,10 @@ class File:                                                                    #
             raise SystemError(f'File {self} does not exist')
         return b''
  
+    #--------------------------------------------------------------------------------
+    def as_text(self, **kwargs):                                               # File
+    #--------------------------------------------------------------------------------
+        return self.binarydata(**kwargs).decode()
 
     #--------------------------------------------------------------------------------
     def delete(self, raise_error=False, echo=False):                           # File
@@ -237,19 +241,15 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def head(self, **kwargs):                                                  # File
     #--------------------------------------------------------------------------------
-        return head_file(self.path, **kwargs)
-
-    #--------------------------------------------------------------------------------
-    def stat(self, *args):                                                     # File
-    #--------------------------------------------------------------------------------
-        return attrgetter(*args)(self.path.stat())
+        return next(head_file(self.path, **kwargs), '')
 
     #--------------------------------------------------------------------------------
     def lines(self):                                                           # File
     #--------------------------------------------------------------------------------
         if self.is_file():
             with open(self.path, 'r') as file:
-                yield file.readline()
+                while line:=file.readline():
+                    yield line
         return ()
 
     #--------------------------------------------------------------------------------
@@ -272,6 +272,9 @@ class File:                                                                    #
         """
         Replace or append text. Replace text if pos is a (start, len+start) tuple, 
         append '\n'+text if pos is a (start, start) tuple
+        
+        text : tuple of strings
+        pos  : tuple of tuples of length 2
         """
         data = self.binarydata().decode()
         size = len(data)
@@ -1569,21 +1572,17 @@ class text_file(File):                                                    # text
     #--------------------------------------------------------------------------------
         return key.encode() in self.binarydata()
         
-    # #--------------------------------------------------------------------------------
-    # def is_ready(self):                                                   # text_file
-    # #--------------------------------------------------------------------------------
-    #     return True
-
-    # #--------------------------------------------------------------------------------
-    # def set_flavor(self, ix='', eclipse=''):                              # text_file
-    # #--------------------------------------------------------------------------------
-    #     if self._flavor is None:
-    #         if header := next(self.head(size=10*1024), ''):
-    #             if ix in header:
-    #                 self._flavor = 'ix'
-    #             elif eclipse in header:
-    #                 self._flavor = 'ecl'
-    #     return bool(self._flavor)
+    #--------------------------------------------------------------------------------
+    def contains_any(self, *keys, head=None, tail=None):                  # text_file
+    #--------------------------------------------------------------------------------
+        if head:
+            data = self.head(size=head)
+        elif tail:
+            data = self.tail(size=tail)
+        else:
+            data = self.binarydata()
+            keys = (key.encode() for key in keys)
+        return any(key in data for key in keys)
 
     #--------------------------------------------------------------------------------
     def read(self, *var_list):                                            # text_file
@@ -2593,7 +2592,7 @@ class IX_input:                                                            # IX_
             return 'Intersect input is incomplete for this case (missing include files).'
         # Check if DATA-file has changed since last convert
         stat_file = path.with_suffix(self.STAT_FILE)
-        mtime, size = data_file.stat('st_mtime_ns', 'st_size')
+        mtime, size = attrgetter('st_mtime_ns', 'st_size')(data_file.stat())
         if stat_file.is_file():
             old_mtime, old_size = map(int, stat_file.read_text().split())
             if mtime > old_mtime and size > old_size:
@@ -2633,7 +2632,7 @@ class IX_input:                                                            # IX_
             if not AFI_file(path).is_file():
                 return False
             # If successful, save modification time and current size of DATA_file
-            mtime, size = DATA_file(path).stat('st_mtime_ns', 'st_size')
+            mtime, size = attrgetter('st_mtime_ns', 'st_size')(DATA_file(path).stat())
             path.with_name(self.STAT_FILE).write_text(f'{mtime} {size}')
             return True
 
@@ -2668,7 +2667,7 @@ class IX_input:                                                            # IX_
         return self
 
     #--------------------------------------------------------------------------------
-    def nodes(self, *types, files=None, table=False, context=False, **kwargs):                         # IX_input
+    def nodes(self, *types, files=None, table=False, context=False, **kwargs): # IX_input
     #--------------------------------------------------------------------------------
         """
         Return generator of nodes with node syntax: 
@@ -2735,12 +2734,12 @@ class IX_input:                                                            # IX_
             if '.' in string:
                 pattern += '.%f'
             return (datetime.strptime(string, pattern) - start).total_seconds()/86400
-        cum_steps = list(node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
-        steps = [b-a for a,b in pairwise(chain([0], cum_steps))]
+        cum_steps = (node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
+        steps = [b-a for a,b in pairwise(chain([0], sorted(set(cum_steps))))]
         # Check for negative steps (could happen if the same DATE/TIME is given in more than one file)
-        if neg := next((i for i,val in enumerate(steps) if val <= 0), None):
-            # Ignore steps after the negative step
-            steps = steps[:neg]
+        # if neg := next((i for i,val in enumerate(steps) if val <= 0), None):
+        #     # Ignore steps after the negative step
+        #     steps = steps[:neg]
         return steps
 
     #--------------------------------------------------------------------------------
@@ -2799,15 +2798,23 @@ class IX_input:                                                            # IX_
         # Get the name of the file holding the relevant nodes
         filename = list(set(n.file for n in ix_nodes if n.file))
         if len(filename) > 1:
-            print(f'WARNING! More than one filename in ECL.IX_input.make_iorsim_compatible(): {filename}')
+            print(f'WARNING! More than one filename in IX_input.make_iorsim_compatible(): {filename}')
         file = File(filename[0])
         if backup:
+            # Returns None if backup-file already exists
             backup = file.backup(tag=backup)
         # Place new nodes just after the last updated nodes
         max_pos = 2*[max(max(n.pos for n in ix_nodes if n.pos))]
         # Split text and pos in separate tuples
         text, pos = zip(*[(str(n), n.pos or max_pos) for n in ix_nodes])
         file.replace_text(text, pos)
+        if backup:
+            # Add comment at top of updated file
+            comment = ( '#----------------------------------------------------\n'
+                        '# This file is updated to be compatible with IORSim.\n'
+                       f"# The original file is renamed to '{backup.name}'\n"
+                        '#----------------------------------------------------\n\n')
+            file.write_text(comment + file.as_text())
         return (file, backup)
 
 
