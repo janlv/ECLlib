@@ -2120,7 +2120,9 @@ class FUNRST_file(fmt_file):
                 for nb in range(nblocks):
                     buf.append(data[i+nb*pos_stride:j+nb*pos_stride])
                     #print(f'{dtyp}: data[{i}]={data[i]}, data[{j}]={data[j-1]}')
-            try: 
+            try:
+                # May yield: RuntimeWarning: overflow encountered in cast
+                # To silence warning: import warnings; warnings.filterwarnings('ignore')
                 buffer[dtyp] = nparray([x for y in buf for x in y], dtype=dtype)
             except ValueError:
                 #buffer[dtyp] = nparray([x[:15]+b'E'+x[17:] for y in buf for x in y], dtype=dtype)
