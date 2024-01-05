@@ -44,6 +44,22 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #         getgen = ((getter(o),) for o in objects)
 #     return zip(*getgen)
 
+#-----------------------------------------------------------------------
+def to_letter(num, base=26, case='lower'):
+#-----------------------------------------------------------------------
+    if num < 1:
+        return ''
+    num -= 1
+    q = num//base
+    shift = {'upper':65, 'lower':97}
+    a = chr(shift[case] + num - q*base)
+    return to_letter(q, base, case) + a
+
+#-----------------------------------------------------------------------
+def letter_range(length, base=26, case='lower'):
+#-----------------------------------------------------------------------
+    for i in range(length):
+        yield to_letter(i+1, base, case)
 
 #-----------------------------------------------------------------------
 def has_write_access(path, error=False):
@@ -406,13 +422,12 @@ def split_by_words(string, words): #, wb=r'\b'):
     Split a string (possibly bytes-like), with comments, into sections based on a list of unique words.
     Returns a dict with words as keys and a tuple of begin and end positins
     """
-    #regex =  (comment and rf'(?<!{comment})' or '') + r'\s*(\b' + r'\b|\b'.join(words) + r'\b)' #(--)*[\s=]*(--)*'
-    regex =  r'^\s*(\b' + r'\b|\b'.join(words) + r'\b)'
-    #print(regex)
+    #regex =  r'^\s*(\b' + r'\b|\b'.join(words) + r'\b)'
+    regex =  r'^\s*\b(' + '|'.join(words) + r')\b'
     if isinstance(string, bytes):
         regex = regex.encode()
     matches_ = re_compile(regex, flags=IGNORECASE|MULTILINE).finditer(string)
-    ### Append string end pos as tuple of tuple
+    # Append string end pos as tuple of tuple
     tag_pos = chain( ((m.group(1), m.start()) for m in matches_), [('', len(string))] )
     return ((tag, a, b) for (tag, a), (_, b) in pairwise(tag_pos))
     #return [(a[0],a[1],b[1]) for a,b in pairwise(tag_pos)]
@@ -430,15 +445,14 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
     data = remove_comments(file, comment=comment, raise_error=raise_error)
     if data == []:
         return []
-    #print(data)
-    space = '\s'
+    space = r'\s' # regex space
     slash = '/'
-    if end in (' ','\s','\n','\t'):
+    if end in (' ',r'\s','\n','\t'):
         end = space
         space = ''
     if end == slash:
         slash = ''
-    ### Lookahead used at the end to mark end without consuming
+    # Lookahead used at the end to mark end without consuming
     regex = re_compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)
     #values = [v.split() for v in regex.findall(data)]
     #values = (v.split() for v in regex.findall(data))
@@ -449,9 +463,9 @@ def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_erro
 
 
 #--------------------------------------------------------------------------------
-def convert_float_or_str(words): 
+def convert_float_or_str(words):
 #--------------------------------------------------------------------------------
-    for w in words: 
+    for w in words:
         try:
             v = float(w)
         except ValueError:
