@@ -433,33 +433,27 @@ def split_by_words(string, words): #, wb=r'\b'):
     #return [(a[0],a[1],b[1]) for a,b in pairwise(tag_pos)]
 
 
-#-----------------------------------------------------------------------
-def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
-#-----------------------------------------------------------------------
-    #print(f'get_keyword({file}, {keyword}, end={end})')
-    if not Path(file).is_file():
-        return []
-    flags = 0
-    if ignore_case:
-        flags = RegexFlag.IGNORECASE
-    data = remove_comments(file, comment=comment, raise_error=raise_error)
-    if data == []:
-        return []
-    space = r'\s' # regex space
-    slash = '/'
-    if end in (' ',r'\s','\n','\t'):
-        end = space
-        space = ''
-    if end == slash:
-        slash = ''
-    # Lookahead used at the end to mark end without consuming
-    regex = re_compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)
-    #values = [v.split() for v in regex.findall(data)]
-    #values = (v.split() for v in regex.findall(data))
-    #print(keyword, values)
-    #return [float_or_str(v) for v in values]
-    return [list(convert_float_or_str(v.split())) for v in regex.findall(data)]
-    #return list(regex.finditer(data))
+# #-----------------------------------------------------------------------
+# def get_keyword(file, keyword, end='', comment='#', ignore_case=True, raise_error=True):
+# #-----------------------------------------------------------------------
+#     if not Path(file).is_file():
+#         return []
+#     flags = 0
+#     if ignore_case:
+#         flags = RegexFlag.IGNORECASE
+#     data = remove_comments(file, comment=comment, raise_error=raise_error)
+#     if data == []:
+#         return []
+#     space = r'\s' # regex space
+#     slash = '/'
+#     if end in (' ',r'\s','\n','\t'):
+#         end = space
+#         space = ''
+#     if end == slash:
+#         slash = ''
+#     # Lookahead used at the end to mark end without consuming
+#     regex = re_compile(fr"{keyword}\s+([0-9A-Za-z._+:{space}{slash}\\-]+)(?={end})", flags=flags)
+#     return [list(convert_float_or_str(v.split())) for v in regex.findall(data)]
 
 
 #--------------------------------------------------------------------------------

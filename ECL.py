@@ -253,6 +253,11 @@ class File:                                                                    #
         return ()
 
     #--------------------------------------------------------------------------------
+    def line_matching(self, word):                                             # File
+    #--------------------------------------------------------------------------------
+        return next((line for line in self.lines() if word in line), None)
+
+    #--------------------------------------------------------------------------------
     def last_line(self):                                                       # File
     #--------------------------------------------------------------------------------
         return last_line(self.path)
@@ -386,7 +391,8 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
     def __del__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
-        DEBUG and print(f'Deleting {self}')
+        if DEBUG:
+            print(f'Deleting {self}')
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # unfmt_block
@@ -756,7 +762,7 @@ class unfmt_file(File):
                  start_after=None, end_before=None, end_after=None):    # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.exists():
-            raise SystemError(f'ERROR File {self.path} not found') 
+            raise SystemError(f'ERROR File {self.path} not found')
         inside = False
         step = None
         with open(self.path, 'rb') as file:
@@ -1091,7 +1097,7 @@ class DATA_file(File):
                 result += (getter.default,)
                 continue
             values, span = zip(*val_span)
-            values = getter.convert(values, keyword, raise_error=raise_error)
+            values = getter.convert(values, keyword)
             if pos:
                 values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
             result += (flat_list(values),)
@@ -1190,13 +1196,13 @@ class DATA_file(File):
             last_date = dt
             
     #--------------------------------------------------------------------------------
-    def _convert_string(self, values, key, raise_error=False):             # DATA_file
+    def _convert_string(self, values, key):             # DATA_file
     #--------------------------------------------------------------------------------
         ret = [v for val in values for v in val.split('\n') if v and v != '/']
         return (ret,)
 
     #--------------------------------------------------------------------------------
-    def _convert_float(self, values, key, raise_error=False):            # DATA_file
+    def _convert_float(self, values, key):            # DATA_file
     #--------------------------------------------------------------------------------
         #mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
         def mult(x,y):
@@ -1207,7 +1213,7 @@ class DATA_file(File):
         return values or self._getter[key].default
 
     #--------------------------------------------------------------------------------
-    def _convert_date(self, dates, key, raise_error=False):              # DATA_file
+    def _convert_date(self, dates, key):              # DATA_file
     #--------------------------------------------------------------------------------
         ### Remove possible quotes
         ### Extract groups of 3 from the dates strings 
@@ -1216,7 +1222,7 @@ class DATA_file(File):
         return dates or self._getter[key].default
 
     #--------------------------------------------------------------------------------
-    def _convert_file(self, values, key, raise_error=True):              # DATA_file
+    def _convert_file(self, values, key):              # DATA_file
     #--------------------------------------------------------------------------------
         'Return full path of file'
         ### Remove quotes and backslash
