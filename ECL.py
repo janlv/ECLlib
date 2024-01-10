@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from dataclasses import dataclass
-from itertools import chain, repeat, accumulate, groupby, zip_longest
+from itertools import chain, repeat, accumulate, groupby, zip_longest, islice
 from operator import attrgetter, itemgetter
 from pathlib import Path
 from platform import system
@@ -247,7 +247,7 @@ class File:                                                                    #
     def lines(self):                                                           # File
     #--------------------------------------------------------------------------------
         if self.is_file():
-            with open(self.path, 'r') as file:
+            with open(self.path, 'r', encoding='utf-8') as file:
                 while line:=file.readline():
                     yield line
         return ()
@@ -1157,7 +1157,7 @@ class DATA_file(File):
         else:
             raise SystemError(f'ERROR Missing {keyword} in {self}')
         out = self.data[:pos[0]] + new_string + self.data[pos[1]:]
-        with open(self.path, 'w') as f:
+        with open(self.path, 'w', encoding='utf-8') as f:
             f.write(out)
 
     #--------------------------------------------------------------------------------
@@ -1772,10 +1772,10 @@ class check_blocks:                                                    # check_b
 
 
     #--------------------------------------------------------------------------------
-    def data_saved_maxmin(self, nblocks=1, iter=100, **kwargs):      # check_blocks
+    def data_saved_maxmin(self, nblocks=1, niter=100, **kwargs):      # check_blocks
     #--------------------------------------------------------------------------------
-        f"""
-            Loop for {iter} iterations until {nblocks} start/end-blocks are found or end-of-file reached.
+        """
+            Loop for 'niter' iterations until 'nblocks' start/end-blocks are found or end-of-file reached.
         """
         if nblocks == 0:
             return []
@@ -1784,7 +1784,7 @@ class check_blocks:                                                    # check_b
         n = nblocks
         v = 2
         while n > 0:
-            passed = self._wait_func( self.blocks_complete, nblocks=n, limit=iter, timer=self._timer, v=v, **kwargs )
+            passed = self._wait_func( self.blocks_complete, nblocks=n, limit=niter, timer=self._timer, v=v, **kwargs )
             #msg.append(f'start, end: {self._start, self._end}, at_end: {self.at_end()}, passed: {passed}')
             if self._unfmt.at_end() and self.steps_complete():
                 ### blocks <= max_blocks
@@ -2077,7 +2077,7 @@ class FUNRST_file(fmt_file):
         outfile = self.path.with_suffix(ext)
         # if self.size() < 1:
         #     return None
-        with open(self.path) as f:
+        with open(self.path, 'r', encoding='utf-8') as f:
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
                 # prepare
                 blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
@@ -2243,7 +2243,7 @@ class RSM_file(File):                                                      # RSM
     #--------------------------------------------------------------------------------
         if not self.path.is_file():
             return ()
-        with open(self.path) as self.fh:
+        with open(self.path, 'r', encoding='utf-8') as self.fh:
             for line in self.fh:
                 # line is now at the tag-line
                 for block in self.read_block():
@@ -2262,8 +2262,9 @@ class RSM_file(File):                                                      # RSM
     #--------------------------------------------------------------------------------
     def skip_lines(self, n):                                               # RSM_file
     #--------------------------------------------------------------------------------
-        for i in range(n): 
-            next(self.fh) 
+        next(islice(self.fh, n, n), None)
+        # for i in range(n):
+        #     next(self.fh)
         
     #--------------------------------------------------------------------------------
     def read_data(self, ncol=None):                                        # RSM_file
@@ -2312,7 +2313,7 @@ class RSM_file(File):                                                      # RSM
     #--------------------------------------------------------------------------------
     def block_length(self):                                                # RSM_file
     #--------------------------------------------------------------------------------
-        with open(self.path) as fh:
+        with open(self.path, 'r', encoding='utf-8') as fh:
             nb, n = 0, 0
             for line in fh:
                 n += 1
@@ -2602,11 +2603,11 @@ class IX_input:                                                            # IX_
         stat_file = path.with_suffix(self.STAT_FILE)
         mtime, size = attrgetter('st_mtime_ns', 'st_size')(data_file.stat())
         if stat_file.is_file():
-            old_mtime, old_size = map(int, stat_file.read_text().split())
+            old_mtime, old_size = map(int, stat_file.read_text(encoding='utf-8').split())
             if mtime > old_mtime and size > old_size:
                 return 'Intersect input exists for this case, but the Eclipse input has changed since the previous convert.'
         else:
-            stat_file.write_text(f'{mtime} {size}')
+            stat_file.write_text(f'{mtime} {size}', encoding='utf-8')
             #stat_file.write_text(f'{data_file.name} {mtime} {size}')
 
 
@@ -2622,7 +2623,7 @@ class IX_input:                                                            # IX_
         #msg = 'Creating Intersect input from Eclipse input'
         # How often to check if convert is completed
         sec = 1/freq
-        with open(path.with_name('ecl2ix.log'), 'w') as log:
+        with open(path.with_name('ecl2ix.log'), 'w', encoding='utf-8') as log:
             popen = Popen(cmd, stdout=log, stderr=STDOUT)
             proc = Process(pid=popen.pid)
             i = 0
@@ -2641,7 +2642,7 @@ class IX_input:                                                            # IX_
                 return False
             # If successful, save modification time and current size of DATA_file
             mtime, size = attrgetter('st_mtime_ns', 'st_size')(DATA_file(path).stat())
-            path.with_name(self.STAT_FILE).write_text(f'{mtime} {size}')
+            path.with_name(self.STAT_FILE).write_text(f'{mtime} {size}', encoding='utf-8')
             return True
 
 
