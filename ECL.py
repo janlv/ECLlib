@@ -2485,6 +2485,11 @@ class IXF_node:                                                            # IXF
         return {k:v for k,*v in self.rows()}
 
     #--------------------------------------------------------------------------------
+    def get(self, item):                                                     # IXF_node
+    #--------------------------------------------------------------------------------
+        return self.as_dict().get(item)
+
+    #--------------------------------------------------------------------------------
     def update(self, node=None): #, on_top=False):                              # IXF_node
     #--------------------------------------------------------------------------------
         adict = self.as_dict()
@@ -2754,7 +2759,13 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                   # IX_input
     #--------------------------------------------------------------------------------
-        return tuple(set(node.name for node in self.nodes('WellDef')))
+        return tuple(set(node.name for node in self.nodes('Well')))
+        #return tuple(set(node.name for node in self.nodes('WellDef')))
+
+    #--------------------------------------------------------------------------------
+    def wells(self):                                                   # IX_input
+    #--------------------------------------------------------------------------------
+        return tuple(set((well.name, _type[0]) for well in self.nodes('Well') if (_type:=well.get('Type'))))
 
     #--------------------------------------------------------------------------------
     def summary_keys(self, matching=()):                                   # IX_input
