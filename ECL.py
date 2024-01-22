@@ -563,59 +563,6 @@ class unfmt_file(File):
                 pos = self.endpos = header.endpos
                 yield unfmt_block(header=header, file_obj=file, file=self.path)
 
-    # #--------------------------------------------------------------------------------
-    # def blocks_no_mmap(self, only_new=False, start=None):                        # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     """ Read blocks without mmap. 
-    #         Useful for files that may be truncated while reading, causing a bus-error
-    #         if mmap is used (SMSPEC is one example) """
-    #     if not self.is_file():
-    #         return False
-    #     startpos = 0
-    #     if only_new:
-    #         startpos = self.endpos
-    #     if start:
-    #         startpos = start
-    #     if self.size() - startpos < 24: # Header is 24 bytes
-    #         return False
-    #     with open(self.path, mode='rb') as file:
-    #         size = self.size()
-    #         pos = startpos
-    #         while pos < size:
-    #             start = pos
-    #             file.seek(start)
-    #             # Header
-    #             try:
-    #                 # Header is 24 bytes, we skip int of length 4 before and after
-    #                 _, key, length, typ = unpack(ENDIAN+'i8si4s', file.read(20))
-    #                 # Value array
-    #                 nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
-    #                 pos += 24 + nbytes
-    #             except (ValueError, struct_error): 
-    #                 return False
-    #             self.endpos = pos
-    #             yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
-    #                               file_obj=file, file=self.path)
-    
-
-    # #--------------------------------------------------------------------------------
-    # def read_block(self, data, pos=0, size=None):                        # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     size = size or len(data)
-    #     while pos < size:
-    #         start = pos
-    #         ### Header
-    #         try:
-    #             ### Header is 24 bytes, we skip int of length 4 before and after
-    #             key, length, typ = unpack(ENDIAN+'8si4s', data[pos+4:pos+20])
-    #             ### Value array
-    #             nbytes = length*DTYPE[typ].size + 8 * -(-length//DTYPE[typ].max) # -(-a//b) is the ceil-function
-    #             pos += 24 + nbytes
-    #         except (ValueError, struct_error):
-    #             return False
-    #         self.endpos = pos
-    #         yield unfmt_block(key=key, length=length, type=typ, start=start, end=pos, 
-    #                         data=data, file=self.path)
 
     #--------------------------------------------------------------------------------
     def tail_blocks(self, **kwargs):                                     # unfmt_file
@@ -721,42 +668,6 @@ class unfmt_file(File):
                 return
 
 
-    # #--------------------------------------------------------------------------------
-    # def get(self, *var_list, N=0, stop=(), raise_error=True, **kwargs):  # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     #print(var_list, N, kwargs)
-    #     blocks = self.blocks
-    #     if N < 0:
-    #         # Read data from end of file
-    #         blocks = self.tail_blocks
-    #         N = -N
-    #     varmap = {k:v for k,v in self.varmap.items() if k in var_list}
-    #     # Create dict of keywords with varname and position:
-    #     #  {'INTEHEAD':[('day',64), ('month',65), ('year',66)]}
-    #     var_pos = {v.key:[] for v in varmap.values()}
-    #     for k,v in varmap.items():
-    #         var_pos[v.key].append( (k, v.pos) )
-    #     #print(var_pos)
-    #     values = {v:[] for v in var_list}
-    #     def size():
-    #         return (len(v) for v in values.values())
-    #     for block in blocks(**kwargs):
-    #         if block.key() in var_pos.keys():
-    #             for var, pos in var_pos[block.key()]:
-    #                 #values[var].append( b.data()[pos] )
-    #                 values[var].append( block.data(*pos) )
-    #         if N and set(size()) == set([N]):
-    #             break
-    #         if stop and stop[1] == values[stop[0]][-1] and len(set(size())) == 1:
-    #             break
-    #     if not all(values.values()):
-    #         if raise_error:
-    #             raise SystemError(
-    #                 'ERROR Unable to read ' + list2str(var_pos.keys(), sep="'") + f' from {self}')
-    #         return []
-    #     return list(values.values())
-
-
     #--------------------------------------------------------------------------------
     def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
                  start_after=None, end_before=None, end_after=None):    # unfmt_file
@@ -809,6 +720,7 @@ class unfmt_file(File):
                 cancel()
             return_value = self.path
         return return_value
+
 
     #--------------------------------------------------------------------------------
     def assert_no_duplicates(self, raise_error=True):                     # unfmt_file
@@ -1972,7 +1884,6 @@ class FUNRST_file(fmt_file):
     def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # FUNRST_file
     #----------------------------------------------------------------------------
         n = 0
-        # pos = {k:0 for k in datasize.keys()}
         pos = {k:0 for k in DTYPE.keys()}
         size = {'blocks':0, 'bytes':0}
         num = {'chunks':0, 'blocks':0}
@@ -1980,7 +1891,8 @@ class FUNRST_file(fmt_file):
         blocks = Blocks(format=[], type=[], head=[], tail=[], slice=[], stride=pos, size=size, num=num)
         head_format='i8si4si' # 4+8+4+4+4 = 24
         count = {}
-        for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
+        #for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
+        for match in finditer(br"([\w ]{8})'([0-9 ]{13})'(\w{4})", filemap):
             # header
             key, length, dtype = match.groups()
             key = key.decode().strip()
@@ -1994,37 +1906,31 @@ class FUNRST_file(fmt_file):
                     num['chunks'] = len(blocks.type)
                     return blocks
             if rename_duplicate:
-                #print(key)
                 if count.get(key):
-                    key = key[:-1]+str(count[key]+1) #).encode()
+                    key = key[:-1]+str(count[key]+1)
                     count[key] = 0
                 else:
                     # create new entry
                     count[key] = 0
                 count[key] += 1
             if rename_key and key==rename_key[0]:
-                key = rename_key[1] #.encode()
-                #print(key)
+                key = rename_key[1]
             head_data = [16, key.ljust(8).encode(), length, dtype, 16]
             # split block data in chunks if max_length
-            # max_l = max_length[dtype]
             max_l = DTYPE[dtype].max
-            #L = [min(max_length, length-n*max_length) for n in range(int(length/max_length)+1)]
             L = [min(max_l, length-n*max_l) for n in range(int(length/max_l)+1)]
             L = [l for l in L if l>0]  # Remove possible 0's at the end
-            # blocks.format.append( head_format+''.join(['i'+str(l)+unpack_char[dtype]+'i' for l in L]) )
             blocks.format.append( head_format+''.join(['i'+str(l)+DTYPE[dtype].unpack+'i' for l in L]) )
             for i,l in enumerate(L):
                 blocks.type.append( dtype )
-                # head = [l*datasize[dtype],]
                 head = [l*DTYPE[dtype].size,]
                 if i==0:
                     head = head_data + head  
                 blocks.head.append( head )
-                # blocks.tail.append( l*datasize[dtype] )
                 blocks.tail.append( l*DTYPE[dtype].size )
                 blocks.slice.append( [pos[dtype]+sum(L[:i]), pos[dtype]+sum(L[:i])+l] )
             pos[dtype] += length
+        #return blocks
 
 
     #----------------------------------------------------------------------------
