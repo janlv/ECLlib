@@ -728,7 +728,7 @@ class unfmt_file(File):
         allowed = (self.start, 'ZTRACER')
         seen = set()
         duplicate = (key for b in self.blocks() if (key:=b.key()) in seen or seen.add(key))
-        if (dup:=next(duplicate)) not in allowed:
+        if (dup:=next(duplicate, None)) and dup not in allowed:
             msg = f'Duplicate keyword {dup} in {self}'
             if raise_error:
                 raise SystemError('ERROR ' + msg)
@@ -1892,7 +1892,7 @@ class FUNRST_file(fmt_file):
         head_format='i8si4si' # 4+8+4+4+4 = 24
         count = {}
         #for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
-        for match in finditer(br"([\w ]{8})'([0-9 ]{13})'(\w{4})", filemap):
+        for match in finditer(br"'([^']{8})'([0-9 ]{13})'(\w{4})'", filemap):
             # header
             key, length, dtype = match.groups()
             key = key.decode().strip()
@@ -1976,7 +1976,6 @@ class FUNRST_file(fmt_file):
         return heads, slices, tails, types
 
     #----------------------------------------------------------------------------
-    #def fast_convert(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
     def as_UNRST(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
                 rename_key=None, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file 
     #--------------------------------------------------------------------------------
@@ -1987,6 +1986,9 @@ class FUNRST_file(fmt_file):
             with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
                 # prepare
                 blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
+                if not blocks:
+                    raise SystemError(
+                        f'ERROR No report steps found in {self}, unable to create UNRST-file')
                 #print(blocks)
                 unit_format = ''.join(blocks.format)
                 data_pos, pos_stride = self.get_data_pos(filemap, blocks.size['blocks'])
@@ -2440,7 +2442,18 @@ class IXF_file(File):                                                      # IXF
 
 
     #--------------------------------------------------------------------------------
-    def node(self, *nodes, convert=(), brace=(rb'{',rb'}')): #begin=rb'{', end=rb'}'):            # IXF_file
+    def binarydata(self, raise_error=False):                               # IXF_file
+    #--------------------------------------------------------------------------------
+        self.data = super().binarydata(raise_error)
+        end_key = b'END_INPUT'
+        if end_key in self.data:
+            self.data, _ = self.data.split(end_key, maxsplit=1)
+        return self.data
+        # end = b'END' in self.data and re_search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
+        # return end and self.data[:end.end()] or self.data
+
+    #--------------------------------------------------------------------------------
+    def node(self, *nodes, convert=(), brace=(rb'{',rb'}')):               # IXF_file
     #--------------------------------------------------------------------------------
         begin, end = brace
         self.data = self.data or self.binarydata()
@@ -2598,12 +2611,13 @@ class IX_input:                                                            # IX_
         
         Will also return nodes without content
         """
-        if types[0] == 'all':
-            ixf_files = self.ixf_files
-        else:
-            # Only return nodes from relevant files (might be faster for large files)
-            ixf_files = list(self.files_matching(*types))
-        files = files or ixf_files
+        if files is None:
+            if types[0] == 'all':
+                files = self.ixf_files
+            else:
+                # Only return nodes from relevant files (might be faster for large files)
+                files = list(self.files_matching(*types))
+        #files = files or ixf_files
         # Prepare generators of both context and table nodes
         contexts = flatten(file.node(*types, **kwargs) for file in files)
         tables = flatten(file.node(*types, brace=(b'\\[',b'\\]'), **kwargs) for file in files)
@@ -2636,6 +2650,15 @@ class IX_input:                                                            # IX_
         values['month'] = datetime.strptime(values['month'],'%B').month
         return datetime(**values)
 
+    #--------------------------------------------------------------------------------
+    def _timestep_files(self):                                                  # IX_input
+    #--------------------------------------------------------------------------------
+        date_files = [ixf for ixf in self.ixf_files if 'DATE' in ixf]
+        field_files = [ixf for ixf in date_files if next(ixf.node('FieldManagement'), None)]
+        if field_files:
+            return field_files[0]
+        if date_files:
+            return date_files[0]
 
     #--------------------------------------------------------------------------------
     def timesteps(self, start=None, **kwargs):                             # IX_input
@@ -2654,7 +2677,9 @@ class IX_input:                                                            # IX_
             if '.' in string:
                 pattern += '.%f'
             return (datetime.strptime(string, pattern) - start).total_seconds()/86400
-        cum_steps = (node.name for node in self.nodes('DATE','TIME', convert=(date, float)))
+        file = self._timestep_files()
+        nodes = self.nodes('DATE','TIME', files=(file,), convert=(date, float))
+        cum_steps = (node.name for node in nodes)
         steps = [b-a for a,b in pairwise(chain([0], sorted(set(cum_steps))))]
         # Check for negative steps (could happen if the same DATE/TIME is given in more than one file)
         # if neg := next((i for i,val in enumerate(steps) if val <= 0), None):
