@@ -1892,7 +1892,7 @@ class FUNRST_file(fmt_file):
         head_format='i8si4si' # 4+8+4+4+4 = 24
         count = {}
         #for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
-        for match in finditer(br"'([^']{8})'([0-9 ]{13})'(\w{4})'", filemap):
+        for match in finditer(br"' ([^']{8})'([0-9 ]{13})'(\w{4})'", filemap):
             # header
             key, length, dtype = match.groups()
             key = key.decode().strip()
