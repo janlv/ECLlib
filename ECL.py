@@ -1505,12 +1505,12 @@ class text_file(File):                                                    # text
     #--------------------------------------------------------------------------------
     def read(self, *var_list):                                            # text_file
     #--------------------------------------------------------------------------------
-        if not self.is_ready():
-            return ()
+        #if not self.is_ready():
+        #    return ()
         values = []
-        pattern = self._pattern[self._flavor] if self._flavor else self._pattern
+        #pattern = self._pattern[self._flavor] if self._flavor else self._pattern
         for var in var_list:
-            match = matches(file=self.path, pattern=pattern[var])
+            match = matches(file=self.path, pattern=self._pattern[var])
             values.append([self._convert[var](m.group(1)) for m in match])
         return list(zip(*values))
 
@@ -1540,40 +1540,19 @@ class PRT_file(text_file):                                                # PRT_
     def __init__(self, file, **kwargs):                                    # PRT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.PRT', **kwargs)
-        # ecl = {'time' : r'TIME=?\s+([0-9.]+)\s+DAYS',
-        #        'step' : r'\bSTEP\b\s+([0-9]+)'}
-        # # For IX the step number is not printed, only the TSTEP
-        # ix  = {'time' : r' (?:Rep |Init|HRep)   ;\s*([0-9.]+)\s+',
-        #        'step' : r' (?:Rep |Init|HRep)   ;\s*[0-9.]+\s+([0-9.]+)\s+'}
-        # # Make 'days' an alias for 'time'
-        # ecl['days'] = ecl['time']
-        # ix['days'] = ix['time']
-        # #self._pattern = {'ecl':ecl, 'ix':ix}
-        self._pattern['time'] = r' (?:Rep    ;|Init   ;|TIME=)\s*([0-9.]+)\s+'
+        self._pattern['time'] = r'TIME(?:[ a-zA-Z\s/%-]+;|=) +([\d.]+)'
+        #self._pattern['time'] = r' (?:Rep    ;|Init   ;|TIME=)\s*([0-9.]+)\s+'
         self._pattern['days'] = self._pattern['time']
         self._convert = {key:float for key in self._pattern}
-
-    # #--------------------------------------------------------------------------------
-    # def is_ready(self):                                                    # PRT_file
-    # #--------------------------------------------------------------------------------
-    #     iamo = ' is a mark of '
-    #     return self.set_flavor(ix='INTERSECT'+iamo, eclipse='ECLIPSE'+iamo)
 
     #--------------------------------------------------------------------------------
     def end_time(self):                                                    # PRT_file
     #--------------------------------------------------------------------------------
         default = 0
-        # if not self.is_ready():
-        #     return default
-        #timetag = {'ecl':'TIME=', 'ix':'Rep    ;'}[self._flavor]
-        #pattern = self._pattern[self._flavor]
-        #text = (txt for txt in self.tail(size=10*1024) if timetag in txt)
-        timetags = ('TIME=', 'Rep    ;', 'Init   ;')
-        #chunks = (txt for txt in self.tail(size=10*1024) if any(tag in txt for tag in timetags))
-        chunks = (txt for txt in self.reversed(size=10*1024) if any(tag in txt for tag in timetags))
+        # timetags = ('TIME=', 'Rep    ;', 'Init   ;')
+        # chunks = (txt for txt in self.reversed(size=10*1024) if any(tag in txt for tag in timetags))
+        chunks = (txt for txt in self.reversed(size=10*1024) if 'TIME' in txt)
         if data:=next(chunks, None):
-            #days = list(m.group(1) for m in re_compile(pattern['time']).finditer(data))
-            #days = list(m.group(1) for m in finditer(self._pattern['time'], data))
             days = findall(self._pattern['time'], data)
             return float(days[-1]) if days else default
 
