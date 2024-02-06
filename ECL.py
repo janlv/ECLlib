@@ -490,16 +490,33 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
 
+    # #--------------------------------------------------------------------------------
+    # def blockdata_old(self, *keys, strip=True, **kwargs):                    # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     """ Return data in the order of the given keys, not the reading order.
+    #         The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
+    #     #data = dict(zip(keys, repeat(None)))
+    #     data = {key:[] for key in keys}
+    #     for block in self.blocks(**kwargs):
+    #         if key:=match_in_wildlist(block.key(), keys):
+    #             #data[key] = block.data(strip=strip)
+    #             data[key].append(block.data(strip=strip))
+    #     return list(data.values())
+    #     #return [data[key] for key in keys]
+
     #--------------------------------------------------------------------------------
     def blockdata(self, *keys, strip=True, **kwargs):                    # unfmt_file
     #--------------------------------------------------------------------------------
         """ Return data in the order of the given keys, not the reading order.
             The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
-        data = dict(zip(keys, repeat(None)))
+        data = {key:None for key in keys}
         for block in self.blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
                 data[key] = block.data(strip=strip)
-        return (data[key] for key in keys)
+            if all(data.values()):
+                yield list(data.values())
+                data = {key:None for key in keys}
+
 
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
@@ -1193,6 +1210,12 @@ class UNRST_file(unfmt_file):
     #--------------------------------------------------------------------------------
         data = self.read('day','month','year', **kwargs)
         return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
+
+    #--------------------------------------------------------------------------------
+    def days(self, **kwargs):                                           # UNRST_file
+    #--------------------------------------------------------------------------------
+        start = next(self.dates(**kwargs))
+        return ((date-start).days for date in self.dates(**kwargs))
 
     #--------------------------------------------------------------------------------
     def step(self, block, step):                                         # UNRST_file
