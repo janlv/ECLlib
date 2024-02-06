@@ -1170,7 +1170,17 @@ class DATA_file(File):
 
 
 #====================================================================================
-class UNRST_file(unfmt_file):
+class INIT_file(unfmt_file):                                              # INIT_file
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, file, **kwargs):                                   # INIT_file
+    #--------------------------------------------------------------------------------
+        super().__init__(file, suffix='.INIT', **kwargs)
+
+
+
+#====================================================================================
+class UNRST_file(unfmt_file):                                            # UNRST_file
 #====================================================================================
     start = 'SEQNUM'
     end = 'ENDSOL'
@@ -1186,7 +1196,7 @@ class UNRST_file(unfmt_file):
                 'wells' : ('ZWEL'    , -1)}  # -1 = whole array
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, end=None, role=None, **kwargs):    # UNRST_file
+    def __init__(self, file, wait_func=None, end=None, role=None, **kwargs): # UNRST_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.UNRST', role=role)
         self.end = end or self.end
