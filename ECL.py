@@ -1454,7 +1454,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
         # Do not use mmap here because the SMSPEC-file might 
         # get truncated while mmap'ed causing a bus-error
-        self.data = Data(*self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False))
+        self.data = Data(*next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False)))
         #if all(self.data):
         if self.data.keys and self.data.wells and self.data.units:
             keys = keys or set(self.data.keys)
@@ -1483,7 +1483,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     def startdate(self):                                                # SMSPEC_file
     #--------------------------------------------------------------------------------
         if start := next(self.blockdata('STARTDAT'), None):
-            day, month, year, hour, minute, second = start
+            day, month, year, hour, minute, second = start[0]
             return datetime(year, month, day, hour, minute, second)
 
     #--------------------------------------------------------------------------------
@@ -2458,7 +2458,7 @@ class IXF_file(File):                                                      # IXF
     #--------------------------------------------------------------------------------
         self.data = super().binarydata(raise_error)
         end_key = b'END_INPUT'
-        if end_key in self.data:
+        if end_key in self.data and not b'#'+end_key in self.data:
             self.data, _ = self.data.split(end_key, maxsplit=1)
         return self.data
         # end = b'END' in self.data and re_search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
