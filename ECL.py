@@ -1454,7 +1454,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
         # Do not use mmap here because the SMSPEC-file might 
         # get truncated while mmap'ed causing a bus-error
-        self.data = Data(*next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False)))
+        self.data = Data(*next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False), ()))
         #if all(self.data):
         if self.data.keys and self.data.wells and self.data.units:
             keys = keys or set(self.data.keys)
