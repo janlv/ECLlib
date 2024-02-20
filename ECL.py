@@ -1,12 +1,13 @@
 
 # -*- coding: utf-8 -*-
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain, repeat, accumulate, groupby, zip_longest, islice
 from operator import attrgetter, itemgetter
 from pathlib import Path
 from platform import system
-from mmap import mmap, ACCESS_READ
+from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
 from copy import deepcopy
@@ -23,7 +24,7 @@ from shutil import copy
 from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
-from .utils import (cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
+from .utils import (batched, cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
                     flat_list, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars,
                     safezip, list2str, float_or_str, matches, split_by_words, string_chunks, split_in_lines)
 from .runner import Process
@@ -138,10 +139,28 @@ class File:                                                                    #
             return lambda: None
         return None
 
+    @contextmanager
+    #--------------------------------------------------------------------------------
+    def mmap(self, write=False):                                               # File
+    #--------------------------------------------------------------------------------
+        filemap = None
+        mode = 'rb'
+        access = ACCESS_READ
+        if write:
+            mode += '+'
+            access = ACCESS_WRITE
+        try:
+            with open(self.path, mode=mode) as file:
+                filemap = mmap(file.fileno(), length=0, access=access)
+                yield filemap
+        finally:
+            if filemap:
+                filemap.close()
+
     #--------------------------------------------------------------------------------
     def binarydata(self, raise_error=False):                                   # File
     #--------------------------------------------------------------------------------
-        ### Open as binary file to avoid encoding errors
+        # Open as binary file to avoid encoding errors
         if self.is_file():
             with open(self.path, 'rb') as f:
                 return f.read()
@@ -180,6 +199,13 @@ class File:                                                                    #
         if not self.path:
             return
         return (self.path.parent/file).resolve()
+
+    #--------------------------------------------------------------------------------
+    def with_tag(self, head:str='', tail:str=''):                              # File
+    #--------------------------------------------------------------------------------
+        if not self.path:
+            return
+        return self.path.parent/(head + self.path.stem + tail + self.path.suffix)
 
     #--------------------------------------------------------------------------------
     def with_suffix(self, suffix, ignore_case=False, exists=False):            # File
@@ -720,11 +746,11 @@ class unfmt_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def create(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
+    def merge(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
     #--------------------------------------------------------------------------------
         return_value = False
         with open(self.path, 'wb') as out_file, safezip(*sections) as zipper:
-            ### Get data from the section generators
+            # Get data from the section generators
             for step_data in zipper:
                 steps = []
                 for step, data in step_data:
@@ -738,6 +764,16 @@ class unfmt_file(File):
             return_value = self.path
         return return_value
 
+    # #--------------------------------------------------------------------------------
+    # def split(self, section=None, n=0, progress=lambda x:None, cancel=lambda:None): # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     num = 0
+    #     while batch := tuple(islice(section, n)):
+    #         _, data = zip(*batch)
+    #         filename = self.path.with_name(self.path.stem + f'_{num}_' + self.path.suffix)
+    #             #with open() 
+
+        
 
     #--------------------------------------------------------------------------------
     def assert_no_duplicates(self, raise_error=True):                     # unfmt_file
@@ -1210,10 +1246,24 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return tuple(unique_wells)
 
     #--------------------------------------------------------------------------------
+    def end_value(self, var:str):                                                  # UNRST_file
+    #--------------------------------------------------------------------------------
+        value = next(self.read(var, tail=True), None) or [0]
+        return value[0]
+
+    #--------------------------------------------------------------------------------
+    def end_step(self):                                                  # UNRST_file
+    #--------------------------------------------------------------------------------
+        return self.end_value('step') 
+        #time = next(self.read('time', tail=True), None) or [0]
+        #return time[0]
+
+    #--------------------------------------------------------------------------------
     def end_time(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
-        time = next(self.read('time', tail=True), None) or [0]
-        return time[0]
+        return self.end_value('time') 
+        # time = next(self.read('time', tail=True), None) or [0]
+        # return time[0]
 
     #--------------------------------------------------------------------------------
     def dates(self, **kwargs):                                           # UNRST_file
@@ -1748,41 +1798,62 @@ class fmt_block:                                                         # fmt_b
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, keyword=None, length=None, datatype=None, data=zeros(0)): # fmt_block
+    #def __init__(self, keyword=None, length=None, datatype=None, data=zeros(0)): # fmt_block
+    def __init__(self, key=None, length=None, datatype=None, data=(), filemap:mmap=None, pos=0, size=0): # fmt_block
     #--------------------------------------------------------------------------------
-        self.keyword = keyword
-        self.length = length
-        #self.datatype = datatype
-        self._dtype = DTYPE[datatype.encode()]
+        self._key = key
+        self._length = length
+        #self._dtype = DTYPE[datatype.encode()]
+        self._dtype = DTYPE[datatype]
         self.data = data
+        self.filemap = filemap
+        self.pos = pos
+        self.size = size
         #self.max_length = max_length
 
     #--------------------------------------------------------------------------------                                                            
     def __repr__(self):                                                   # fmt_block                                                           
     #--------------------------------------------------------------------------------                                                            
-        return f'<{type(self)}, key={self.keyword:8s}, type={self._dtype.name}, length={self.length:8d}>'
+        return f'<{type(self)}, key={self.key():8s}, type={self._dtype.name}, length={self._length:8d}>'
+
+    #--------------------------------------------------------------------------------
+    def __contains__(self, key:str):                                      # fmt_block
+    #--------------------------------------------------------------------------------
+        return self._key == key.encode()
+
+    #--------------------------------------------------------------------------------
+    def is_last(self):                                                    # fmt_block
+    #--------------------------------------------------------------------------------
+        return self.pos + self.size == self.filemap.size()
+
+    #--------------------------------------------------------------------------------
+    def formatted(self):                                                  # fmt_block
+    #--------------------------------------------------------------------------------
+        return self.filemap[self.pos:self.pos+self.size]
 
     #--------------------------------------------------------------------------------
     def key(self):                                                        # fmt_block
     #--------------------------------------------------------------------------------
-        return self.keyword.strip()
+        return self._key.decode()
+        #return self.keyword.strip()
     
-    #--------------------------------------------------------------------------------
-    def set_key(self, keyword):                                           # fmt_block
-    #--------------------------------------------------------------------------------
-        self.keyword = keyword #.ljust(8)
+    # #--------------------------------------------------------------------------------
+    # def set_key(self, keyword):                                           # fmt_block
+    # #--------------------------------------------------------------------------------
+    #     self.keyword = keyword #.ljust(8)
     
     #--------------------------------------------------------------------------------
     def unformatted(self):                                                # fmt_block
     #--------------------------------------------------------------------------------
         #dtype = self.datatype.encode()
-        length = self.length
+        length = self._length
         bytes_ = bytearray()
         # header
         # Consider bytes_.append() here?
-        bytes_ += pack(ENDIAN + 'i8si4si', 16, self.keyword.encode(), length, self._dtype.name.encode(), 16)
+        bytes_ += pack(ENDIAN + 'i8si4si', 16, self._key.encode(), length, self._dtype.name.encode(), 16)
         # data is split in multiple records if length > 1000 
-        data = self.data
+        #data = self.data
+        data = nparray(*self.data)
         while data.size > 0:
             length = min(len(data), self._dtype.max)
             size = self._dtype.size*length
@@ -1794,9 +1865,9 @@ class fmt_block:                                                         # fmt_b
     def print(self):                                                      # fmt_block
     #--------------------------------------------------------------------------------
         data = ''
-        if len(self.data) > 0:
-            data = 'data[0,-1] = ['+str(self.data[0])+', '+str(self.data[-1])+']'
-        print(self.keyword, self.length, self._dtype.name, data)
+        #if len(self.data) > 0:
+        #    data = 'data[0,-1] = ['+str(self.data[0])+', '+str(self.data[-1])+']'
+        print(self._key, self._length, self._dtype.name) #, next(self.data))
 
         
 #====================================================================================
@@ -1806,66 +1877,202 @@ class fmt_file(File):                                                      # fmt
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    def __init__(self, filename, **kwargs):                                  # fmt_file
+    def __init__(self, filename, **kwargs):                                # fmt_file
     #--------------------------------------------------------------------------------
         #self.file = Path(filename)
         super().__init__(filename, **kwargs)
-        self.fh = None
-
+        #self.fh = None
+        self.start = None #'SEQNUM'
+        self.wordsize = {b'INTE':12,  b'LOGI':3,   b'DOUB':23,     b'REAL':17}
+        self.rows     = {b'INTE':6,   b'LOGI':20,  b'DOUB':3,      b'REAL':4}
+        self.cast     = {b'INTE':int, b'LOGI':self._logi, b'DOUB':self._double, b'REAL':float}
 
     #--------------------------------------------------------------------------------
-    def blocks(self, warn_missing=False):                                  # fmt_file
+    def _double(self, string):                                        # fmt_file
     #--------------------------------------------------------------------------------
-        keyword = ''
-        if not self.is_file():
+        return float(string.replace(b'D',b'E'))
+
+    #--------------------------------------------------------------------------------
+    def _logi(self, string):                                          # fmt_file
+    #--------------------------------------------------------------------------------
+        return True if string=='T' else False
+
+    #--------------------------------------------------------------------------------
+    def blocks(self):                                                 # fmt_file
+    #--------------------------------------------------------------------------------
+        head_size = 32
+        with self.mmap() as filemap:
+            pos = 0
+            while pos < filemap.size():
+                head = filemap[pos:pos+head_size]
+                key, length, typ = head[2:10].strip(), int(head[12:23]), head[25:29]
+                pos += head_size
+                # Here -(-a//b) is used as the ceil function
+                size = length*self.wordsize[typ] + 2*(-(-length//self.rows[typ])) 
+                data = (self.cast[typ](d) for d in filemap[pos:pos+size].split())
+                yield fmt_block(key, length, typ, data, filemap, pos-head_size, size+head_size)
+                pos += size
+
+    #--------------------------------------------------------------------------------
+    def sections(self):                                                    # fmt_file
+    #--------------------------------------------------------------------------------
+        section = namedtuple('section', 'num start end')
+        a = None
+        num = 0
+        for block in self.blocks():
+            if not a is None and (self.start in block or block.is_last()):
+                b = block.pos
+                if block.is_last():
+                    b += block.size
+                yield section(num, a, b)
+                a = None
+                #num += 1
+            if self.start in block:
+                num = next(block.data)
+                a = block.pos
+
+    #--------------------------------------------------------------------------------
+    def split(self, num=0, size=0, echo=False, dry=False, progress=lambda x:None):                 # fmt_file
+    #--------------------------------------------------------------------------------
+        """
+        Split the file in 'num' separate files, or in files of size 'size' GB.
+        The size of the original file is reduced during splitting.
+        """
+        if not num and not size:
+            raise SyntaxError("Either 'num' or 'size' argument must be greater than 0")
+        if self.size() < 1:
+            return ()
+        # Convert size to GB
+        size = size*1024**3
+        # Get number of sections
+        section_size = next(self.sections()).end
+        nsec = self.size()/section_size
+        if nsec-int(nsec) != 0:
+            raise SystemError(f'ERROR Uneven section size for {self}')
+        batch_count = int(size//section_size)
+        if num:
+            batch_count = int(-(-nsec//num))
+        else:
+            num = int(-(-nsec//batch_count))
+        # If dry run, just print information about the split
+        if dry:
+            print(f'Sections in files : {batch_count}')
+            print(f'Size of files     : {batch_count*section_size/1024**3:.2f} GB')
+            print(f'Number of files   : {num}')
+            print(f'Number of sections: {int(nsec)}')
             return
-        with open(self.path, encoding=getpreferredencoding()) as self.fh:
-            for line in self.fh:
+        newfiles = [self.with_tag(head=f'{i:02d}_') for i in range(num)]
+        progress(-nsec)
+        progress(0)
+        for newfile in newfiles:
+            num, start, end = zip(*next(batched(self.sections(), batch_count)))
+            start = start[0]
+            end = end[-1]
+            with self.mmap(write=True) as infile:
+                with open(newfile, 'wb') as outfile:
+                    outfile.write(infile[start:end])
+                if echo:
+                    print(f'Wrote {newfile}')
+                length = end - start
+                size = len(infile)
+                infile.move(start, end, size-end)
+                infile.flush()
                 try:
-                    keyword, length, dtype = self.read_header(line)
-                    data = self.read_data(length, dtype)
-                except StopIteration:
-                    if warn_missing:
-                        print(f"\n  WARNING: Missing data in '{keyword}' block, file {self.path.name} not complete!")
-                    return
-                except TypeError:
-                    return
-                else:
-                    yield fmt_block(keyword, length, dtype, data)
+                    infile.resize(size - length)
+                except OSError as error:
+                    # Ignore the resize(0) error
+                    if error.errno == 22:
+                        pass
+            progress(num[-1])
+            #yield newfile
+        return newfiles
+
+    # #--------------------------------------------------------------------------------
+    # def blocks(self, warn_missing=False):                                  # fmt_file
+    # #--------------------------------------------------------------------------------
+    #     keyword = ''
+    #     if not self.is_file():
+    #         return
+    #     with open(self.path, encoding=getpreferredencoding()) as self.fh:
+    #         for line in self.fh:
+    #             try:
+    #                 keyword, length, dtype = self.read_header(line)
+    #                 data = self.read_data(length, dtype)
+    #             except StopIteration:
+    #                 if warn_missing:
+    #                     print(f"\n  WARNING: Missing data in '{keyword}' block, file {self.path.name} not complete!")
+    #                 return
+    #             except TypeError:
+    #                 return
+    #             else:
+    #                 yield fmt_block(keyword, length, dtype, data)
                            
                 
-    #--------------------------------------------------------------------------------
-    def read_header(self, line):                                           # fmt_file
-    #--------------------------------------------------------------------------------
-        words = line.rstrip().split("\'")
-        try:
-            return words[1], int(words[2]), words[3]
-        except IndexError:
-            return
+    # #--------------------------------------------------------------------------------
+    # def read_header(self, line):                                           # fmt_file
+    # #--------------------------------------------------------------------------------
+    #     words = line.rstrip().split("\'")
+    #     try:
+    #         return words[1], int(words[2]), words[3]
+    #     except IndexError:
+    #         return
         
-    #--------------------------------------------------------------------------------
-    def read_data(self, length, dtype, skip=False):                        # fmt_file
-    #--------------------------------------------------------------------------------
-        if skip:
-            data = None
-        else:
-            # data = zeros(length, dtype=datatype[dtype])
-            data = zeros(length, dtype=DTYPE[dtype.encode()].nptype)
-        n = 0
-        while n < length:
-            line = next(self.fh)
-            cols = line.rstrip().split()
-            m = len(cols)
-            if not skip:
-                if dtype=='DOUB':
-                    cols = [c.replace('D','E') for c in cols]
-                try:
-                    data[n:n+m] = cols
-                except ValueError:
-                    return data
-            n += m
-        return data
+    # #--------------------------------------------------------------------------------
+    # def read_data(self, length, dtype, skip=False):                        # fmt_file
+    # #--------------------------------------------------------------------------------
+    #     if skip:
+    #         data = None
+    #     else:
+    #         # data = zeros(length, dtype=datatype[dtype])
+    #         data = zeros(length, dtype=DTYPE[dtype.encode()].nptype)
+    #     n = 0
+    #     while n < length:
+    #         line = next(self.fh)
+    #         cols = line.rstrip().split()
+    #         m = len(cols)
+    #         if not skip:
+    #             if dtype=='DOUB':
+    #                 cols = [c.replace('D','E') for c in cols]
+    #             try:
+    #                 data[n:n+m] = cols
+    #             except ValueError:
+    #                 return data
+    #         n += m
+    #     return data
             
+    # #--------------------------------------------------------------------------------
+    # def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
+    #              start_after=None, end_before=None, end_after=None):    # fmt_file
+    # #--------------------------------------------------------------------------------
+    #     if not self.exists():
+    #         raise SystemError(f'ERROR File {self.path} not found')
+    #     inside = False
+    #     step = None
+    #     with open(self.path, 'rb') as file:
+    #         for block in self.blocks():
+    #             key = block.key()
+    #             step = check_sync(block, step)
+    #             #print(inside, key, step)
+    #             if inside and key in (end_before, end_after):
+    #                 inside = False
+    #                 if key == end_before:
+    #                     end_pos = block.startpos
+    #                 else:
+    #                     end_pos = block.endpos
+    #                 yield (n, file.read(end_pos-start_pos))
+    #             if not inside and key in (start_before, start_after):
+    #                 if step < begin:
+    #                     continue
+    #                 inside = True
+    #                 n = step
+    #                 if key == start_before:
+    #                     start_pos = block.startpos
+    #                 else:
+    #                     start_pos = block.endpos
+    #                 file.seek(start_pos)
+    #         if inside and end_before==init_key:
+    #             yield (n, file.read(self.size()-start_pos))
+
 
 #====================================================================================
 class FUNRST_file(fmt_file):
@@ -1874,7 +2081,7 @@ class FUNRST_file(fmt_file):
     def __init__(self, filename):                           # FUNRST_file
     #----------------------------------------------------------------------------
         super().__init__(filename, suffix='.FUNRST')
-
+        self.start = 'SEQNUM'
 
     #--------------------------------------------------------------------------------
     def data(self, *keys):                                       # FUNRST_file
@@ -1891,6 +2098,23 @@ class FUNRST_file(fmt_file):
             for key in keys:
                 if block.key() == key:
                     data[key] = (block.data.min(), block.data.max())
+
+
+    # #--------------------------------------------------------------------------------
+    # def step(self, block, step):                                         # FUNRST_file
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Used in sections to get step of current section
+    #     """
+    #     if block.key() == 'SEQNUM':
+    #         return block.data(0)
+    #     return step
+
+    # #--------------------------------------------------------------------------------
+    # def sections(self, **kwargs):                                        # FUNRST_file
+    # #--------------------------------------------------------------------------------
+    #     return super().sections(init_key=self.start, check_sync=self.step, **kwargs)
+
 
     #----------------------------------------------------------------------------
     def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # FUNRST_file
@@ -2007,6 +2231,7 @@ class FUNRST_file(fmt_file):
                 #self.get_data_pos_v2(filemap, blocks.size['blocks'])                
                 N = int(len(filemap)/blocks.size['blocks'])
                 progress(-N)
+                progress(0)
                 heads, slices, tails, types = self.prepare_helper_arrays(blocks, nblocks)
                 # process file
                 with open(outfile, 'wb') as out:

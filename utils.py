@@ -366,7 +366,7 @@ def batched(iterable, n): # From Itertools Recipes at docs.python.org
     if n < 1:
         raise ValueError('n must be at least one')
     it = iter(iterable)
-    while (batch := list(islice(it, n))):
+    while (batch := tuple(islice(it, n))):
         yield batch
         
 # #--------------------------------------------------------------------------------
@@ -480,8 +480,8 @@ def safezip(*gen):
 #-----------------------------------------------------------------------
     """
     Zip generators and close them if the zip exits. Zip exits when the first generator 
-    is exhausted. The __exit__() function for the non-exhausted generators will not be 
-    called. This routine closes the generators explicitly.
+    is exhausted, causing the __exit__() function not to be called for the non-exhausted 
+    generators. This routine fixes that problem by closing all the generators explicitly.
     """
     try:
         yield zip(*gen)
@@ -1071,7 +1071,8 @@ class Progress:
         #print('reset_time', n)
         self.start_time = datetime.now() #time()
         #self.start_time = None
-        self.min = min and min or 0
+        #self.min = min if min else 0
+        self.min = min or 0
         # self.n0 = n
         self.time_str = '--:--:--'
         self.n0 = max(n, self.min)
@@ -1099,27 +1100,6 @@ class Progress:
     def format_bar(self, n):
     #--------------------------------------------------------------------------------
         return f'{self.fraction(n)}  [{self.bar(n)}]  {self.time_str}'
-
-    # #--------------------------------------------------------------------------------
-    # def format_bar(self, n):
-    # #--------------------------------------------------------------------------------
-    #     #print('format_bar', n, self.min)
-    #     hash = 0
-    #     nn = max(n-self.min, 0)
-    #     if (diff := self.N-self.min) > 0:
-    #         hash = int(self.bar_length*nn/diff)
-    #     rest = self.bar_length - hash
-    #     # count = f'{int(n)}'
-    #     t, T = strip_zero((n, self.N))
-    #     if self.min > 0 and n >= self.min:
-    #         #count = f'({int(self.min)} + {int(nn)})'
-    #         a, b = strip_zero((self.min, nn))
-    #         t = f'({a} + {b})'
-    #         #print('format_bar',t)
-    #     #bar = hash <= self.bar_length and f'{hash*"#"}{rest*"-"}' or f'-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --'
-    #     bar = f'{hash*"#"}{rest*"-"}' if hash <= self.bar_length else f'-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --'
-    #     return f'{t} / {T}  [{bar}]  {self.time_str}'
-    #     #return f'{t} / {T}  [{bar}]  {self.eta}'
 
     #--------------------------------------------------------------------------------
     def bar(self, n):
@@ -1151,13 +1131,14 @@ class Progress:
         self.N = N
 
     #--------------------------------------------------------------------------------
-    def print(self, n, text=None):
+    def print(self, n, head=None, text=None):
     #--------------------------------------------------------------------------------
         self.remaining_time(n)
         line = self.format(n)
         trail_space = max(1, self.length - len(line))
         self.length = len(line)
-        print('\r' + self.indent + line + (text and ' '+text or '') + trail_space*' ', end='', flush=True)
+        print('\r' + (head+' ' if head else '') + self.indent + line 
+               + (' '+text if text else '') + trail_space*' ', end='', flush=True)
 
     #--------------------------------------------------------------------------------
     def remaining_time(self, n):
