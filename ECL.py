@@ -158,6 +158,24 @@ class File:                                                                    #
                 filemap.close()
 
     #--------------------------------------------------------------------------------
+    def resize(self, start=0, end=0):                                   # File
+    #--------------------------------------------------------------------------------
+        # NB Very slow for large files, use with caution! 
+        if start >= end:
+            raise SyntaxError("'start' must be less than 'end'")
+        length = end - start
+        size = self.size()
+        newsize = size - length
+        if newsize == 0:
+            self.touch()
+            return
+        with self.mmap(write=True) as infile:
+            # This is the slow operation
+            infile.move(start, end, size-end)
+            infile.flush()
+            infile.resize(size - length)
+
+    #--------------------------------------------------------------------------------
     def binarydata(self, raise_error=False):                                   # File
     #--------------------------------------------------------------------------------
         # Open as binary file to avoid encoding errors
@@ -764,16 +782,6 @@ class unfmt_file(File):
             return_value = self.path
         return return_value
 
-    # #--------------------------------------------------------------------------------
-    # def split(self, section=None, n=0, progress=lambda x:None, cancel=lambda:None): # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     num = 0
-    #     while batch := tuple(islice(section, n)):
-    #         _, data = zip(*batch)
-    #         filename = self.path.with_name(self.path.stem + f'_{num}_' + self.path.suffix)
-    #             #with open() 
-
-        
 
     #--------------------------------------------------------------------------------
     def assert_no_duplicates(self, raise_error=True):                     # unfmt_file
@@ -997,6 +1005,11 @@ class DATA_file(File):
         #return pos and tsteps or tuple(next(zip(*tsteps))) # Do not return positions
 
     #--------------------------------------------------------------------------------
+    def report_dates(self):                                               # DATA_file
+    #--------------------------------------------------------------------------------
+        return [self.start() + timedelta(days=days) for days in accumulate(self.timesteps())]
+    
+    #--------------------------------------------------------------------------------
     def wellnames(self):                                                  # DATA_file
     #--------------------------------------------------------------------------------
         """
@@ -1213,6 +1226,17 @@ class INIT_file(unfmt_file):                                              # INIT
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.INIT', **kwargs)
 
+    #--------------------------------------------------------------------------------
+    def simulator(self):                                                  # INIT_file
+    #--------------------------------------------------------------------------------
+        # sim = {100:'ECLIPSE 100', 300:'ECLIPSE 300', 500:'ECLIPSE 300 (thermal)',
+        #        700:'INTERSECT', 800:'FrontSim'}
+        sim = {100:'ecl', 300:'ecl', 500:'ecl', 700:'ix', 800:'FrontSim'}
+        if ihead:=next(self.blockdata('INTEHEAD'), None):
+            val = ihead[0][94]
+            if val < 0:
+                return 'other simulator'
+            return sim[val]
 
 
 #====================================================================================
@@ -1778,7 +1802,6 @@ class check_blocks:                                                    # check_b
             msg.append(f'WARNING No blocks read in {self._unfmt.path.name}')
         return msg
 
-
     #--------------------------------------------------------------------------------
     def data_saved(self, nblocks=1, wait_func=None, **kwargs):         # check_blocks
     #--------------------------------------------------------------------------------
@@ -1798,18 +1821,22 @@ class fmt_block:                                                         # fmt_b
     #
 #====================================================================================
     #--------------------------------------------------------------------------------
-    #def __init__(self, keyword=None, length=None, datatype=None, data=zeros(0)): # fmt_block
-    def __init__(self, key=None, length=None, datatype=None, data=(), filemap:mmap=None, pos=0, size=0): # fmt_block
+    def __init__(self, key=None, length=None, datatype=None, data=(), filemap:mmap=None, start=0, size=0): # fmt_block
     #--------------------------------------------------------------------------------
         self._key = key
         self._length = length
-        #self._dtype = DTYPE[datatype.encode()]
         self._dtype = DTYPE[datatype]
         self.data = data
         self.filemap = filemap
-        self.pos = pos
+        self.startpos = start
         self.size = size
-        #self.max_length = max_length
+        self.endpos = start + size
+
+    #--------------------------------------------------------------------------------
+    def __str__(self):                                                    # fmt_block
+    #--------------------------------------------------------------------------------
+        return (f'key={self.key():8s}, type={self._dtype.name:4s},' 
+                f'length={self._length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
     #--------------------------------------------------------------------------------                                                            
     def __repr__(self):                                                   # fmt_block                                                           
@@ -1819,55 +1846,48 @@ class fmt_block:                                                         # fmt_b
     #--------------------------------------------------------------------------------
     def __contains__(self, key:str):                                      # fmt_block
     #--------------------------------------------------------------------------------
-        return self._key == key.encode()
+        return self.key() == key
 
     #--------------------------------------------------------------------------------
     def is_last(self):                                                    # fmt_block
     #--------------------------------------------------------------------------------
-        return self.pos + self.size == self.filemap.size()
+        return self.endpos == self.filemap.size()
 
     #--------------------------------------------------------------------------------
     def formatted(self):                                                  # fmt_block
     #--------------------------------------------------------------------------------
-        return self.filemap[self.pos:self.pos+self.size]
+        return self.filemap[self.startpos:self.endpos]
 
     #--------------------------------------------------------------------------------
     def key(self):                                                        # fmt_block
     #--------------------------------------------------------------------------------
-        return self._key.decode()
+        return self._key.decode().strip()
         #return self.keyword.strip()
     
     # #--------------------------------------------------------------------------------
-    # def set_key(self, keyword):                                           # fmt_block
+    # def position(self):                                                   # fmt_block
     # #--------------------------------------------------------------------------------
-    #     self.keyword = keyword #.ljust(8)
-    
+    #     return (self.startpos, self.endpos)
+
     #--------------------------------------------------------------------------------
-    def unformatted(self):                                                # fmt_block
+    def as_binary(self):                                                  # fmt_block
     #--------------------------------------------------------------------------------
-        #dtype = self.datatype.encode()
-        length = self._length
-        bytes_ = bytearray()
-        # header
-        # Consider bytes_.append() here?
-        bytes_ += pack(ENDIAN + 'i8si4si', 16, self._key.encode(), length, self._dtype.name.encode(), 16)
-        # data is split in multiple records if length > 1000 
-        #data = self.data
-        data = nparray(*self.data)
-        while data.size > 0:
-            length = min(len(data), self._dtype.max)
-            size = self._dtype.size*length
-            bytes_ += pack(f'{ENDIAN}i{length}{self._dtype.unpack}i', size, *data[:length], size)
-            data = data[length:]
-        return bytes_
+        dtype = self._dtype
+        count = self._length//dtype.max
+        rest = self._length%dtype.max
+        format = (ENDIAN + 'i8si4si' 
+                + ''.join(repeat(f'i{dtype.max}{dtype.unpack}i', count)) 
+                + f'i{rest}{dtype.unpack}i')
+        size = dtype.size
+        head_values = (16, self._key, self._length, dtype.name.encode(), 16)
+        data_values = ((size*len(d), *d, size*len(d)) for d in batched(self.data, dtype.max))
+        values = chain((head_values,), data_values)
+        return pack(format, *flatten(values))
                 
     #--------------------------------------------------------------------------------
     def print(self):                                                      # fmt_block
     #--------------------------------------------------------------------------------
-        data = ''
-        #if len(self.data) > 0:
-        #    data = 'data[0,-1] = ['+str(self.data[0])+', '+str(self.data[-1])+']'
-        print(self._key, self._length, self._dtype.name) #, next(self.data))
+        print(self._key, self._length, self._dtype.name)
 
         
 #====================================================================================
@@ -1879,199 +1899,176 @@ class fmt_file(File):                                                      # fmt
     #--------------------------------------------------------------------------------
     def __init__(self, filename, **kwargs):                                # fmt_file
     #--------------------------------------------------------------------------------
-        #self.file = Path(filename)
         super().__init__(filename, **kwargs)
-        #self.fh = None
-        self.start = None #'SEQNUM'
-        self.wordsize = {b'INTE':12,  b'LOGI':3,   b'DOUB':23,     b'REAL':17}
-        self.rows     = {b'INTE':6,   b'LOGI':20,  b'DOUB':3,      b'REAL':4}
-        self.cast     = {b'INTE':int, b'LOGI':self._logi, b'DOUB':self._double, b'REAL':float}
+        self.start = None 
 
     #--------------------------------------------------------------------------------
-    def _double(self, string):                                        # fmt_file
+    def blocks(self):                                                      # fmt_file
     #--------------------------------------------------------------------------------
-        return float(string.replace(b'D',b'E'))
-
-    #--------------------------------------------------------------------------------
-    def _logi(self, string):                                          # fmt_file
-    #--------------------------------------------------------------------------------
-        return True if string=='T' else False
-
-    #--------------------------------------------------------------------------------
-    def blocks(self):                                                 # fmt_file
-    #--------------------------------------------------------------------------------
+        def double(string):
+            return float(string.replace(b'D',b'E'))
+        def logi(string):
+            return True if string=='T' else False
+        wordsize = {b'INTE':12,  b'LOGI':3,    b'DOUB':23,     b'REAL':17}
+        rows     = {b'INTE':6,   b'LOGI':20,   b'DOUB':3,      b'REAL':4}
+        cast     = {b'INTE':int, b'LOGI':logi, b'DOUB':double, b'REAL':float}
         head_size = 32
         with self.mmap() as filemap:
             pos = 0
             while pos < filemap.size():
                 head = filemap[pos:pos+head_size]
-                key, length, typ = head[2:10].strip(), int(head[12:23]), head[25:29]
+                key, length, typ = head[2:10], int(head[12:23]), head[25:29]
                 pos += head_size
                 # Here -(-a//b) is used as the ceil function
-                size = length*self.wordsize[typ] + 2*(-(-length//self.rows[typ])) 
-                data = (self.cast[typ](d) for d in filemap[pos:pos+size].split())
+                size = length*wordsize[typ] + 2*(-(-length//rows[typ])) 
+                data = (cast[typ](d) for d in filemap[pos:pos+size].split())
                 yield fmt_block(key, length, typ, data, filemap, pos-head_size, size+head_size)
                 pos += size
 
     #--------------------------------------------------------------------------------
-    def sections(self):                                                    # fmt_file
+    def first_section(self):                                               # fmt_file
     #--------------------------------------------------------------------------------
-        section = namedtuple('section', 'num start end')
-        a = None
-        num = 0
-        for block in self.blocks():
-            if not a is None and (self.start in block or block.is_last()):
-                b = block.pos
-                if block.is_last():
-                    b += block.size
-                yield section(num, a, b)
-                a = None
-                #num += 1
-            if self.start in block:
-                num = next(block.data)
-                a = block.pos
+        # Get number of blocks and size of first section
+        secs = ((i,b) for i, b in enumerate(self.blocks()) if 'SEQNUM' in b)
+        count, first_block_next_section = tuple(islice(secs, 2))[-1]
+        return namedtuple('section','count size')(count, first_block_next_section.startpos)
 
     #--------------------------------------------------------------------------------
-    def split(self, num=0, size=0, echo=False, dry=False, progress=lambda x:None):                 # fmt_file
+    def section_blocks(self, count=None, with_attr:str=None):                          # fmt_file
     #--------------------------------------------------------------------------------
-        """
-        Split the file in 'num' separate files, or in files of size 'size' GB.
-        The size of the original file is reduced during splitting.
-        """
-        if not num and not size:
-            raise SyntaxError("Either 'num' or 'size' argument must be greater than 0")
-        if self.size() < 1:
-            return ()
-        # Convert size to GB
-        size = size*1024**3
-        # Get number of sections
-        section_size = next(self.sections()).end
-        nsec = self.size()/section_size
-        if nsec-int(nsec) != 0:
-            raise SystemError(f'ERROR Uneven section size for {self}')
-        batch_count = int(size//section_size)
-        if num:
-            batch_count = int(-(-nsec//num))
-        else:
-            num = int(-(-nsec//batch_count))
-        # If dry run, just print information about the split
-        if dry:
-            print(f'Sections in files : {batch_count}')
-            print(f'Size of files     : {batch_count*section_size/1024**3:.2f} GB')
-            print(f'Number of files   : {num}')
-            print(f'Number of sections: {int(nsec)}')
-            return
-        newfiles = [self.with_tag(head=f'{i:02d}_') for i in range(num)]
-        progress(-nsec)
-        progress(0)
-        for newfile in newfiles:
-            num, start, end = zip(*next(batched(self.sections(), batch_count)))
-            start = start[0]
-            end = end[-1]
-            with self.mmap(write=True) as infile:
-                with open(newfile, 'wb') as outfile:
-                    outfile.write(infile[start:end])
-                if echo:
-                    print(f'Wrote {newfile}')
-                length = end - start
-                size = len(infile)
-                infile.move(start, end, size-end)
-                infile.flush()
-                try:
-                    infile.resize(size - length)
-                except OSError as error:
-                    # Ignore the resize(0) error
-                    if error.errno == 22:
-                        pass
-            progress(num[-1])
-            #yield newfile
-        return newfiles
+        count = count or self.section_count()
+        if with_attr:
+            return batched((getattr(b, with_attr)() for b in self.blocks()), count)    
+        return batched(self.blocks(), count)
 
     # #--------------------------------------------------------------------------------
-    # def blocks(self, warn_missing=False):                                  # fmt_file
+    # def as_binary(self, outfile, stop:int=None, buffer=50, 
+    #               progress=lambda x:None, cancel=lambda:None):             # fmt_file
     # #--------------------------------------------------------------------------------
-    #     keyword = ''
-    #     if not self.is_file():
-    #         return
-    #     with open(self.path, encoding=getpreferredencoding()) as self.fh:
-    #         for line in self.fh:
-    #             try:
-    #                 keyword, length, dtype = self.read_header(line)
-    #                 data = self.read_data(length, dtype)
-    #             except StopIteration:
-    #                 if warn_missing:
-    #                     print(f"\n  WARNING: Missing data in '{keyword}' block, file {self.path.name} not complete!")
-    #                 return
-    #             except TypeError:
-    #                 return
-    #             else:
-    #                 yield fmt_block(keyword, length, dtype, data)
-                           
-                
-    # #--------------------------------------------------------------------------------
-    # def read_header(self, line):                                           # fmt_file
-    # #--------------------------------------------------------------------------------
-    #     words = line.rstrip().split("\'")
-    #     try:
-    #         return words[1], int(words[2]), words[3]
-    #     except IndexError:
-    #         return
-        
-    # #--------------------------------------------------------------------------------
-    # def read_data(self, length, dtype, skip=False):                        # fmt_file
-    # #--------------------------------------------------------------------------------
-    #     if skip:
-    #         data = None
-    #     else:
-    #         # data = zeros(length, dtype=datatype[dtype])
-    #         data = zeros(length, dtype=DTYPE[dtype.encode()].nptype)
+    #     buffer *= 1024**3
+    #     count = self.section_count()
     #     n = 0
-    #     while n < length:
-    #         line = next(self.fh)
-    #         cols = line.rstrip().split()
-    #         m = len(cols)
-    #         if not skip:
-    #             if dtype=='DOUB':
-    #                 cols = [c.replace('D','E') for c in cols]
-    #             try:
-    #                 data[n:n+m] = cols
-    #             except ValueError:
-    #                 return data
-    #         n += m
-    #     return data
-            
+    #     progress(n)
+    #     with open(outfile, 'wb') as out:
+    #         for binarydata in self.section_blocks(count=count, with_attr='as_binary'):
+    #             out.write(b''.join(binarydata))
+    #             n += 1
+    #             progress(n)
+    #             cancel()
+    #             if stop and n >= stop:
+    #                 break
+    #     return Path(outfile)
+
+    #--------------------------------------------------------------------------------
+    def as_binary(self, outfile, stop:int=None, buffer=50, rename=(),
+                  progress=lambda x:None, cancel=lambda:None):             # fmt_file
+    #--------------------------------------------------------------------------------
+        buffer *= 1024**3
+        section = self.first_section()
+        N = self.size()/section.size
+        if N-int(N) != 0:
+            raise SystemError(f'ERROR Uneven section size for {self}')
+        progress(-int(N))
+        n = 0
+        m = 0 # counter for resize
+        progress(n)
+        with open(outfile, 'wb') as out:
+            sectiondata = self.section_blocks(count=section.count, with_attr='as_binary')
+            while data:=next(sectiondata, None):
+                data = b''.join(data)
+                if rename and (names:=[rn for rn in rename if rn[0] in data]):
+                    for old, new in names:
+                        data = data.replace(old.ljust(8), new.ljust(8))
+                out.write(data)
+                n += 1
+                m += 1
+                if stop and n >= stop:
+                    return Path(outfile)
+                progress(n)
+                cancel()
+                if (end:=m*section.size) > buffer:
+                    m = 0
+                    self.resize(start=0, end=end)
+                    sectiondata = self.section_blocks(count=section.count, with_attr='as_binary')
+        return Path(outfile)
+
     # #--------------------------------------------------------------------------------
-    # def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
-    #              start_after=None, end_before=None, end_after=None):    # fmt_file
+    # #def sections(self):                                                    # fmt_file
+    # def section_positions(self):                                            # fmt_file
     # #--------------------------------------------------------------------------------
-    #     if not self.exists():
-    #         raise SystemError(f'ERROR File {self.path} not found')
-    #     inside = False
-    #     step = None
-    #     with open(self.path, 'rb') as file:
-    #         for block in self.blocks():
-    #             key = block.key()
-    #             step = check_sync(block, step)
-    #             #print(inside, key, step)
-    #             if inside and key in (end_before, end_after):
-    #                 inside = False
-    #                 if key == end_before:
-    #                     end_pos = block.startpos
-    #                 else:
-    #                     end_pos = block.endpos
-    #                 yield (n, file.read(end_pos-start_pos))
-    #             if not inside and key in (start_before, start_after):
-    #                 if step < begin:
-    #                     continue
-    #                 inside = True
-    #                 n = step
-    #                 if key == start_before:
-    #                     start_pos = block.startpos
-    #                 else:
-    #                     start_pos = block.endpos
-    #                 file.seek(start_pos)
-    #         if inside and end_before==init_key:
-    #             yield (n, file.read(self.size()-start_pos))
+    #     section = namedtuple('section', 'start end')
+    #     a = None
+    #     for block in self.blocks():
+    #         if not a is None and (self.start in block or block.is_last()):
+    #             b = block.startpos
+    #             if block.is_last():
+    #                 b += block.size
+    #             yield section(a, b)
+    #             a = None
+    #         if self.start in block:
+    #             a = block.startpos
+
+    # #--------------------------------------------------------------------------------
+    # def split(self, num=0, size=0, buffer=0, echo=False, dry=False, progress=lambda x:None):                 # fmt_file
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Split the file in 'num' separate files, or in files of size 'size' GB.
+    #     The size of the original file is reduced during splitting.
+    #     """
+    #     if not num and not size:
+    #         raise SyntaxError("Either 'num' or 'size' argument must be greater than 0")
+    #     if self.size() < 1:
+    #         return ()
+    #     # Convert to GB
+    #     size *= 1024**3
+    #     buffer *= 1024**3
+    #     # Get number of sections
+    #     section_size = next(self.section_positions()).end
+    #     nsec = self.size()/section_size
+    #     if nsec-int(nsec) != 0:
+    #         raise SystemError(f'ERROR Uneven section size for {self}')
+    #     batch_count = int(size//section_size)
+    #     if num:
+    #         batch_count = int(-(-nsec//num))
+    #     else:
+    #         num = int(-(-nsec//batch_count))
+    #     # If dry run, just print information about the split
+    #     if dry:
+    #         print(f'Sections in files : {batch_count}')
+    #         print(f'Size of files     : {batch_count*section_size/1024**3:.2f} GB')
+    #         print(f'Number of files   : {num}')
+    #         print(f'Number of sections: {int(nsec)}')
+    #         return
+    #     newfiles = [self.with_tag(head=f'{i:02d}_') for i in range(num)]
+    #     progress(-num)
+    #     progress(0)
+    #     batches = batched(self.section_positions(), batch_count) 
+    #     length = 0
+    #     with self.mmap(write=True) as infile:
+    #         for n,newfile in enumerate(newfiles):
+    #             #print('SIZE', infile.size())
+    #             start, end = zip(*next(batches))
+    #             #print('START', start)
+    #             start = start[0]
+    #             end = end[-1]
+    #             with open(newfile, 'wb') as outfile:
+    #                 outfile.write(infile[start:end])
+    #             progress(n+1)
+    #             if echo:
+    #                 print(f'Wrote {newfile}')
+    #             length += end - start
+    #             if length > buffer and size > length:
+    #                 print('RESIZE:', length)
+    #                 size = len(infile)
+    #                 # VERY SLOW FOR LARGE FILES! Need to do this as seldom as possible
+    #                 infile.move(0, end, size-end)
+    #                 infile.flush()
+    #                 infile.resize(size-length)
+    #                 batches = batched(self.sections(), batch_count) 
+    #                 length = 0
+    #     self.delete()
+    #     return newfiles
+
 
 
 #====================================================================================
@@ -2099,186 +2096,165 @@ class FUNRST_file(fmt_file):
                 if block.key() == key:
                     data[key] = (block.data.min(), block.data.max())
 
-
-    # #--------------------------------------------------------------------------------
-    # def step(self, block, step):                                         # FUNRST_file
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Used in sections to get step of current section
-    #     """
-    #     if block.key() == 'SEQNUM':
-    #         return block.data(0)
-    #     return step
-
-    # #--------------------------------------------------------------------------------
-    # def sections(self, **kwargs):                                        # FUNRST_file
-    # #--------------------------------------------------------------------------------
-    #     return super().sections(init_key=self.start, check_sync=self.step, **kwargs)
-
-
     #----------------------------------------------------------------------------
-    def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # FUNRST_file
+    def as_unrst(self, outfile=None, **kwargs):  # FUNRST_file 
     #----------------------------------------------------------------------------
-        n = 0
-        pos = {k:0 for k in DTYPE.keys()}
-        size = {'blocks':0, 'bytes':0}
-        num = {'chunks':0, 'blocks':0}
-        Blocks = namedtuple('Blocks',['format', 'type', 'head', 'tail', 'slice', 'stride','size','num'])
-        blocks = Blocks(format=[], type=[], head=[], tail=[], slice=[], stride=pos, size=size, num=num)
-        head_format='i8si4si' # 4+8+4+4+4 = 24
-        count = {}
-        #for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
-        for match in finditer(br" '([^']{8})'([0-9 ]{13})'(\w{4})'", filemap):
-            # header
-            key, length, dtype = match.groups()
-            key = key.decode().strip()
-            length = int(length.decode())
-            if key==init_key:
-                n += 1
-                if n > 1:
-                    size['bytes'] = sum(blocks.tail) + len(blocks.format)*24
-                    size['blocks'] = match.start()
-                    num['blocks'] = len(blocks.format)
-                    num['chunks'] = len(blocks.type)
-                    return blocks
-            if rename_duplicate:
-                if count.get(key):
-                    key = key[:-1]+str(count[key]+1)
-                    count[key] = 0
-                else:
-                    # create new entry
-                    count[key] = 0
-                count[key] += 1
-            if rename_key and key==rename_key[0]:
-                key = rename_key[1]
-            head_data = [16, key.ljust(8).encode(), length, dtype, 16]
-            # split block data in chunks if max_length
-            max_l = DTYPE[dtype].max
-            L = [min(max_l, length-n*max_l) for n in range(int(length/max_l)+1)]
-            L = [l for l in L if l>0]  # Remove possible 0's at the end
-            blocks.format.append( head_format+''.join(['i'+str(l)+DTYPE[dtype].unpack+'i' for l in L]) )
-            for i,l in enumerate(L):
-                blocks.type.append( dtype )
-                head = [l*DTYPE[dtype].size,]
-                if i==0:
-                    head = head_data + head  
-                blocks.head.append( head )
-                blocks.tail.append( l*DTYPE[dtype].size )
-                blocks.slice.append( [pos[dtype]+sum(L[:i]), pos[dtype]+sum(L[:i])+l] )
-            pos[dtype] += length
-        #return blocks
-
-
-    #----------------------------------------------------------------------------
-    def get_data_pos(self, filemap, size):                             # FUNRST_file
-    #----------------------------------------------------------------------------
-        data = filemap[:size].split()
-        # dtypes = [("'"+k+"'").encode() for k in datatype.keys()]
-        dtypes = [("'"+k+"'").encode() for k in DTYPE_LIST]
-        # data_pos = {k:[] for k in datasize.keys()}
-        data_pos = {k:[] for k in DTYPE.keys()}
-        for i in range(len(data)):
-            if data[i] in dtypes:
-                dty = data[i][1:-1] # remove quotes
-                data_pos[dty].append([i+1, i+1+int(data[i-1])])
-        return data_pos, len(data)
+        outfile = Path(outfile) if outfile else self.path
+        outfile = outfile.with_suffix('.UNRST')
+        return UNRST_file( super().as_binary(outfile, **kwargs) )
 
     # #----------------------------------------------------------------------------
-    # def get_data_pos_v2(self, filemap, size):                             # FUNRST_file
+    # def get_blocks(self, filemap, init_key, rename_duplicate, rename_key): # FUNRST_file
     # #----------------------------------------------------------------------------
+    #     n = 0
+    #     pos = {k:0 for k in DTYPE.keys()}
+    #     size = {'blocks':0, 'bytes':0}
+    #     num = {'chunks':0, 'blocks':0}
+    #     Blocks = namedtuple('Blocks',['format', 'type', 'head', 'tail', 'slice', 'stride','size','num'])
+    #     blocks = Blocks(format=[], type=[], head=[], tail=[], slice=[], stride=pos, size=size, num=num)
+    #     head_format='i8si4si' # 4+8+4+4+4 = 24
+    #     count = {}
+    #     #for match in finditer(b" \'(.{8})\'([0-9 ]{13})\'(.{4})\'", filemap):
+    #     for match in finditer(br" '([^']{8})'([0-9 ]{13})'(\w{4})'", filemap):
+    #         # header
+    #         key, length, dtype = match.groups()
+    #         key = key.decode().strip()
+    #         length = int(length.decode())
+    #         if key==init_key:
+    #             n += 1
+    #             if n > 1:
+    #                 size['bytes'] = sum(blocks.tail) + len(blocks.format)*24
+    #                 size['blocks'] = match.start()
+    #                 num['blocks'] = len(blocks.format)
+    #                 num['chunks'] = len(blocks.type)
+    #                 return blocks
+    #         if rename_duplicate:
+    #             if count.get(key):
+    #                 key = key[:-1]+str(count[key]+1)
+    #                 count[key] = 0
+    #             else:
+    #                 # create new entry
+    #                 count[key] = 0
+    #             count[key] += 1
+    #         if rename_key and key==rename_key[0]:
+    #             key = rename_key[1]
+    #         head_data = [16, key.ljust(8).encode(), length, dtype, 16]
+    #         # split block data in chunks if max_length
+    #         max_l = DTYPE[dtype].max
+    #         L = [min(max_l, length-n*max_l) for n in range(int(length/max_l)+1)]
+    #         L = [l for l in L if l>0]  # Remove possible 0's at the end
+    #         blocks.format.append( head_format+''.join(['i'+str(l)+DTYPE[dtype].unpack+'i' for l in L]) )
+    #         for i,l in enumerate(L):
+    #             blocks.type.append( dtype )
+    #             head = [l*DTYPE[dtype].size,]
+    #             if i==0:
+    #                 head = head_data + head  
+    #             blocks.head.append( head )
+    #             blocks.tail.append( l*DTYPE[dtype].size )
+    #             blocks.slice.append( [pos[dtype]+sum(L[:i]), pos[dtype]+sum(L[:i])+l] )
+    #         pos[dtype] += length
+    #     #return blocks
+
+
+    # #----------------------------------------------------------------------------
+    # def get_data_pos(self, filemap, size):                             # FUNRST_file
+    # #----------------------------------------------------------------------------
+    #     data = filemap[:size].split()
+    #     # dtypes = [("'"+k+"'").encode() for k in datatype.keys()]
     #     dtypes = [("'"+k+"'").encode() for k in DTYPE_LIST]
+    #     # data_pos = {k:[] for k in datasize.keys()}
     #     data_pos = {k:[] for k in DTYPE.keys()}
-    #     data_match = (m for m in finditer(b'\S+', filemap[:size]) if m.group(0) in dtypes)
-    #     for m in data_match:
-    #         print(m)
-            
-    #         data_pos[m.group(0)[1:-1]].append(m.span()[1]+1)
-    #     return data_pos
+    #     for i in range(len(data)):
+    #         if data[i] in dtypes:
+    #             dty = data[i][1:-1] # remove quotes
+    #             data_pos[dty].append([i+1, i+1+int(data[i-1])])
+    #     return data_pos, len(data)
 
-    #----------------------------------------------------------------------------
-    def prepare_helper_arrays(self, blocks, nblocks):                  # FUNRST_file
-    #----------------------------------------------------------------------------
-        block_slices = nparray(blocks.slice)
-        slices = nparray(block_slices)
-        stride = nparray( [[blocks.stride[blocks.type[i]],] for i in range(blocks.num['chunks'])] )
-        heads = deepcopy(blocks.head)
-        tails = deepcopy(blocks.tail)
-        types = deepcopy(blocks.type)
-        for n in range(1,nblocks):
-            slices = npappend(slices, n*stride+block_slices, axis=0)
-            heads += blocks.head
-            tails += blocks.tail
-            types += blocks.type
-        return heads, slices, tails, types
+    # #----------------------------------------------------------------------------
+    # def prepare_helper_arrays(self, blocks, nblocks):                  # FUNRST_file
+    # #----------------------------------------------------------------------------
+    #     block_slices = nparray(blocks.slice)
+    #     slices = nparray(block_slices)
+    #     stride = nparray( [[blocks.stride[blocks.type[i]],] for i in range(blocks.num['chunks'])] )
+    #     heads = deepcopy(blocks.head)
+    #     tails = deepcopy(blocks.tail)
+    #     types = deepcopy(blocks.type)
+    #     for n in range(1,nblocks):
+    #         slices = npappend(slices, n*stride+block_slices, axis=0)
+    #         heads += blocks.head
+    #         tails += blocks.tail
+    #         types += blocks.type
+    #     return heads, slices, tails, types
 
-    #----------------------------------------------------------------------------
-    def as_UNRST(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
-                rename_key=None, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file 
-    #--------------------------------------------------------------------------------
-        outfile = self.path.with_suffix(ext)
-        # if self.size() < 1:
-        #     return None
-        with open(self.path, 'r', encoding='utf-8') as f:
-            with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
-                # prepare
-                blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
-                if not blocks:
-                    raise SystemError(
-                        f'ERROR No report steps found in {self}, unable to create UNRST-file')
-                #print(blocks)
-                unit_format = ''.join(blocks.format)
-                data_pos, pos_stride = self.get_data_pos(filemap, blocks.size['blocks'])
-                #self.get_data_pos_v2(filemap, blocks.size['blocks'])                
-                N = int(len(filemap)/blocks.size['blocks'])
-                progress(-N)
-                progress(0)
-                heads, slices, tails, types = self.prepare_helper_arrays(blocks, nblocks)
-                # process file
-                with open(outfile, 'wb') as out:
-                    a = 0
-                    end = len(filemap)
-                    finished = False
-                    n = 0
-                    while not finished:
-                        # convert from string to array datatype
-                        b = a + nblocks*blocks.size['blocks']
-                        if b>end:
-                            b = end
-                            nblocks = int((b-a)/blocks.size['blocks'])
-                            finished = True
-                        data = filemap[a:b].split()
-                        #data = (m.group(0) for m in finditer(b'\S+', filemap[a:b])) # generator version of split
-                        a = b
-                        buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
-                        data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
-                        out.write(pack(ENDIAN+nblocks*unit_format, *(x for y in data_chunks for x in y)))
-                        n += nblocks
-                        progress(n)
-                        cancel()
-        return UNRST_file(outfile, end=UNRST_file(outfile).end_key())
+    # #----------------------------------------------------------------------------
+    # def as_UNRST(self, nblocks=1, ext='.UNRST', init_key='SEQNUM', rename_duplicate=True,
+    #             rename_key=None, progress=lambda x:None, cancel=lambda:None):  # FUNRST_file 
+    # #--------------------------------------------------------------------------------
+    #     outfile = self.path.with_suffix(ext)
+    #     # if self.size() < 1:
+    #     #     return None
+    #     # with open(self.path, 'r', encoding='utf-8') as f:
+    #     #     with mmap(f.fileno(), length=0, offset=0, access=ACCESS_READ) as filemap:
+    #     with self.mmap() as filemap:
+    #         # prepare
+    #         blocks = self.get_blocks(filemap, init_key, rename_duplicate, rename_key)
+    #         if not blocks:
+    #             raise SystemError(
+    #                 f'ERROR No report steps found in {self}, unable to create UNRST-file')
+    #         #print(blocks)
+    #         unit_format = ''.join(blocks.format)
+    #         data_pos, pos_stride = self.get_data_pos(filemap, blocks.size['blocks'])
+    #         #self.get_data_pos_v2(filemap, blocks.size['blocks'])                
+    #         N = int(len(filemap)/blocks.size['blocks'])
+    #         progress(-N)
+    #         progress(0)
+    #         heads, slices, tails, types = self.prepare_helper_arrays(blocks, nblocks)
+    #         # process file
+    #         with open(outfile, 'wb') as out:
+    #             a = 0
+    #             end = len(filemap)
+    #             finished = False
+    #             n = 0
+    #             while not finished:
+    #                 # convert from string to array datatype
+    #                 b = a + nblocks*blocks.size['blocks']
+    #                 if b>end:
+    #                     b = end
+    #                     nblocks = int((b-a)/blocks.size['blocks'])
+    #                     finished = True
+    #                 data = filemap[a:b].split()
+    #                 #data = (m.group(0) for m in finditer(b'\S+', filemap[a:b])) # generator version of split
+    #                 a = b
+    #                 buffer = self.string_to_num(nblocks, blocks, data_pos, data, pos_stride)
+    #                 data_chunks = ((*heads[i], *buffer[types[i]][slices[i][0]:slices[i][1]], tails[i]) for i in range(nblocks*blocks.num['chunks']))
+    #                 out.write(pack(ENDIAN+nblocks*unit_format, *(x for y in data_chunks for x in y)))
+    #                 n += nblocks
+    #                 progress(n)
+    #                 cancel()
+    #     return UNRST_file(outfile, end=UNRST_file(outfile).end_key())
 
-    #----------------------------------------------------------------------------
-    def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride): # FUNRST_file
-    #----------------------------------------------------------------------------
-        buffer = {}
-        # Loop over all datatypes (INTE, REAL, DOUB, etc.)
-        for dtyp in blocks.stride.keys():
-            # dtype=datatype[dtyp.decode()]
-            dtype = DTYPE[dtyp].nptype
-            #buf = [data[i+nb*pos_stride:j+nb*pos_stride] for i,j in data_pos[dtyp] for nb in range(nblocks)]
-            buf = []
-            for i,j in data_pos[dtyp]:
-                for nb in range(nblocks):
-                    buf.append(data[i+nb*pos_stride:j+nb*pos_stride])
-                    #print(f'{dtyp}: data[{i}]={data[i]}, data[{j}]={data[j-1]}')
-            try:
-                # May yield: RuntimeWarning: overflow encountered in cast
-                # To silence warning: import warnings; warnings.filterwarnings('ignore')
-                buffer[dtyp] = nparray([x for y in buf for x in y], dtype=dtype)
-            except ValueError:
-                #buffer[dtyp] = nparray([x[:15]+b'E'+x[17:] for y in buf for x in y], dtype=dtype)
-                buffer[dtyp] = nparray([x.decode().replace('D','E') for y in buf for x in y], dtype=dtype)
-        return buffer
+    # #----------------------------------------------------------------------------
+    # def string_to_num(self, nblocks, blocks, data_pos, data, pos_stride): # FUNRST_file
+    # #----------------------------------------------------------------------------
+    #     buffer = {}
+    #     # Loop over all datatypes (INTE, REAL, DOUB, etc.)
+    #     for dtyp in blocks.stride.keys():
+    #         # dtype=datatype[dtyp.decode()]
+    #         dtype = DTYPE[dtyp].nptype
+    #         #buf = [data[i+nb*pos_stride:j+nb*pos_stride] for i,j in data_pos[dtyp] for nb in range(nblocks)]
+    #         buf = []
+    #         for i,j in data_pos[dtyp]:
+    #             for nb in range(nblocks):
+    #                 buf.append(data[i+nb*pos_stride:j+nb*pos_stride])
+    #                 #print(f'{dtyp}: data[{i}]={data[i]}, data[{j}]={data[j-1]}')
+    #         try:
+    #             # May yield: RuntimeWarning: overflow encountered in cast
+    #             # To silence warning: import warnings; warnings.filterwarnings('ignore')
+    #             buffer[dtyp] = nparray([x for y in buf for x in y], dtype=dtype)
+    #         except ValueError:
+    #             #buffer[dtyp] = nparray([x[:15]+b'E'+x[17:] for y in buf for x in y], dtype=dtype)
+    #             buffer[dtyp] = nparray([x.decode().replace('D','E') for y in buf for x in y], dtype=dtype)
+    #     return buffer
 
 
     # #----------------------------------------------------------------------------
@@ -2320,35 +2296,6 @@ class FUNRST_file(fmt_file):
     #         print(f'{self.file.name} converted to {Path(fname)}')
     #     return Path(fname)
             
-# #@njit
-# #----------------------------------------------------------------------------
-# def numba_convert_buffer(buffer, dtyp):
-# #----------------------------------------------------------------------------
-#     for i in range(len(buffer)):
-#         buffer[i] = numba_str_to_num(buffer[i], dtyp)
-#     return buffer
-#     # if dtyp=='INTE':
-#     #     return nparray(buffer, dtype=int)
-#     # if dtyp=='REAL':
-#     #     return nparray(buffer, dtype=float)
-#     # if dtyp=='DOUB':
-#     #     return nparray(buffer, dtype=float)
-#     # if dtyp=='LOGI':
-#     #     return nparray(buffer, dtype=bool)
-
-# #@njit
-# #----------------------------------------------------------------------------
-# def numba_str_to_num(string, dtyp):
-# #----------------------------------------------------------------------------
-#     #print(string)
-#     if dtyp=='INTE':
-#         return int(string)
-#     if dtyp=='REAL':
-#         return float(string)
-#     if dtyp=='DOUB':
-#         return float(string[:15]+'E'+string[17:])
-#     if dtyp=='LOGI':
-#         return string=='T'
 
     
 #====================================================================================
@@ -2924,6 +2871,11 @@ class IX_input:                                                            # IX_
         #     steps = steps[:neg]
         return steps
 
+    #--------------------------------------------------------------------------------
+    def report_dates(self):                                                # IX_input
+    #--------------------------------------------------------------------------------
+        return [self.start() + timedelta(days=days) for days in accumulate(self.timesteps())]
+    
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                   # IX_input
     #--------------------------------------------------------------------------------
