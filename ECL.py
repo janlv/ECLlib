@@ -26,7 +26,7 @@ from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
 from .utils import (batched, cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
                     flat_list, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars,
-                    safezip, list2str, float_or_str, matches, split_by_words, string_chunks, split_in_lines)
+                    list2str, float_or_str, matches, split_by_words, string_chunks, split_in_lines)
 from .runner import Process
 
 
@@ -747,7 +747,7 @@ class unfmt_file(File):
                 yield (step[0], filemap[_slice])
 
     #--------------------------------------------------------------------------------
-    def merge2(self, *section_data, progress=lambda x:None, cancel=lambda:None):
+    def merge(self, *section_data, progress=lambda x:None, cancel=lambda:None):
     #--------------------------------------------------------------------------------
         with open(self.path, 'wb') as merge_file:
             n = 0
@@ -762,58 +762,58 @@ class unfmt_file(File):
                 progress(n)
         return self.path
 
-    #--------------------------------------------------------------------------------
-    def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
-                 start_after=None, end_before=None, end_after=None):    # unfmt_file
-    #--------------------------------------------------------------------------------
-        if not self.exists():
-            raise SystemError(f'ERROR File {self.path} not found')
-        inside = False
-        step = None
-        with open(self.path, 'rb') as file:
-            for block in self.blocks():
-                key = block.key()
-                step = check_sync(block, step)
-                #print(inside, key, step)
-                if inside and key in (end_before, end_after):
-                    inside = False
-                    if key == end_before:
-                        end_pos = block.startpos
-                    else:
-                        end_pos = block.endpos
-                    yield (n, file.read(end_pos-start_pos))
-                if not inside and key in (start_before, start_after):
-                    if step < begin:
-                        continue
-                    inside = True
-                    n = step
-                    if key == start_before:
-                        start_pos = block.startpos
-                    else:
-                        start_pos = block.endpos
-                    file.seek(start_pos)
-            if inside and end_before==init_key:
-                yield (n, file.read(self.size()-start_pos))
+    # #--------------------------------------------------------------------------------
+    # def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
+    #              start_after=None, end_before=None, end_after=None):    # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     if not self.exists():
+    #         raise SystemError(f'ERROR File {self.path} not found')
+    #     inside = False
+    #     step = None
+    #     with open(self.path, 'rb') as file:
+    #         for block in self.blocks():
+    #             key = block.key()
+    #             step = check_sync(block, step)
+    #             #print(inside, key, step)
+    #             if inside and key in (end_before, end_after):
+    #                 inside = False
+    #                 if key == end_before:
+    #                     end_pos = block.startpos
+    #                 else:
+    #                     end_pos = block.endpos
+    #                 yield (n, file.read(end_pos-start_pos))
+    #             if not inside and key in (start_before, start_after):
+    #                 if step < begin:
+    #                     continue
+    #                 inside = True
+    #                 n = step
+    #                 if key == start_before:
+    #                     start_pos = block.startpos
+    #                 else:
+    #                     start_pos = block.endpos
+    #                 file.seek(start_pos)
+    #         if inside and end_before==init_key:
+    #             yield (n, file.read(self.size()-start_pos))
 
 
-    #--------------------------------------------------------------------------------
-    def merge(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
-    #--------------------------------------------------------------------------------
-        return_value = False
-        with open(self.path, 'wb') as out_file, safezip(*sections) as zipper:
-            # Get data from the section generators
-            for step_data in zipper:
-                steps = []
-                for step, data in step_data:
-                    out_file.write(data)
-                    steps.append(step)
-                if len(set(steps)) > 1:
-                    raise SystemError(
-                        f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
-                progress(steps[0])
-                cancel()
-            return_value = self.path
-        return return_value
+    # #--------------------------------------------------------------------------------
+    # def merge(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     return_value = False
+    #     with open(self.path, 'wb') as out_file, safezip(*sections) as zipper:
+    #         # Get data from the section generators
+    #         for step_data in zipper:
+    #             steps = []
+    #             for step, data in step_data:
+    #                 out_file.write(data)
+    #                 steps.append(step)
+    #             if len(set(steps)) > 1:
+    #                 raise SystemError(
+    #                     f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
+    #             progress(steps[0])
+    #             cancel()
+    #         return_value = self.path
+    #     return return_value
 
 
     #--------------------------------------------------------------------------------
@@ -1303,6 +1303,11 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return tuple(unique_wells)
 
     #--------------------------------------------------------------------------------
+    def seqnum(self):                                                    # UNRST_file
+    #--------------------------------------------------------------------------------
+        return flatten_all(self.blockdata('SEQNUM'))
+
+    #--------------------------------------------------------------------------------
     def end_value(self, var:str):                                        # UNRST_file
     #--------------------------------------------------------------------------------
         value = next(self.read(var, tail=True), None) or [0]
@@ -1311,7 +1316,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
     def end_step(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
-        return self.end_value('step') 
+        return self.end_value('step')
 
     #--------------------------------------------------------------------------------
     def end_time(self):                                                  # UNRST_file
@@ -1330,20 +1335,20 @@ class UNRST_file(unfmt_file):                                            # UNRST
         start = next(self.dates(**kwargs))
         return ((date-start).days for date in self.dates(**kwargs))
 
-    #--------------------------------------------------------------------------------
-    def step(self, block, step):                                         # UNRST_file
-    #--------------------------------------------------------------------------------
-        """
-        Used in sections to get step of current section
-        """
-        if block.key() == 'SEQNUM':
-            return block.data(0)
-        return step
+    # #--------------------------------------------------------------------------------
+    # def step(self, block, step):                                         # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Used in sections to get step of current section
+    #     """
+    #     if block.key() == 'SEQNUM':
+    #         return block.data(0)
+    #     return step
 
-    #--------------------------------------------------------------------------------
-    def sections(self, **kwargs):                                        # UNRST_file
-    #--------------------------------------------------------------------------------
-        return super().sections(init_key=self.start, check_sync=self.step, **kwargs)
+    # #--------------------------------------------------------------------------------
+    # def sections(self, **kwargs):                                        # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     return super().sections(init_key=self.start, check_sync=self.step, **kwargs)
 
     #--------------------------------------------------------------------------------
     def end_key(self):                                                   # UNRST_file
