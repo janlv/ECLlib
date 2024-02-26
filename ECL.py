@@ -2604,7 +2604,8 @@ class IX_input:                                                            # IX_
         if field_files:
             return field_files[0]
         if date_files:
-            return date_files[0]
+            return date_files[-1]
+            #return date_files[0]
 
     #--------------------------------------------------------------------------------
     def timesteps(self, start=None, **kwargs):                             # IX_input
