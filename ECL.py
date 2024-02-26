@@ -1904,14 +1904,14 @@ class fmt_block:                                                         # fmt_b
         dtype = self._dtype
         count = self._length//dtype.max
         rest = self._length%dtype.max
-        format = (ENDIAN + 'i8si4si' 
-                + ''.join(repeat(f'i{dtype.max}{dtype.unpack}i', count)) 
-                + f'i{rest}{dtype.unpack}i')
+        pack_fmt = ENDIAN + 'i8si4si' + ''.join(repeat(f'i{dtype.max}{dtype.unpack}i', count))
+        if rest:
+            pack_fmt += f'i{rest}{dtype.unpack}i'
         size = dtype.size
         head_values = (16, self._key, self._length, dtype.name.encode(), 16)
         data_values = ((size*len(d), *d, size*len(d)) for d in batched(self.data, dtype.max))
         values = chain((head_values,), data_values)
-        return pack(format, *flatten(values))
+        return pack(pack_fmt, *flatten(values))
                 
     #--------------------------------------------------------------------------------
     def print(self):                                                      # fmt_block
