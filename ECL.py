@@ -717,7 +717,6 @@ class unfmt_file(File):
             if stop and num >= stop:
                 return
 
-
     #--------------------------------------------------------------------------------
     def count_sections(self):
     #--------------------------------------------------------------------------------
@@ -732,6 +731,17 @@ class unfmt_file(File):
                 step = b.data()[0]
             if any(key in b for key in keys):
                 yield (step, b)
+
+    #--------------------------------------------------------------------------------
+    def section_blocks(self):
+    #--------------------------------------------------------------------------------
+        step_gen = (i for i,b in enumerate(self.blocks()) if self.start in b)
+        step = batched(step_gen, 2)
+        a, b = next(step)
+        blocks = self.blocks()
+        while batch:=tuple(islice(blocks, b-a)):
+            yield batch
+            a, b = next(step,(0,0))
 
     #--------------------------------------------------------------------------------
     def section_data(self, start=(), end=(), begin=0):
