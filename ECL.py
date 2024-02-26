@@ -10,18 +10,18 @@ from platform import system
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
-from copy import deepcopy
+#from copy import deepcopy
 from time import sleep
 from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
-from locale import getpreferredencoding
+#from locale import getpreferredencoding
 from shutil import copy
 #from traceback import print_stack
 #import warnings
 #warnings.filterwarnings("error")
 #from warnings import catch_warnings, filterwarnings
-from numpy import zeros, int32, float32, float64, bool_ as np_bool, array as nparray, append as npappend
+from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
 from .utils import (batched, cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
@@ -443,6 +443,10 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
         return getattr(self.header, item)
 
+    # #--------------------------------------------------------------------------------
+    # def is_last(self):                                                      # unfmt_block
+    # #--------------------------------------------------------------------------------
+
     #--------------------------------------------------------------------------------
     def key(self):                                                      # unfmt_block
     #--------------------------------------------------------------------------------
@@ -713,6 +717,50 @@ class unfmt_file(File):
             if stop and num >= stop:
                 return
 
+
+    #--------------------------------------------------------------------------------
+    def count_sections(self):
+    #--------------------------------------------------------------------------------
+        return len([i for i,block in enumerate(self.blocks()) if self.start in block])
+
+    #--------------------------------------------------------------------------------
+    def blocks_matching(self, *keys):
+    #--------------------------------------------------------------------------------
+        step = -1
+        for b in self.blocks():
+            if self.start in b:
+                step = b.data()[0]
+            if any(key in b for key in keys):
+                yield (step, b)
+
+    #--------------------------------------------------------------------------------
+    def section_data(self, start=(), end=(), begin=0):
+    #--------------------------------------------------------------------------------
+        keys, attrs = zip(start, end)
+        pairs = batched(self.blocks_matching(*keys), 2)
+        with self.mmap() as filemap:
+            for step_pair in pairs:
+                step, pair = zip(*step_pair)
+                if step[0] < begin:
+                    continue
+                _slice = slice(*(getattr(p,a) for p,a in zip(pair, attrs)))
+                yield (step[0], filemap[_slice])
+
+    #--------------------------------------------------------------------------------
+    def merge2(self, *section_data, progress=lambda x:None, cancel=lambda:None):
+    #--------------------------------------------------------------------------------
+        with open(self.path, 'wb') as merge_file:
+            n = 0
+            for steps_data in zip(*section_data):
+                cancel()
+                steps, data = zip(*steps_data)
+                if len(set(steps)) > 1:
+                    raise SystemError(f'ERROR Merged steps are different: {steps}')
+                for d in data:
+                    merge_file.write(d)
+                n += 1
+                progress(n)
+        return self.path
 
     #--------------------------------------------------------------------------------
     def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
