@@ -490,7 +490,7 @@ class unfmt_block:
         return self.header.type.decode()
         
     #--------------------------------------------------------------------------------
-    def read_file(self, sl:slice):                                  # unfmt_block
+    def read_file(self, sl:slice):                                      # unfmt_block
     #--------------------------------------------------------------------------------        
         self._file_obj.seek(sl.start)
         return self._file_obj.read(sl.stop - sl.start)
@@ -600,7 +600,7 @@ class unfmt_file(File):
         return self.size() - self.endpos
     
     #--------------------------------------------------------------------------------
-    def limits(self, *varnames):                                          # unfmt_file
+    def limits(self, *varnames):                                         # unfmt_file
     #--------------------------------------------------------------------------------
         var_pos = (self.var_pos[var] for var in varnames)
         key, pos = zip(*var_pos)
@@ -609,7 +609,8 @@ class unfmt_file(File):
         return (key[0], pos[0], pos[-1]+1)
 
     #--------------------------------------------------------------------------------
-    def blockdata(self, *keylim, strip=True, tail=False, **kwargs):      # unfmt_file
+    def blockdata(self, *keylim, strip=True, tail=False, unwrap_tuple=True, 
+                  **kwargs):                                             # unfmt_file
     #--------------------------------------------------------------------------------
         """ Return data in the order of the given keys, not the reading order.
             The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
@@ -626,14 +627,19 @@ class unfmt_file(File):
         for block in blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
                 data[key] = block.data(strip=strip, limit=limits[key])
-            if all(data.values()):
-                yield tuple(data.values())
+            #if all(val is not None for val in data.values()):
+            if not any(val is None for val in data.values()):
+                values = tuple(data.values())
+                if unwrap_tuple and len(values)==1: 
+                    yield values[0]
+                else:
+                    yield values 
                 data = {key:None for key in keys}
 
     #--------------------------------------------------------------------------------
-    def read2(self, *varnames):                                          # unfmt_file
+    def read2(self, *varnames, **kwargs):                                          # unfmt_file
     #--------------------------------------------------------------------------------
-        return self.blockdata(self.limits(*varnames))
+        return self.blockdata(self.limits(*varnames), **kwargs)
 
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
@@ -828,8 +834,12 @@ class unfmt_file(File):
             a, b = next(step,(0,0))
 
     #--------------------------------------------------------------------------------
-    def section_data(self, start=(), end=(), begin=0):
+    def section_data(self, start=(), end=(), rename=(), begin=0):
     #--------------------------------------------------------------------------------
+        
+        # Example of start and end format: 
+        # start=('SEQNUM', 'startpos'), end=('ENDSOL', 'endpos') 
+        # Start by splitting args in keys=('SEQNUM', 'ENDSOL') and attrs=('startpos', 'endpos')
         keys, attrs = zip(start, end)
         pairs = batched(self.blocks_matching(*keys), 2)
         with self.mmap() as filemap:
@@ -838,7 +848,12 @@ class unfmt_file(File):
                 if step[0] < begin:
                     continue
                 _slice = slice(*(getattr(p,a) for p,a in zip(pair, attrs)))
-                yield (step[0], filemap[_slice])
+                data = filemap[_slice]
+                if rename and (names:=[rn for rn in rename if rn[0] in data]):
+                    for old, new in names:
+                        data = data.replace(old.ljust(8), new.ljust(8))
+                yield (step[0], data)
+                # yield (step[0], filemap[_slice])
 
     #--------------------------------------------------------------------------------
     def merge(self, *section_data, progress=lambda x:None, cancel=lambda:None):
@@ -1352,18 +1367,19 @@ class INIT_file(unfmt_file):                                              # INIT
     def __init__(self, file, **kwargs):                                   # INIT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.INIT', **kwargs)
+        self.var_pos = {'simulator': ('INTEHEAD', 94)}
 
     #--------------------------------------------------------------------------------
     def simulator(self):                                                  # INIT_file
     #--------------------------------------------------------------------------------
         # sim = {100:'ECLIPSE 100', 300:'ECLIPSE 300', 500:'ECLIPSE 300 (thermal)',
         #        700:'INTERSECT', 800:'FrontSim'}
-        sim = {100:'ecl', 300:'ecl', 500:'ecl', 700:'ix', 800:'FrontSim'}
-        if ihead:=next(self.blockdata('INTEHEAD'), None):
-            val = ihead[0][94]
-            if val < 0:
+        sim_codes = {100:'ecl', 300:'ecl', 500:'ecl', 700:'ix', 800:'FrontSim'}
+        #if ihead:=next(self.blockdata(('INTEHEAD', 94, 95)), None):
+        if sim:=next(self.read2('simulator'), None):
+            if sim < 0:
                 return 'other simulator'
-            return sim[val]
+            return sim_codes[sim]
 
 
 #====================================================================================
@@ -1397,15 +1413,17 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return tuple(unique_wells)
 
     #--------------------------------------------------------------------------------
-    def seqnum(self):                                                    # UNRST_file
+    def steps(self):                                                    # UNRST_file
     #--------------------------------------------------------------------------------
-        return flatten_all(self.blockdata('SEQNUM'))
+        return flatten_all(self.read2('step'))
+        #return flatten_all(self.blockdata('SEQNUM'))
 
     #--------------------------------------------------------------------------------
     def end_value(self, var:str):                                        # UNRST_file
     #--------------------------------------------------------------------------------
-        value = next(self.read(var, tail=True), None) or [0]
-        return value[0]
+        #value = next(self.read(var, tail=True), None) or [0]
+        return next(self.read2(var, tail=True), None) or 0
+        #return value[0]
 
     #--------------------------------------------------------------------------------
     def end_step(self):                                                  # UNRST_file
@@ -1420,7 +1438,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
     def dates(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
-        data = self.read('day','month','year', **kwargs)
+        #data = self.read('day','month','year', **kwargs)
+        data = self.read2('day','month','year', **kwargs)
         return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
 
     #--------------------------------------------------------------------------------
@@ -2062,7 +2081,7 @@ class fmt_file(File):                                                      # fmt
         return namedtuple('section','count size')(count, first_block_next_section.startpos)
 
     #--------------------------------------------------------------------------------
-    def section_blocks(self, count=None, with_attr:str=None):                          # fmt_file
+    def section_blocks(self, count=None, with_attr:str=None):              # fmt_file
     #--------------------------------------------------------------------------------
         count = count or self.section_count()
         if with_attr:
