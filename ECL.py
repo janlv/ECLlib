@@ -69,15 +69,15 @@ class Dtyp:
     #     return length*self.size + 8 * -(-length//self.max) # -(-a//b) is the ceil-function
 
 
-
-DTYPE = {b'INTE' : Dtyp('INTE', 'i', 4, 1000, int32),
-         b'REAL' : Dtyp('REAL', 'f', 4, 1000, float32),
-         b'DOUB' : Dtyp('DOUB', 'd', 8, 1000, float64),
-         b'LOGI' : Dtyp('LOGI', 'i', 4, 1000, np_bool),
-         b'CHAR' : Dtyp('CHAR', 's', 8, 105 , str),
-         b'C008' : Dtyp('C008', 's', 8, 105 , str),
-         b'C009' : Dtyp('C009', 's', 9, 105 , str),
-         b'MESS' : Dtyp('MESS', ' ', 1, 1   , str)}
+#                        name  unpack size max  nptype
+DTYPE = {b'INTE' : Dtyp('INTE', 'i',   4, 1000, int32),
+         b'REAL' : Dtyp('REAL', 'f',   4, 1000, float32),
+         b'DOUB' : Dtyp('DOUB', 'd',   8, 1000, float64),
+         b'LOGI' : Dtyp('LOGI', 'i',   4, 1000, np_bool),
+         b'CHAR' : Dtyp('CHAR', 's',   8, 105 , str),
+         b'C008' : Dtyp('C008', 's',   8, 105 , str),
+         b'C009' : Dtyp('C009', 's',   9, 105 , str),
+         b'MESS' : Dtyp('MESS', ' ',   1, 1   , str)}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
         
@@ -376,8 +376,9 @@ class unfmt_header:
         dtype = self.dtype
         start = self.startpos + 24 + 4
         # A is the start positions of the data pieces
-        dmax = dtype.max * (8 if self.is_char() else self.dtype.size)
-        A = (pos+i*8 for i,pos in enumerate(range(start, self.endpos, dmax)))
+        #dmax = dtype.max * (8 if self.is_char() else self.dtype.size)
+        dmax = dtype.max * dtype.size
+        A = (pos+i*8 for i,pos in enumerate(range(start, start+self.bytes, dmax)))
         pos = ([a, a+dmax] for a in islice(A, self.bytes//dmax))
         if rest:=self.bytes%dmax:
             pos = chain(pos, ([a, a+rest] for a in A))
@@ -597,9 +598,18 @@ class unfmt_file(File):
     def offset(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
+    
+    #--------------------------------------------------------------------------------
+    def limits(self, *varnames):                                          # unfmt_file
+    #--------------------------------------------------------------------------------
+        var_pos = (self.var_pos[var] for var in varnames)
+        key, pos = zip(*var_pos)
+        if len(keys:=set(key)) > 1:
+            raise SyntaxWarning(f'Only single keywords allowed: {keys}')
+        return (key[0], pos[0], pos[-1]+1)
 
     #--------------------------------------------------------------------------------
-    def blockdata(self, *keylim, strip=True, tail=False, **kwargs):        # unfmt_file
+    def blockdata(self, *keylim, strip=True, tail=False, **kwargs):      # unfmt_file
     #--------------------------------------------------------------------------------
         """ Return data in the order of the given keys, not the reading order.
             The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
@@ -619,6 +629,11 @@ class unfmt_file(File):
             if all(data.values()):
                 yield tuple(data.values())
                 data = {key:None for key in keys}
+
+    #--------------------------------------------------------------------------------
+    def read2(self, *varnames):                                          # unfmt_file
+    #--------------------------------------------------------------------------------
+        return self.blockdata(self.limits(*varnames))
 
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
@@ -797,7 +812,7 @@ class unfmt_file(File):
         step = -1
         for b in self.blocks():
             if self.start in b:
-                step = b.data()[0]
+                step = b.data(unwrap_tuple=False)[0]
             if any(key in b for key in keys):
                 yield (step, b)
 
