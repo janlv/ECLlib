@@ -4,7 +4,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain, repeat, accumulate, groupby, zip_longest, islice
-from operator import attrgetter, itemgetter
+from operator import attrgetter, itemgetter, sub as subtract
 from pathlib import Path
 from platform import system
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
@@ -24,14 +24,15 @@ from shutil import copy
 from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
 #from numba import njit, jit
-from .utils import (batched, cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
+from .utils import (batched, consume, cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
                     flat_list, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars,
-                    list2str, float_or_str, matches, split_by_words, string_chunks, split_in_lines)
+                    list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
 from .runner import Process
 
 
 DEBUG = False
 ENDIAN = '>'  # Big-endian
+ECL2IX_LOG = 'ecl2ix.log'
 
 #
 #
@@ -370,6 +371,36 @@ class unfmt_header:
                 f'length={self.length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
     #--------------------------------------------------------------------------------
+    def file_slices(self, limit=None):
+    #--------------------------------------------------------------------------------
+        dtype = self.dtype
+        start = self.startpos + 24 + 4
+        # A is the start positions of the data pieces
+        dmax = dtype.max * (8 if self.is_char() else self.dtype.size)
+        A = (pos+i*8 for i,pos in enumerate(range(start, self.endpos, dmax)))
+        pos = ([a, a+dmax] for a in islice(A, self.bytes//dmax))
+        if rest:=self.bytes%dmax:
+            pos = chain(pos, ([a, a+rest] for a in A))
+        if limit:
+            # Modify the positions if a limit is given
+            lim = [l*dtype.size for l in limit]
+            consume(pos, lim[0]//dmax)
+            pos = take(max(lim[-1]//dmax, 1), pos)
+            p = (pos[0][0], pos[-1][0])
+            for i in (0, -1):
+                pos[i][i] = p[i] + lim[i]%dmax
+        return (slice(*p) for p in pos)
+
+    #--------------------------------------------------------------------------------
+    def unpack_format(self, limit=None):
+    #--------------------------------------------------------------------------------
+        if limit:
+            length = -subtract(*limit) * (self.dtype.size if self.is_char() else 1)
+        else:
+            length = self.bytes if self.is_char() else self.length
+        return ENDIAN+f'{length}{self.dtype.unpack}'
+
+    #--------------------------------------------------------------------------------
     def data_positions(self, index):
     #--------------------------------------------------------------------------------
         # List of [start, end] positions of the data-chunks
@@ -444,7 +475,7 @@ class unfmt_block:
         return getattr(self.header, item)
 
     # #--------------------------------------------------------------------------------
-    # def is_last(self):                                                      # unfmt_block
+    # def is_last(self):                                                  # unfmt_block
     # #--------------------------------------------------------------------------------
 
     #--------------------------------------------------------------------------------
@@ -458,7 +489,36 @@ class unfmt_block:
         return self.header.type.decode()
         
     #--------------------------------------------------------------------------------
-    def data(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
+    def read_file(self, sl:slice):                                  # unfmt_block
+    #--------------------------------------------------------------------------------        
+        self._file_obj.seek(sl.start)
+        return self._file_obj.read(sl.stop - sl.start)
+
+    #--------------------------------------------------------------------------------
+    def data(self, limit=None, strip=False, unwrap_tuple=True):         # unfmt_block
+    #--------------------------------------------------------------------------------
+        if self.header.length == 0:
+            return ()
+        else:
+            slices = self.header.file_slices(limit)
+            if self._data:
+                # File is mmap'ed 
+                data = (self._data[sl] for sl in slices)
+            else:
+                # File object
+                data = (self.read_file(sl) for sl in slices)
+            values = iter(unpack(self.header.unpack_format(limit), b''.join(data)))
+            if self.header.is_char():
+                values = (string_split(next(values).decode(), self.header.dtype.size))
+                if strip:
+                    values = (v.strip() for v in values)
+        values = tuple(values)
+        if unwrap_tuple and len(values) == 1:
+            return values[0]
+        return values
+
+    #--------------------------------------------------------------------------------
+    def data2(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
     #--------------------------------------------------------------------------------
         length = self.header.length
         # Abort if no data to return
@@ -490,7 +550,7 @@ class unfmt_block:
                 self._file_obj.seek(start)
                 bytedata = self._file_obj.read(self.header.endpos - start)
                 # Shift positions from absolute to relative
-                data = b''.join(bytedata[a-start:b-start] for a,b in data_chunks)         
+                data = b''.join(bytedata[a-start:b-start] for a,b in data_chunks)      
             # Get number of data elements from the index-list. 
             num = self.header.number_of_elements(index)
             values = unpack(ENDIAN+f'{num}{self.header.dtype.unpack}', data)
@@ -500,7 +560,7 @@ class unfmt_block:
             return None
         # Decode string data
         if self.header.is_char():
-            values = tuple(string_chunks(values[0].decode(), self.header.dtype.size*nchar, strip=strip))
+            values = tuple(string_split(values[0].decode(), self.header.dtype.size*nchar, strip=strip))
         # Return value instead of single-value tuple
         if unwrap_tuple and len(values) == 1:
             return values[0]
@@ -539,16 +599,25 @@ class unfmt_file(File):
         return self.size() - self.endpos
 
     #--------------------------------------------------------------------------------
-    def blockdata(self, *keys, strip=True, **kwargs):                    # unfmt_file
+    def blockdata(self, *keylim, strip=True, tail=False, **kwargs):        # unfmt_file
     #--------------------------------------------------------------------------------
         """ Return data in the order of the given keys, not the reading order.
             The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
+        # Split kewords with optional limits in separate lists
+        # Format of keylim is: (('KEY1', 10, 20), 'KEY2')
+        key_lim = ((kl[0], kl[1:]) if isinstance(kl, (tuple, list)) else (kl, None) for kl in keylim)
+        keys, lims = zip(*key_lim)
+        limits = dict(zip(keys, lims))
+        # Loop over blocks
         data = {key:None for key in keys}
-        for block in self.blocks(**kwargs):
+        blocks = self.blocks
+        if tail:
+            blocks = self.tail_blocks
+        for block in blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
-                data[key] = block.data(strip=strip)
+                data[key] = block.data(strip=strip, limit=limits[key])
             if all(data.values()):
-                yield list(data.values())
+                yield tuple(data.values())
                 data = {key:None for key in keys}
 
     #--------------------------------------------------------------------------------
@@ -574,7 +643,7 @@ class unfmt_file(File):
         if start:
             startpos = start
         if self.size() - startpos < 24: # Header is 24 bytes
-            return () #False
+            return ()
         if use_mmap:
             return self.blocks_from_mmap(startpos)
         return self.blocks_from_file(startpos)
@@ -708,7 +777,7 @@ class unfmt_file(File):
                 # which cause the whole array to be read
                 if () in positions:
                     out_slice = [slice(0,block.length)]
-                section.extend(block.data(*positions, unwrap_tuple=False))
+                section.extend(block.data2(*positions, unwrap_tuple=False))
             if end_key in block and section: # and i > 0:
                 data = [section[s] for s in out_slice]
                 if not drop or not drop(data):
@@ -2407,12 +2476,11 @@ class IXF_file(File):                                                      # IXF
             keys = rb'\w+'
         else:
             keys = '|'.join(nodes).encode()
-        # The pattern is explained at https://regex101.com/r/4FVBxU/3
-        #pattern = rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *({(?:[^{}]*|{[^{}]*})+})?'
+        # The pattern is explained at https://regex101.com/r/4FVBxU/5
         not_brackets = rb'[^' + begin + end + rb']*'
         nested_brackets = begin + not_brackets + end
-        pattern = ( rb'^\s*\b(' + keys + rb')\b *(?:\"([^\"]+)\")? *(' + begin +
-                    rb'(?:' + not_brackets + rb'|' + nested_brackets + rb')+'+ end + rb')?' )
+        pattern = ( rb'^\s*\b(' + keys + rb')\b *[\"\']?([\w .:\\/*-]+)?[\"\']? *(' + begin +
+                    rb'(?:' + not_brackets + rb'|' + nested_brackets + rb')+' + end + rb')?' )
         for match in finditer(pattern, self.data, flags=MULTILINE):
             val = [g.decode().strip() if g else g for g in match.groups()]
             if convert:
@@ -2493,7 +2561,8 @@ class IX_input:                                                            # IX_
         #msg = 'Creating Intersect input from Eclipse input'
         # How often to check if convert is completed
         sec = 1/freq
-        with open(path.with_name('ecl2ix.log'), 'w', encoding='utf-8') as log:
+        logfile = path.with_name(ECL2IX_LOG)
+        with open(logfile, 'w', encoding='utf-8') as log:
             popen = Popen(cmd, stdout=log, stderr=STDOUT)
             proc = Process(pid=popen.pid)
             i = 0
@@ -2509,11 +2578,11 @@ class IX_input:                                                            # IX_
                 sleep(sec)
             #print('\r',' '*80, end='')
             if not AFI_file(path).is_file():
-                return False
+                return False, logfile
             # If successful, save modification time and current size of DATA_file
             mtime, size = attrgetter('st_mtime_ns', 'st_size')(DATA_file(path).stat())
             path.with_name(self.STAT_FILE).write_text(f'{mtime} {size}', encoding='utf-8')
-            return True
+            return True, logfile
 
 
     #--------------------------------------------------------------------------------

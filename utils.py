@@ -160,7 +160,7 @@ def index_limits(index):
 
 
 #-----------------------------------------------------------------------
-def string_chunks(str, l, strip=False):
+def string_split(str, l, strip=False):
 #-----------------------------------------------------------------------
     strings = (str[i:i+l] for i in range(0, len(str), l))
     if strip:
@@ -369,6 +369,19 @@ def batched(iterable, n): # From Itertools Recipes at docs.python.org
     while (batch := tuple(islice(it, n))):
         yield batch
         
+#-----------------------------------------------------------------------
+def consume(iterator, n=None): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Advance the iterator n-steps ahead. If n is None, consume entirely."
+    # Use functions that consume iterators at C speed.
+    if n is None:
+        # feed the entire iterator into a zero-length deque
+        deque(iterator, maxlen=0)
+    else:
+        # advance to the empty slice starting at position n
+        next(islice(iterator, n, n), None)
+
+
 # #--------------------------------------------------------------------------------
 # def flat_list(alist):
 # #--------------------------------------------------------------------------------
