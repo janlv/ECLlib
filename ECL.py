@@ -475,10 +475,6 @@ class unfmt_block:
     #--------------------------------------------------------------------------------
         return getattr(self.header, item)
 
-    # #--------------------------------------------------------------------------------
-    # def is_last(self):                                                  # unfmt_block
-    # #--------------------------------------------------------------------------------
-
     #--------------------------------------------------------------------------------
     def key(self):                                                      # unfmt_block
     #--------------------------------------------------------------------------------
@@ -494,6 +490,29 @@ class unfmt_block:
     #--------------------------------------------------------------------------------        
         self._file_obj.seek(sl.start)
         return self._file_obj.read(sl.stop - sl.start)
+
+    #--------------------------------------------------------------------------------
+    def fix_payload_sizes(self):                                        # unfmt_block
+    #--------------------------------------------------------------------------------
+        # Payload positions
+        start = self.header.startpos
+        data_pos = (((s.start-4, s.start), (s.stop, s.stop+4)) for s in self.header.file_slices())
+        header_pos = ((start, start+4), (start+20, start+24))
+        # Prepend the header positions to the data postions 
+        pos = list(chain(header_pos, flatten(data_pos)))
+        # Payload sizes of this block
+        data = b''.join(self._data[slice(*p)] for p in pos)
+        read_sizes = (unpack(ENDIAN + f'{len(data)//4}i', data))
+        # Correct payload sizes
+        sizes = flatten(2*[b[0]-a[1]] for a,b in batched(pos, 2))
+        # Update with correct payload sizes
+        sizes_pos = [(s, p) for r,s,p in zip(read_sizes, sizes, pos) if r != s]
+        if sizes_pos:
+            sizes, pos = zip(*sizes_pos)
+            data = pack(ENDIAN + f'{len(sizes)}i', *sizes)
+            for i, p in enumerate(pos):
+                self._data[slice(*p)] = data[i*4:i*4+4]
+
 
     #--------------------------------------------------------------------------------
     def data(self, limit=None, strip=False, unwrap_tuple=True):         # unfmt_block
@@ -606,6 +625,8 @@ class unfmt_file(File):
         key, pos = zip(*var_pos)
         if len(keys:=set(key)) > 1:
             raise SyntaxWarning(f'Only single keywords allowed: {keys}')
+        if pos[0] is None:
+            return (key[0],)
         return (key[0], pos[0], pos[-1]+1)
 
     #--------------------------------------------------------------------------------
@@ -654,7 +675,7 @@ class unfmt_file(File):
             return False
 
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False, start=None, use_mmap=True):             # unfmt_file
+    def blocks(self, only_new=False, start=None, use_mmap=True, **kwargs):             # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file():
             return ()
@@ -666,27 +687,29 @@ class unfmt_file(File):
         if self.size() - startpos < 24: # Header is 24 bytes
             return ()
         if use_mmap:
-            return self.blocks_from_mmap(startpos)
+            return self.blocks_from_mmap(startpos, **kwargs)
         return self.blocks_from_file(startpos)
 
 
     #--------------------------------------------------------------------------------
-    def blocks_from_mmap(self, startpos):
+    def blocks_from_mmap(self, startpos, write=False):
     #--------------------------------------------------------------------------------
-        with open(self.path, mode='rb') as file:
-            try:
-                with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                    size = data.size()
-                    pos = startpos
-                    while pos < size:
-                        header = self.read_header(data[pos+4:pos+20], pos)
-                        #header = self.read_header(data[pos:pos+20], pos)
-                        if not header:
-                            return #() #False
-                        pos = self.endpos = header.endpos
-                        yield unfmt_block(header=header, data=data, file=self.path)
-            except ValueError: # Catch 'cannot mmap an empty file'
-                return #() #False
+        # with open(self.path, mode='rb') as file:
+        #     try:
+        #         with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
+        try:
+            with self.mmap(write=write) as data:
+                size = data.size()
+                pos = startpos
+                while pos < size:
+                    header = self.read_header(data[pos+4:pos+20], pos)
+                    #header = self.read_header(data[pos:pos+20], pos)
+                    if not header:
+                        return #() #False
+                    pos = self.endpos = header.endpos
+                    yield unfmt_block(header=header, data=data, file=self.path)
+        except ValueError: # Catch 'cannot mmap an empty file'
+            return #() #False
 
     #--------------------------------------------------------------------------------
     def blocks_from_file(self, startpos):
@@ -741,6 +764,11 @@ class unfmt_file(File):
                     # yield unfmt_block(key=key, length=length, type=typ, start=start, end=end,
                     #                 data=data, file=self.path)
 
+    #--------------------------------------------------------------------------------
+    def fix_errors(self):
+    #--------------------------------------------------------------------------------
+        for block in self.blocks(write=True):
+            block.fix_payload_sizes()
 
     #--------------------------------------------------------------------------------
     def read(self, *varnames, tail=False, start=0, stop=None, step=None, drop=None, unpack_single=True, **kwargs):    # unfmt_file
@@ -1396,7 +1424,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 'min'   : ('INTEHEAD', 207),
                 'sec'   : ('INTEHEAD', 410),
                 'time'  : ('DOUBHEAD', 0),
-                'wells' : ('ZWEL'    , -1)}  # -1 = whole array
+                'wells' : ('ZWEL'    , None)}  # None = whole array
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, end=None, role=None, **kwargs): # UNRST_file
@@ -1408,7 +1436,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
     def wells(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
-        wells = flatten_all(self.read('wells', **kwargs))
+        wells = flatten_all(self.read2('wells', **kwargs))
         unique_wells = set(w for well in wells if (w:=well.strip()))
         return tuple(unique_wells)
 
@@ -1501,8 +1529,8 @@ class RFT_file(unfmt_file):                                                # RFT
         if data := self.check.data():
             return data[-1]
         # Return time-value from tail of file
-        time = next(self.read('time', tail=True), None) or [0]
-        return time[0]
+        return next(self.read2('time', tail=True), None) or 0
+        #return time
         #return (data := self.check.data()) and data[-1] or 0
 
 
