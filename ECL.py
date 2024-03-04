@@ -266,12 +266,21 @@ class File:                                                                    #
         return False
 
     #--------------------------------------------------------------------------------
+    def __stat(self, attr):                                                    # File
+    #--------------------------------------------------------------------------------
+        if self.is_file():
+            return getattr(self.path.stat(), attr)
+        return -1
+
+    #--------------------------------------------------------------------------------
     def size(self):                                                            # File
     #--------------------------------------------------------------------------------
-        size = -1
-        if self.is_file():
-            size = self.path.stat().st_size
-        return size
+        return self.__stat('st_size')
+
+    #--------------------------------------------------------------------------------
+    def creation_time(self):                                                   # File
+    #--------------------------------------------------------------------------------
+        return self.__stat('st_ctime')
 
     #--------------------------------------------------------------------------------
     def tail(self, **kwargs):                                                  # File
@@ -618,23 +627,15 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
     
-    #--------------------------------------------------------------------------------
-    def limits(self, *varnames):                                         # unfmt_file
-    #--------------------------------------------------------------------------------
-        var_pos = (self.var_pos[var] for var in varnames)
-        key, pos = zip(*var_pos)
-        if len(keys:=set(key)) > 1:
-            raise SyntaxWarning(f'Only single keywords allowed: {keys}')
-        if pos[0] is None:
-            return (key[0],)
-        return (key[0], pos[0], pos[-1]+1)
 
     #--------------------------------------------------------------------------------
     def blockdata(self, *keylim, strip=True, tail=False, unwrap_tuple=True, 
                   **kwargs):                                             # unfmt_file
     #--------------------------------------------------------------------------------
-        """ Return data in the order of the given keys, not the reading order.
-            The keys-list may contain wildcards (*, ?, [seq], [!seq]) """
+        """ 
+        Return data in the order of the given keys, not the reading order.
+        The keys-list may contain wildcards (*, ?, [seq], [!seq]) 
+        """
         # Split kewords with optional limits in separate lists
         # Format of keylim is: (('KEY1', 10, 20), 'KEY2')
         key_lim = ((kl[0], kl[1:]) if isinstance(kl, (tuple, list)) else (kl, None) for kl in keylim)
@@ -647,8 +648,7 @@ class unfmt_file(File):
             blocks = self.tail_blocks
         for block in blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
-                data[key] = block.data(strip=strip, limit=limits[key])
-            #if all(val is not None for val in data.values()):
+                data[key] = block.data(strip=strip, limit=limits[key], unwrap_tuple=unwrap_tuple)
             if not any(val is None for val in data.values()):
                 values = tuple(data.values())
                 if unwrap_tuple and len(values)==1: 
@@ -658,9 +658,45 @@ class unfmt_file(File):
                 data = {key:None for key in keys}
 
     #--------------------------------------------------------------------------------
-    def read2(self, *varnames, **kwargs):                                          # unfmt_file
+    def __limits(self, *varnames):                                       # unfmt_file
     #--------------------------------------------------------------------------------
-        return self.blockdata(self.limits(*varnames), **kwargs)
+        """ 
+        Takes self.var_pos keys as input and returns a generator of ('KEYWORD', 0, 10)
+        tuples if index limits are given, or ('KEYWORD',) if index limit is 'None'.   
+        """
+        if missing := [var for var in varnames if var not in self.var_pos]:
+            raise SyntaxWarning(f'Missing variable definitions for {type(self).__name__}: {missing}')
+        var_pos = list(self.var_pos[var] for var in varnames)
+        for key, group in groupby(var_pos, lambda x:x[0]): 
+            pos = sorted(g[-1] for g in group)
+            yield (key, *( [] if pos[0] is None else [pos[0], pos[-1]+1] ))
+
+    #--------------------------------------------------------------------------------
+    def __get_varname_index(self, varnames, limits):                     # unfmt_file
+    #--------------------------------------------------------------------------------
+        # Get the start index of the limits
+        low_index = list(lim[1] if len(lim)>1 else None for lim in limits)
+        # Prepare tuples of ('varname',('KEYWORD', pos:int))
+        varname_varpos = ((var, self.var_pos[var]) for var in varnames)
+        # Group by 'KEYWORD' to get tuples ( 'var1', ('KEYWORD', pos1)), ('var2', ('KEYWORD', pos2)) )
+        groups = groupby(varname_varpos, lambda x:x[1][0])
+        for (key, group), low in zip(groups, low_index):
+            # Yield list [pos1, pos2] where pos is relative to the tuple 
+            # returned by self.blockdata()
+            group = list(group)
+            yield [None if low is None else g[1][1]-low for g in group]
+
+    #--------------------------------------------------------------------------------
+    def read2(self, *varnames, **kwargs):                                # unfmt_file
+    #--------------------------------------------------------------------------------
+        limits = list(self.__limits(*varnames))
+        # Variables from the same keyword must be listed together
+        if len(set(l[0] for l in limits)) != len(limits):
+            var_key = zip(varnames, (l[0] for l in limits))
+            raise SyntaxWarning(f'Variables from the same keyword must be listed together: {tuple(var_key)}')
+        index = list( self.__get_varname_index(varnames, limits) )
+        for values in self.blockdata(*limits, unwrap_tuple=False, **kwargs):
+            yield tuple(val if i is None else val[i] for val,ind in zip(values, index) for i in ind)
 
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
@@ -851,12 +887,18 @@ class unfmt_file(File):
                 yield (step, b)
 
     #--------------------------------------------------------------------------------
-    def section_blocks(self):
+    def section_blocks(self, tail=False):
     #--------------------------------------------------------------------------------
-        step_gen = (i for i,b in enumerate(self.blocks()) if self.start in b)
+        """
+        Return blocks one section at a time
+        """
+        blocks_func = self.blocks
+        if tail:
+            blocks_func = self.tail_blocks
+        step_gen = (i for i,b in enumerate(blocks_func()) if self.start in b)
         step = batched(step_gen, 2)
         a, b = next(step)
-        blocks = self.blocks()
+        blocks = blocks_func()
         while batch:=tuple(islice(blocks, b-a)):
             yield batch
             a, b = next(step,(0,0))
@@ -1424,8 +1466,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 'min'   : ('INTEHEAD', 207),
                 'sec'   : ('INTEHEAD', 410),
                 'time'  : ('DOUBHEAD', 0),
-                'wells' : ('ZWEL'    , None)}  # None = whole array
-
+                'wells' : ('ZWEL'    , None)}  # First ZWEL in second section 
+                                                
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, end=None, role=None, **kwargs): # UNRST_file
     #--------------------------------------------------------------------------------
