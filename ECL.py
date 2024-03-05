@@ -394,8 +394,12 @@ class unfmt_header:
         if limit:
             # Modify the positions if a limit is given
             lim = [l*dtype.size for l in limit]
-            consume(pos, lim[0]//dmax)
-            pos = take(max(lim[-1]//dmax, 1), pos)
+            # Remove pos-tuples up to the upper limit
+            remove = lim[0]//dmax
+            consume(pos, remove)
+            # Keep pos-tuples up to the lower limit
+            keep = lim[-1]//dmax - remove
+            pos = take(max(keep, 1), pos)
             p = (pos[0][0], pos[-1][0])
             for i in (0, -1):
                 pos[i][i] = p[i] + lim[i]%dmax
@@ -637,9 +641,11 @@ class unfmt_file(File):
         The keys-list may contain wildcards (*, ?, [seq], [!seq]) 
         """
         # Split kewords with optional limits in separate lists
-        # Format of keylim is: (('KEY1', 10, 20), 'KEY2')
+        # Examples of keylim is: (('KEY1', 10, 20), 'KEY2', ('KEY3', 5))
         key_lim = ((kl[0], kl[1:]) if isinstance(kl, (tuple, list)) else (kl, None) for kl in keylim)
         keys, lims = zip(*key_lim)
+        # If only one index i is given, make range (i, i+1)
+        lims = (l if len(l)>1 else (l[0], l[0]+1) for l in lims)
         limits = dict(zip(keys, lims))
         # Loop over blocks
         data = {key:None for key in keys}
@@ -696,7 +702,11 @@ class unfmt_file(File):
             raise SyntaxWarning(f'Variables from the same keyword must be listed together: {tuple(var_key)}')
         index = list( self.__get_varname_index(varnames, limits) )
         for values in self.blockdata(*limits, unwrap_tuple=False, **kwargs):
-            yield tuple(val if i is None else val[i] for val,ind in zip(values, index) for i in ind)
+            value = tuple(val if i is None else val[i] for val,ind in zip(values, index) for i in ind)
+            if len(value) == 1:
+                yield value[0]
+            else:
+                yield value
 
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
@@ -1386,13 +1396,13 @@ class DATA_file(File):
             last_date = dt
             
     #--------------------------------------------------------------------------------
-    def _convert_string(self, values, key):             # DATA_file
+    def _convert_string(self, values, key):                               # DATA_file
     #--------------------------------------------------------------------------------
         ret = [v for val in values for v in val.split('\n') if v and v != '/']
         return (ret,)
 
     #--------------------------------------------------------------------------------
-    def _convert_float(self, values, key):            # DATA_file
+    def _convert_float(self, values, key):                                # DATA_file
     #--------------------------------------------------------------------------------
         #mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
         def mult(x,y):
@@ -1403,7 +1413,7 @@ class DATA_file(File):
         return values or self._getter[key].default
 
     #--------------------------------------------------------------------------------
-    def _convert_date(self, dates, key):              # DATA_file
+    def _convert_date(self, dates, key):                                  # DATA_file
     #--------------------------------------------------------------------------------
         ### Remove possible quotes
         ### Extract groups of 3 from the dates strings 
@@ -1412,9 +1422,9 @@ class DATA_file(File):
         return dates or self._getter[key].default
 
     #--------------------------------------------------------------------------------
-    def _convert_file(self, values, key):              # DATA_file
+    def _convert_file(self, values, key):                                 # DATA_file
     #--------------------------------------------------------------------------------
-        'Return full path of file'
+        """ Return full path of file """
         ### Remove quotes and backslash
         values = (val.replace("'",'').replace('\\','/').split() for val in values)
         ### Unzip values in a files (always) and numbers lists (only for RESTART)
@@ -1429,6 +1439,17 @@ class DATA_file(File):
         return files or self._getter[key].default
 
 
+#====================================================================================
+class EGRID_file(unfmt_file):                                            # EGRID_file
+#====================================================================================
+    #--------------------------------------------------------------------------------
+    def __init__(self, file, **kwargs):                                  # EGRID_file
+    #--------------------------------------------------------------------------------
+        super().__init__(file, suffix='.EGRID', **kwargs)
+        self.var_pos = {'nx': ('GRIDHEAD', 1),
+                        'ny': ('GRIDHEAD', 2),
+                        'nz': ('GRIDHEAD', 3)}
+
 
 #====================================================================================
 class INIT_file(unfmt_file):                                              # INIT_file
@@ -1437,15 +1458,15 @@ class INIT_file(unfmt_file):                                              # INIT
     def __init__(self, file, **kwargs):                                   # INIT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.INIT', **kwargs)
-        self.var_pos = {'simulator': ('INTEHEAD', 94)}
+        self.var_pos = {'nx'       : ('INTEHEAD',  8),
+                        'ny'       : ('INTEHEAD',  9),
+                        'nz'       : ('INTEHEAD', 10),
+                        'simulator': ('INTEHEAD', 94)}
 
     #--------------------------------------------------------------------------------
     def simulator(self):                                                  # INIT_file
     #--------------------------------------------------------------------------------
-        # sim = {100:'ECLIPSE 100', 300:'ECLIPSE 300', 500:'ECLIPSE 300 (thermal)',
-        #        700:'INTERSECT', 800:'FrontSim'}
         sim_codes = {100:'ecl', 300:'ecl', 500:'ecl', 700:'ix', 800:'FrontSim'}
-        #if ihead:=next(self.blockdata(('INTEHEAD', 94, 95)), None):
         if sim:=next(self.read2('simulator'), None):
             if sim < 0:
                 return 'other simulator'
@@ -1458,6 +1479,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
     start = 'SEQNUM'
     end = 'ENDSOL'
     var_pos =  {'step'  : ('SEQNUM'  ,  0),
+                'nx'    : ('INTEHEAD',  8),
+                'ny'    : ('INTEHEAD',  9),
+                'nz'    : ('INTEHEAD', 10),
                 'nwell' : ('INTEHEAD', 16),
                 'day'   : ('INTEHEAD', 64),
                 'month' : ('INTEHEAD', 65),
