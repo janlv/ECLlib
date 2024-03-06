@@ -45,6 +45,22 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #     return zip(*getgen)
 
 #-----------------------------------------------------------------------
+def batched_when(A, cond):
+#-----------------------------------------------------------------------    
+    pos = chain((i for i,a in enumerate(A) if cond(a)), [len(A)])
+    return (A[a:b] for a,b in pairwise(pos))
+
+
+#-----------------------------------------------------------------------
+def pad(A, length, fill=None):
+#-----------------------------------------------------------------------    
+    if isinstance(A, tuple):
+        fill = (fill,)
+    else:
+        fill = [fill]
+    return A + fill*(length-len(A))
+
+#-----------------------------------------------------------------------
 def to_letter(num, base=26, case='lower'):
 #-----------------------------------------------------------------------
     if num < 1:

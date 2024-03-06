@@ -10,21 +10,15 @@ from platform import system
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
-#from copy import deepcopy
 from time import sleep
 from collections import namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-#from traceback import print_stack
-#import warnings
-#warnings.filterwarnings("error")
-#from warnings import catch_warnings, filterwarnings
 from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
-#from numba import njit, jit
-from .utils import (batched, consume, cumtrapz, decode, flatten, last_line, match_in_wildlist, tail_file, head_file, index_limits,
+from .utils import (batched, batched_when, consume, cumtrapz, decode, flatten, last_line, match_in_wildlist, pad, tail_file, head_file, index_limits,
                     flat_list, flatten_all, groupby_sorted, grouper, list2text, pairwise, remove_chars,
                     list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
 from .runner import Process
@@ -631,6 +625,27 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
     
+    #--------------------------------------------------------------------------------
+    def __prepare_limits(self, *keylim):
+    #--------------------------------------------------------------------------------
+        # Examples of keylim is: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
+        # Batch the input on keywords (str)
+        batch = (batched_when(keylim, lambda x: isinstance(x, str)))
+        # Pad the batch-tuples with 3 for keys with limits, or 2 for non-limit keys
+        B = (pad(a, min(len(a)+1,3), fill=a[1]+1 if len(a)==2 else None) for a in batch)
+        # Un-tuple the 'None' in limits: ((1,10), None) instead of ((1,10), (None,)) 
+        #B = ((a,b[0] if b[0] is None else b) for a,*b in B)
+        B = ((a,b) for a,*b in B)
+        # Group on keywords
+        groups = ((k, list(zip(*sorted(g)))) for k,g in groupby(B, lambda x:x[0]))
+        keys, lims = zip(*groups)
+        # Variables from the same keyword must be listed together
+        if len(set(keys)) != len(keys):
+            raise SyntaxWarning(f'Wrong input: similar keywords must be listed together: {keys}')
+        # Merge limits: [4,6],[2,3] -> [2,6]
+        lims = [list(flatten(l[1])) for l in lims]
+        lims = [None if l[0] is None else (l[0], l[-1]) for l in lims]
+        return keys, lims
 
     #--------------------------------------------------------------------------------
     def blockdata(self, *keylim, strip=True, tail=False, unwrap_tuple=True, 
@@ -640,12 +655,22 @@ class unfmt_file(File):
         Return data in the order of the given keys, not the reading order.
         The keys-list may contain wildcards (*, ?, [seq], [!seq]) 
         """
-        # Split kewords with optional limits in separate lists
-        # Examples of keylim is: (('KEY1', 10, 20), 'KEY2', ('KEY3', 5))
-        key_lim = ((kl[0], kl[1:]) if isinstance(kl, (tuple, list)) else (kl, None) for kl in keylim)
-        keys, lims = zip(*key_lim)
-        # If only one index i is given, make range (i, i+1)
-        lims = (l if len(l)>1 else (l[0], l[0]+1) for l in lims)
+        # # Examples of keylim is: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
+        # # Batch the input on keywords (str)
+        # batch = (batched_when(keylim, lambda x: isinstance(x, str)))
+        # # Pad the batch-tuples with 3 for keys with limits, or 2 for non-limit keys
+        # B = (pad(a, min(len(a)+1,3), fill=a[1]+1 if len(a)==2 else None) for a in batch)
+        # # Un-tuple the 'None' in limits: ((1,10), None) instead of ((1,10), (None,)) 
+        # #B = ((a,b[0] if b[0] is None else b) for a,*b in B)
+        # B = ((a,b) for a,*b in B)
+        # # Group on keywords
+        # groups = ((k, list(zip(*sorted(g)))) for k,g in groupby(B, lambda x:x[0]))
+        # keys, lims = zip(*groups)
+        # # Merge limits: [4,6],[2,3] -> [2,6]
+        # lims = [list(flatten(l[1])) for l in lims]
+        # lims = [None if l[0] is None else (l[0], l[-1]) for l in lims]
+        # #keys, lims = list(zip(*B))
+        keys, lims = self.__prepare_limits(*keylim)
         limits = dict(zip(keys, lims))
         # Loop over blocks
         data = {key:None for key in keys}
@@ -663,24 +688,27 @@ class unfmt_file(File):
                     yield values 
                 data = {key:None for key in keys}
 
-    #--------------------------------------------------------------------------------
-    def __limits(self, *varnames):                                       # unfmt_file
-    #--------------------------------------------------------------------------------
-        """ 
-        Takes self.var_pos keys as input and returns a generator of ('KEYWORD', 0, 10)
-        tuples if index limits are given, or ('KEYWORD',) if index limit is 'None'.   
-        """
-        if missing := [var for var in varnames if var not in self.var_pos]:
-            raise SyntaxWarning(f'Missing variable definitions for {type(self).__name__}: {missing}')
-        var_pos = list(self.var_pos[var] for var in varnames)
-        for key, group in groupby(var_pos, lambda x:x[0]): 
-            pos = sorted(g[-1] for g in group)
-            yield (key, *( [] if pos[0] is None else [pos[0], pos[-1]+1] ))
+    # #--------------------------------------------------------------------------------
+    # def _limits(self, *varnames):                                       # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     """ 
+    #     Takes self.var_pos keys as input and returns a generator of ('KEYWORD', 0, 10)
+    #     tuples if index limits are given, or ('KEYWORD',) if index limit is 'None'.   
+    #     """
+    #     if missing := [var for var in varnames if var not in self.var_pos]:
+    #         raise SyntaxWarning(f'Missing variable definitions for {type(self).__name__}: {missing}')
+    #     var_pos = list(self.var_pos[var] for var in varnames)
+    #     print(var_pos)
+    #     for key, group in groupby(var_pos, lambda x:x[0]):
+    #         pos = sorted(g[-1] for g in group)
+    #         print(pos)
+    #         yield (key, *( [] if pos[0] is None else [pos[0], pos[-1]+1] ))
 
     #--------------------------------------------------------------------------------
-    def __get_varname_index(self, varnames, limits):                     # unfmt_file
+    def __get_varname_index(self, varnames, keylim):                     # unfmt_file
     #--------------------------------------------------------------------------------
         # Get the start index of the limits
+        limits = self.__prepare_limits(*keylim)
         low_index = list(lim[1] if len(lim)>1 else None for lim in limits)
         # Prepare tuples of ('varname',('KEYWORD', pos:int))
         varname_varpos = ((var, self.var_pos[var]) for var in varnames)
@@ -695,13 +723,16 @@ class unfmt_file(File):
     #--------------------------------------------------------------------------------
     def read2(self, *varnames, **kwargs):                                # unfmt_file
     #--------------------------------------------------------------------------------
-        limits = list(self.__limits(*varnames))
-        # Variables from the same keyword must be listed together
-        if len(set(l[0] for l in limits)) != len(limits):
-            var_key = zip(varnames, (l[0] for l in limits))
-            raise SyntaxWarning(f'Variables from the same keyword must be listed together: {tuple(var_key)}')
-        index = list( self.__get_varname_index(varnames, limits) )
-        for values in self.blockdata(*limits, unwrap_tuple=False, **kwargs):
+        if missing := [var for var in varnames if var not in self.var_pos]:
+            raise SyntaxWarning(f'Missing variable definitions for {type(self).__name__}: {missing}')
+        #limits = list(self._limits(*varnames))
+        keylim = list(flatten(self.var_pos[var] for var in varnames))
+        # # Variables from the same keyword must be listed together
+        # if len(set(l[0] for l in limits)) != len(limits):
+        #     var_key = zip(varnames, (l[0] for l in limits))
+        #     raise SyntaxWarning(f'Variables from the same keyword must be listed together: {tuple(var_key)}')
+        index = list( self.__get_varname_index(varnames, keylim) )
+        for values in self.blockdata(*keylim, unwrap_tuple=False, **kwargs):
             value = tuple(val if i is None else val[i] for val,ind in zip(values, index) for i in ind)
             if len(value) == 1:
                 yield value[0]
@@ -1498,6 +1529,31 @@ class UNRST_file(unfmt_file):                                            # UNRST
         super().__init__(file, suffix='.UNRST', role=role)
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
+        self._dim = None
+        self._dates = None
+
+    #--------------------------------------------------------------------------------
+    def dim(self):                                                       # UNRST_file
+    #--------------------------------------------------------------------------------
+        self._dim = self._dim or next(self.read2('nx', 'ny', 'nz'))
+        return self._dim
+
+    #--------------------------------------------------------------------------------
+    def _cellnr(self, coord):                                          # UNRST_file
+    #--------------------------------------------------------------------------------
+        dim = self.dim()
+        return coord[0]-1 + dim[0]*(coord[1]-1) + dim[0]*dim[1]*(coord[2]-1)
+
+    #--------------------------------------------------------------------------------
+    def celldata(self, coord, *keywords):                                 # UNRST_file
+    #--------------------------------------------------------------------------------
+        self._dates = self._dates or list(self.dates())
+        cellnr = self._cellnr(coord)
+        args = ((key, cellnr) for key in keywords)
+        data = list(zip(*self.blockdata(*args, unwrap_tuple=False)))
+        if missing:=[k for k,d in zip(keywords, data) if not d]:
+            raise RuntimeWarning(f'Missing keywords in {self.path}: {missing}')
+        return (self._dates, data)
 
     #--------------------------------------------------------------------------------
     def wells(self, **kwargs):                                           # UNRST_file
