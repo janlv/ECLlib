@@ -345,71 +345,95 @@ class File:                                                                    #
 
 
 #====================================================================================
-class unfmt_header:
+class unfmt_header:                                                    # unfmt_header
 #====================================================================================
-    #  | h e a d e r  |   d a t a     |
-    #  |4i|8s|4i|4s|4i|4i|1000 data|4i| 
-    #  |    24 bytes  |
-    #  |              |4i|8d| 
-
+    #         | h e a d e r  |     d a t a     |     d a t a     |    d a t a      |
+    #         |4i|8s|4i|4s|4i|4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i| 
+    #  bytes  |      24      |4 | 1000*size |  8  | 1000*size |  8  | 1000*size |4 |
 
     #--------------------------------------------------------------------------------
-    def __init__(self, key:str=b'', length:int=0, type:str=b'', startpos:int=0, endpos:int=0):
+    def __init__(self, key:str=b'', length:int=0, type:str=b'', 
+                 startpos:int=0, endpos:int=0):                        # unfmt_header
     #--------------------------------------------------------------------------------
         self.key = key
-        self.length = length
+        self.length = length  # datalength
         self.type = type
         self.startpos = startpos
         self.endpos = endpos
         self.dtype = DTYPE[self.type]
-        self.bytes = self.length*self.dtype.size
-        if not endpos:
-            extra_bytes = 8 * -(-self.length//self.dtype.max) # -(-a//b) is the ceil-function
-            self.endpos = self.startpos + 24 + self.bytes + extra_bytes
+        self.bytes = self.length*self.dtype.size # databytes
+        # Add the last payload int of 4 bytes, but subtract 8 if no data (ENDSOL, STARTSOL)
+        self.endpos = endpos or (self.file_datapos(self.length) + 4 - (self.length==0)*8)
+        # if not endpos:
+        #     extra_bytes = 8 * -(-self.length//self.dtype.max) # -(-a//b) is the ceil-function
+        #     self.endpos = self.startpos + 24 + self.bytes + extra_bytes
+        #     print(self.key, self.endpos, self.file_datapos(self.length) + 4 - (self.length==0)*8)
 
     #--------------------------------------------------------------------------------
-    def __str__(self):
+    def __str__(self):                                                 # unfmt_header
     #--------------------------------------------------------------------------------
         return (f'key={self.key.decode():8s}, type={self.type.decode():4s}, bytes={self.bytes:8d},' 
                 f'length={self.length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
     #--------------------------------------------------------------------------------
-    def file_slices(self, limit=None):
+    def file_datapos(self, pos):                                       # unfmt_header
+    #--------------------------------------------------------------------------------
+        """
+        Return absolute file-position given the relative index of the data-array 
+        """
+        #  | h e a d e r  |   d a t a     |   d a t a     |   d a t a     |
+        #  |4i|8s|4i|4s|4i|4i|1000 data|4i|4i|1000 data|4i|4i|1000 data|4i| 
+        #  |    24 bytes  |
+        # Add 8 payload bytes (two ints) at the transition between data chunks
+        return self.startpos + 24 + 4 + pos*self.dtype.size + 8*(pos//self.dtype.max)
+
+    #--------------------------------------------------------------------------------
+    def file_slices(self, limits=None):                                # unfmt_header
     #--------------------------------------------------------------------------------
         dtype = self.dtype
         start = self.startpos + 24 + 4
         # A is the start positions of the data pieces
-        #dmax = dtype.max * (8 if self.is_char() else self.dtype.size)
         dmax = dtype.max * dtype.size
         A = (pos+i*8 for i,pos in enumerate(range(start, start+self.bytes, dmax)))
         pos = ([a, a+dmax] for a in islice(A, self.bytes//dmax))
         if rest:=self.bytes%dmax:
             pos = chain(pos, ([a, a+rest] for a in A))
-        if limit:
-            # Modify the positions if a limit is given
-            lim = [l*dtype.size for l in limit]
-            # Remove pos-tuples up to the upper limit
-            remove = lim[0]//dmax
-            consume(pos, remove)
-            # Keep pos-tuples up to the lower limit
-            keep = lim[-1]//dmax - remove
-            pos = take(max(keep, 1), pos)
-            p = (pos[0][0], pos[-1][0])
-            for i in (0, -1):
-                pos[i][i] = p[i] + lim[i]%dmax
-        return (slice(*p) for p in pos)
+            #pos = pos + [[a, a+rest] for a in A]
+        pos = (tuple(pos),)
+        # Modify the positions if a limit is given
+        if not any(l[0] is None for l in limits): 
+            limits = list(flatten(limits))
+            if any(l>self.length for l in limits):
+                raise SyntaxWarning(
+                    f'{self.key.decode().strip()} data index out of range ({self.length})')
+            ind = (l//dtype.max for l in limits)
+            # Use index to get the relevant slices-tuples
+            pos = [[pos[0][i] for i in range(a,b+1)] for a,b in batched(ind,2)]
+            #print('POS', pos)
+            # Add lower and upper absolute limit to the (flattened) slice-tuples
+            #abs_lim = [start + l*dtype.size for l in flatten(limits)]
+            abs_lim = list( map(self.file_datapos, limits) )
+            #print('LIM', limits)
+            #print('ABS', abs_lim)
+            pos = list([a]+list(flatten(p))[1:-1]+[b] for (a,b),p in zip(batched(abs_lim,2), pos))
+            #print('POS', pos)
+            # Batch flat pos-list into slice-tuples
+            pos = ((batched(p, 2)) for p in pos)
+        return [[slice(*i) for i in p] for p in pos]
 
     #--------------------------------------------------------------------------------
-    def unpack_format(self, limit=None):
+    def unpack_format(self, limit=None):                               # unfmt_header
     #--------------------------------------------------------------------------------
-        if limit:
-            length = -subtract(*limit) * (self.dtype.size if self.is_char() else 1)
-        else:
+        if any(l[0] is None for l in limit):
+            # No limit, extract all
             length = self.bytes if self.is_char() else self.length
+        else:
+            #print(limit)
+            length = sum(-subtract(*l) for l in limit) * (self.dtype.size if self.is_char() else 1)
         return ENDIAN+f'{length}{self.dtype.unpack}'
 
     #--------------------------------------------------------------------------------
-    def data_positions(self, index):
+    def data_positions(self, index):                                   # unfmt_header
     #--------------------------------------------------------------------------------
         # List of [start, end] positions of the data-chunks
         # Data layout: |4i|0..999 elements|4i||4i|999..1999 elements|4i|...|4i|rest data|4i|
@@ -424,30 +448,31 @@ class unfmt_header:
         return ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
 
     #--------------------------------------------------------------------------------
-    def is_char(self):
+    def is_char(self):                                                 # unfmt_header
     #--------------------------------------------------------------------------------
         return self.type[0:1] == b'C'
 
     #--------------------------------------------------------------------------------
-    def number_of_elements(self, index):
+    def number_of_elements(self, index):                               # unfmt_header
     #--------------------------------------------------------------------------------
         # CHAR data needs special care since it consists of 8 elements
         return sum(j-i for i,j in index)*(self.dtype.size if self.is_char() else 1)
 
 
 #====================================================================================
-class unfmt_block:
+class unfmt_block:                                                     # unfmt_block
+#====================================================================================
     #
     # Block of unformatted Eclipse data
     #
-#====================================================================================
     #  | h e a d e r  |   d a t a     |
     #  |4i|8s|4i|4s|4i|4i|1000 data|4i| 
     #  |    24 bytes  |
     #  |              |4i|8d| 
 
     #--------------------------------------------------------------------------------
-    def __init__(self, header:unfmt_header=None, data=None, file=None, file_obj=None):
+    def __init__(self, header:unfmt_header=None, data=None, 
+                 file=None, file_obj=None):                             # unfmt_block
     #--------------------------------------------------------------------------------
         self.header = header
         self._data = data
@@ -462,7 +487,7 @@ class unfmt_block:
         return str(self.header)
 
     #--------------------------------------------------------------------------------
-    def __repr__(self):                                                  # unfmt_block
+    def __repr__(self):                                                 # unfmt_block
     #--------------------------------------------------------------------------------
         return f'<{self}>'
 
@@ -499,11 +524,12 @@ class unfmt_block:
         return self._file_obj.read(sl.stop - sl.start)
 
     #--------------------------------------------------------------------------------
-    def fix_payload_sizes(self):                                        # unfmt_block
+    def fix_payload_errors(self):                                        # unfmt_block
     #--------------------------------------------------------------------------------
         # Payload positions
         start = self.header.startpos
-        data_pos = (((s.start-4, s.start), (s.stop, s.stop+4)) for s in self.header.file_slices())
+        slices = self.header.file_slices()
+        data_pos = (((s.start-4, s.start), (s.stop, s.stop+4)) for s in slices)
         header_pos = ((start, start+4), (start+20, start+24))
         # Prepend the header positions to the data postions 
         pos = list(chain(header_pos, flatten(data_pos)))
@@ -522,28 +548,34 @@ class unfmt_block:
 
 
     #--------------------------------------------------------------------------------
-    def data(self, limit=None, strip=False, unwrap_tuple=True):         # unfmt_block
+    def data(self, limit=None, strip=False):         # unfmt_block
     #--------------------------------------------------------------------------------
         if self.header.length == 0:
             return ()
         else:
+            limit = limit or ([None],)
+            #print(limit)
             slices = self.header.file_slices(limit)
+            #print(slices)
             if self._data:
                 # File is mmap'ed 
-                data = (self._data[sl] for sl in slices)
+                data = (self._data[sl] for sl in flatten(slices))
             else:
                 # File object
-                data = (self.read_file(sl) for sl in slices)
+                data = (self.read_file(sl) for sl in flatten(slices))
+            #print('DATA',slices)
+            #print('DATA', sum(s.stop-s.start for s in slices[0]))
+            #print('DATA',self.header.unpack_format(limit))
             values = iter(unpack(self.header.unpack_format(limit), b''.join(data)))
             if self.header.is_char():
                 values = (string_split(next(values).decode(), self.header.dtype.size))
                 if strip:
                     values = (v.strip() for v in values)
-        values = tuple(values)
-        if unwrap_tuple and len(values) == 1:
-            return values[0]
-        return values
-
+        if limit[0] == [None]:
+            return (tuple(values),)
+        pos = list(-subtract(*l) for l in limit)
+        return tuple(tuple(islice(values, n)) for n in pos)
+ 
     #--------------------------------------------------------------------------------
     def data2(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
     #--------------------------------------------------------------------------------
@@ -596,7 +628,7 @@ class unfmt_block:
 
 
 #====================================================================================
-class unfmt_file(File):
+class unfmt_file(File):                                                  # unfmt_file
 #====================================================================================
     start = None
     end = None
@@ -626,73 +658,53 @@ class unfmt_file(File):
         return self.size() - self.endpos
     
     #--------------------------------------------------------------------------------
-    def __keywords_with_limits(self, *keylim):
+    def __prepare_limits(self, *keylim):                                 # unfmt_file
     #--------------------------------------------------------------------------------
         # Examples of keylim tuple is: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
         # Batch the input on keywords (str)
         batch = (batched_when(keylim, lambda x: isinstance(x, str)))
         # Pad the batch-tuples with 3 for keys with limits, or 2 for non-limit keys
         B = (pad(a, min(len(a)+1,3), fill=a[1]+1 if len(a)==2 else None) for a in batch)
-        # Un-tuple the 'None' in limits: ((1,10), None) instead of ((1,10), (None,)) 
-        #B = ((a,b[0] if b[0] is None else b) for a,*b in B)
-        B = ((a,b) for a,*b in B)
+        # Unpack the (None,) in limits: ((1,10), None) instead of ((1,10), (None,)) 
+        B = list((a,b) for a,*b in B)
+        # Create unique keys of keyword and lower limit: 'INTEHEAD_64'
+        dictkeys = list(f'{b[0]}_{b[1][0]}' for b in B)
         # Group on keywords
-        groups = ((k, list(zip(*sorted(g)))) for k,g in groupby(B, lambda x:x[0]))
+        groups = list((k, list(zip(*sorted(g)))) for k,g in groupby(B, lambda x:x[0]))
         keys, lims = zip(*groups)
-        # Variables from the same keyword must be listed together
+        # Variables from the same keyword must be listed together as args
         if len(set(keys)) != len(keys):
             raise SyntaxWarning(f'Wrong input: similar keywords must be listed together: {keys}')
-        # Merge limits: [4,6],[2,3] -> [2,6]
-        lims = [list(flatten(l[1])) for l in lims]
-        lims = [None if l[0] is None else (l[0], l[-1]) for l in lims]
-        return keys, lims
-
+        return keys, dictkeys, [l[-1] for l in lims]
 
     #--------------------------------------------------------------------------------
-    def blockdata(self, *keylim, **kwargs):                              # unfmt_file
-    #--------------------------------------------------------------------------------
-        return self.__blockdata(*self.__keywords_with_limits(*keylim), **kwargs)
-
-    #--------------------------------------------------------------------------------
-    def __blockdata(self, keys, limits, strip=True, tail=False, unwrap_tuple=True, 
-                  **kwargs):                                             # unfmt_file
+    def blockdata(self, *keylim, strip=True, tail=False, 
+                  singleton=False, **kwargs):                            # unfmt_file
     #--------------------------------------------------------------------------------
         """ 
         Return data in the order of the given keys, not the reading order.
         The keys-list may contain wildcards (*, ?, [seq], [!seq]) 
         """
+        keys, dictkeys, limits = self.__prepare_limits(*keylim)
         limits = dict(zip(keys, limits))
         # Loop over blocks
-        data = {key:None for key in keys}
+        data = {key:None for key in dictkeys}
         blocks = self.blocks
         if tail:
             blocks = self.tail_blocks
         for block in blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
-                data[key] = block.data(strip=strip, limit=limits[key], unwrap_tuple=unwrap_tuple)
+                limit = limits[key]
+                values = block.data(strip=strip, limit=limit)
+                dkeys = [f'{key}_{l[0]}' for l in limit]
+                for i,dk in enumerate(dkeys):
+                    data[dk] = values[i]
             if not any(val is None for val in data.values()):
-                values = tuple(data.values())
-                if unwrap_tuple and len(values)==1: 
-                    yield values[0]
+                if not singleton:
+                    yield tuple(v[0] if len(v)==1 else v for v in data.values())
                 else:
-                    yield values 
-                data = {key:None for key in keys}
-
-
-    #--------------------------------------------------------------------------------
-    def __varpos_index(self, varnames, limits):                     # unfmt_file
-    #--------------------------------------------------------------------------------
-        # Get the start index of the limits
-        low_index = list(lim[1] if len(lim)>1 else None for lim in limits)
-        # Prepare tuples of ('varname',('KEYWORD', pos:int))
-        varname_varpos = ((var, self.var_pos[var]) for var in varnames)
-        # Group by 'KEYWORD' to get tuples ( 'var1', ('KEYWORD', pos1)), ('var2', ('KEYWORD', pos2)) )
-        groups = groupby(varname_varpos, lambda x:x[1][0])
-        for (key, group), low in zip(groups, low_index):
-            # Yield list [pos1, pos2] where pos is relative to the tuple 
-            # returned by self.blockdata()
-            group = list(group)
-            yield [None if low is None else g[1][1]-low for g in group]
+                    yield tuple(data.values()) 
+                data = {key:None for key in dictkeys}
 
     #--------------------------------------------------------------------------------
     def read2(self, *varnames, **kwargs):                                # unfmt_file
@@ -700,14 +712,11 @@ class unfmt_file(File):
         if missing := [var for var in varnames if var not in self.var_pos]:
             raise SyntaxWarning(f'Missing variable definitions for {type(self).__name__}: {missing}')
         keylim = list(flatten(self.var_pos[var] for var in varnames))
-        keys, limits = self.__keywords_with_limits(*keylim)
-        index = list( self.__varpos_index(varnames, limits) )
-        for values in self.__blockdata(keys, limits, unwrap_tuple=False, **kwargs):
-            value = tuple(val if i is None else val[i] for val,ind in zip(values, index) for i in ind)
-            if len(value) == 1:
-                yield value[0]
+        for values in self.blockdata(*keylim, **kwargs):
+            if len(values) == 1:
+                yield values[0]
             else:
-                yield value
+                yield values
 
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
@@ -722,7 +731,8 @@ class unfmt_file(File):
             return False
 
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False, start=None, use_mmap=True, **kwargs):             # unfmt_file
+    def blocks(self, only_new=False, start=None, use_mmap=True, 
+               **kwargs):                                                # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file():
             return ()
@@ -739,11 +749,8 @@ class unfmt_file(File):
 
 
     #--------------------------------------------------------------------------------
-    def blocks_from_mmap(self, startpos, write=False):
+    def blocks_from_mmap(self, startpos, write=False):                   # unfmt_file
     #--------------------------------------------------------------------------------
-        # with open(self.path, mode='rb') as file:
-        #     try:
-        #         with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
         try:
             with self.mmap(write=write) as data:
                 size = data.size()
@@ -759,7 +766,7 @@ class unfmt_file(File):
             return #() #False
 
     #--------------------------------------------------------------------------------
-    def blocks_from_file(self, startpos):
+    def blocks_from_file(self, startpos):                                # unfmt_file
     #--------------------------------------------------------------------------------
         with open(self.path, mode='rb') as file:
             size = self.size()
@@ -812,13 +819,14 @@ class unfmt_file(File):
                     #                 data=data, file=self.path)
 
     #--------------------------------------------------------------------------------
-    def fix_errors(self):
+    def fix_errors(self):                                                # unfmt_file
     #--------------------------------------------------------------------------------
         for block in self.blocks(write=True):
-            block.fix_payload_sizes()
+            block.fix_payload_errors()
 
     #--------------------------------------------------------------------------------
-    def read(self, *varnames, tail=False, start=0, stop=None, step=None, drop=None, unpack_single=True, **kwargs):    # unfmt_file
+    def read(self, *varnames, tail=False, start=0, stop=None, step=None, 
+             drop=None, unpack_single=True, **kwargs):                   # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file():
             return
@@ -883,22 +891,22 @@ class unfmt_file(File):
                 return
 
     #--------------------------------------------------------------------------------
-    def count_sections(self):
+    def count_sections(self):                                            # unfmt_file
     #--------------------------------------------------------------------------------
         return len([i for i,block in enumerate(self.blocks()) if self.start in block])
 
     #--------------------------------------------------------------------------------
-    def blocks_matching(self, *keys):
+    def blocks_matching(self, *keys):                                    # unfmt_file
     #--------------------------------------------------------------------------------
         step = -1
         for b in self.blocks():
             if self.start in b:
-                step = b.data(unwrap_tuple=False)[0]
+                step = b.data()[0]
             if any(key in b for key in keys):
                 yield (step, b)
 
     #--------------------------------------------------------------------------------
-    def section_blocks(self, tail=False):
+    def section_blocks(self, tail=False):                                # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Return blocks one section at a time
@@ -915,7 +923,7 @@ class unfmt_file(File):
             a, b = next(step,(0,0))
 
     #--------------------------------------------------------------------------------
-    def section_data(self, start=(), end=(), rename=(), begin=0):
+    def section_data(self, start=(), end=(), rename=(), begin=0):        # unfmt_file
     #--------------------------------------------------------------------------------
         
         # Example of start and end format: 
@@ -937,7 +945,8 @@ class unfmt_file(File):
                 # yield (step[0], filemap[_slice])
 
     #--------------------------------------------------------------------------------
-    def merge(self, *section_data, progress=lambda x:None, cancel=lambda:None):
+    def merge(self, *section_data, progress=lambda x:None, 
+              cancel=lambda:None):                                       # unfmt_file
     #--------------------------------------------------------------------------------
         with open(self.path, 'wb') as merge_file:
             n = 0
@@ -951,60 +960,6 @@ class unfmt_file(File):
                 n += 1
                 progress(n)
         return self.path
-
-    # #--------------------------------------------------------------------------------
-    # def sections(self, begin=0, check_sync=lambda *x:0, init_key=None, start_before=None,
-    #              start_after=None, end_before=None, end_after=None):    # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if not self.exists():
-    #         raise SystemError(f'ERROR File {self.path} not found')
-    #     inside = False
-    #     step = None
-    #     with open(self.path, 'rb') as file:
-    #         for block in self.blocks():
-    #             key = block.key()
-    #             step = check_sync(block, step)
-    #             #print(inside, key, step)
-    #             if inside and key in (end_before, end_after):
-    #                 inside = False
-    #                 if key == end_before:
-    #                     end_pos = block.startpos
-    #                 else:
-    #                     end_pos = block.endpos
-    #                 yield (n, file.read(end_pos-start_pos))
-    #             if not inside and key in (start_before, start_after):
-    #                 if step < begin:
-    #                     continue
-    #                 inside = True
-    #                 n = step
-    #                 if key == start_before:
-    #                     start_pos = block.startpos
-    #                 else:
-    #                     start_pos = block.endpos
-    #                 file.seek(start_pos)
-    #         if inside and end_before==init_key:
-    #             yield (n, file.read(self.size()-start_pos))
-
-
-    # #--------------------------------------------------------------------------------
-    # def merge(self, sections=None, progress=lambda x:None, cancel=lambda:None): # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     return_value = False
-    #     with open(self.path, 'wb') as out_file, safezip(*sections) as zipper:
-    #         # Get data from the section generators
-    #         for step_data in zipper:
-    #             steps = []
-    #             for step, data in step_data:
-    #                 out_file.write(data)
-    #                 steps.append(step)
-    #             if len(set(steps)) > 1:
-    #                 raise SystemError(
-    #                     f'ERROR Sections are not synchronized in unfmt_file.create(): {steps}')
-    #             progress(steps[0])
-    #             cancel()
-    #         return_value = self.path
-    #     return return_value
-
 
     #--------------------------------------------------------------------------------
     def assert_no_duplicates(self, raise_error=True):                     # unfmt_file
@@ -1520,7 +1475,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
         self._dates = self._dates or list(self.dates())
         cellnr = self._cellnr(coord)
         args = ((key, cellnr) for key in keywords)
-        data = list(zip(*self.blockdata(*args, unwrap_tuple=False)))
+        data = list(zip(*self.blockdata(*args, singleton=True)))
         if missing:=[k for k,d in zip(keywords, data) if not d]:
             raise RuntimeWarning(f'Missing keywords in {self.path}: {missing}')
         return (self._dates, data)
@@ -1651,7 +1606,8 @@ class UNSMRY_file(unfmt_file):
         self._plots = None
 
     #--------------------------------------------------------------------------------
-    def welldata(self, keys=(), wells=(), only_new=False, as_array=False, named=False, **kwargs): # UNSMRY_file
+    def welldata(self, keys=(), wells=(), only_new=False, as_array=False, 
+                 named=False, **kwargs):                                # UNSMRY_file
     #--------------------------------------------------------------------------------
         """
         named = False   : Returns days, dates and a tuple of key, well, value for each key-well combination
@@ -1661,6 +1617,9 @@ class UNSMRY_file(unfmt_file):
         """
         if self.is_file() and self.spec.welldata(keys=keys, wells=wells, named=named):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
+            #well_pos = self.spec.well_pos()
+            #self.var_pos['welldata'] = ('PARAMS', well_pos[0], well_pos[-1]+1)
+            #print(well_pos[0], well_pos[-1])
             try:
                 days, data = zip(*self.read('days', 'welldata', only_new=only_new, **kwargs))
             except ValueError:
@@ -2007,7 +1966,8 @@ class check_blocks:                                                    # check_b
         start, start_val, end, end_val = 0, 1, 2, 3
         for block in self._unfmt.blocks(only_new=only_new):
             if block.header.key == self._keys[start]:
-                if (data := block.data()):
+                #if (data := block.data()):
+                if (data := block.data()[0]):
                     self._keys[start_val].append(data[0])
                 else:
                     return False
