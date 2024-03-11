@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain, repeat, accumulate, groupby, zip_longest, islice
 from operator import attrgetter, itemgetter, sub as subtract
 from pathlib import Path
@@ -45,22 +45,17 @@ ECL2IX_LOG = 'ecl2ix.log'
 @dataclass
 class Dtyp:
 #====================================================================================
-    name   : str = ''   # ECL type name
-    unpack : str = ''  # Char used by struct.unpack/pack to read/write binary data
-    size   : int = 0   # Bytesize 
-    max    : int = 0  # Maximum number of data records in one block
-    nptype : type = None  # Type used in numpy arrays 
-    #limit  : any = None  # min, max limits
+    name     : str = ''     # ECL type name
+    unpack   : str = ''     # Char used by struct.unpack/pack to read/write binary data
+    size     : int = 0      # Bytesize 
+    max      : int = 0      # Maximum number of data records in one block
+    nptype   : type = None  # Type used in numpy arrays 
+    max_bytes: int = field(init=False) # max * size
 
-    # #--------------------------------------------------------------------------------
-    # def __str__(self):
-    # #--------------------------------------------------------------------------------
-    #     return self.nptype
-
-    # #--------------------------------------------------------------------------------
-    # def nbytes(self, length):
-    # #--------------------------------------------------------------------------------
-    #     return length*self.size + 8 * -(-length//self.max) # -(-a//b) is the ceil-function
+    #--------------------------------------------------------------------------------
+    def __post_init__(self):
+    #--------------------------------------------------------------------------------
+        self.max_bytes = self.max * self.size
 
 
 #                        name  unpack size max  nptype
@@ -362,9 +357,13 @@ class unfmt_header:                                                    # unfmt_h
         self.endpos = endpos
         self.dtype = DTYPE[self.type]
         self.bytes = self.length*self.dtype.size # databytes
-        # Add the last payload int of 4 bytes, but subtract 8 if no data (ENDSOL, STARTSOL)
-        self.endpos = endpos or (self.file_datapos(self.length) + 4 - (self.length==0)*8)
-        # if not endpos:
+        if not endpos:
+            if self.length:
+                # Add the last payload int of 4 bytes
+                self.endpos = self.data_pos(self.length) + 4
+            else:
+                # No data, only header
+                self.endpos = self.startpos + 24
         #     extra_bytes = 8 * -(-self.length//self.dtype.max) # -(-a//b) is the ceil-function
         #     self.endpos = self.startpos + 24 + self.bytes + extra_bytes
         #     print(self.key, self.endpos, self.file_datapos(self.length) + 4 - (self.length==0)*8)
@@ -376,16 +375,40 @@ class unfmt_header:                                                    # unfmt_h
                 f'length={self.length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
     #--------------------------------------------------------------------------------
-    def file_datapos(self, pos):                                       # unfmt_header
+    def data_pos(self, pos):                                       # unfmt_header
     #--------------------------------------------------------------------------------
         """
-        Return absolute file-position given the relative index of the data-array 
+        Return absolute file-position of given the relative index of the data-array 
         """
         #  | h e a d e r  |   d a t a     |   d a t a     |   d a t a     |
         #  |4i|8s|4i|4s|4i|4i|1000 data|4i|4i|1000 data|4i|4i|1000 data|4i| 
         #  |    24 bytes  |
         # Add 8 payload bytes (two ints) at the transition between data chunks
         return self.startpos + 24 + 4 + pos*self.dtype.size + 8*(pos//self.dtype.max)
+
+    #--------------------------------------------------------------------------------
+    def data_slices(self, limits=((None,))):                            # unfmt_header
+    #--------------------------------------------------------------------------------
+        dtype = self.dtype
+        # Extend limit to whole range if None is given
+        flat_lim = tuple(flatten(((0, self.length) if l is None else l for l in limits)))
+        # Check for out-of-bounds limits
+        if oob_lim := [l for l in flat_lim if l<0 or l>self.length]:
+            raise SyntaxWarning(
+                f'{self.key.decode().strip()}: index {oob_lim} is out of bounds ({self.length})')
+        # First and last file (byte) position of the slices 
+        first_last = batched((self.data_pos(l) for l in flat_lim), 2)
+        # The number of the first and last data chunk
+        num = list(batched((l//dtype.max for l in flat_lim), 2))
+        # The start position of the first payload  
+        shift = (self.data_pos((n+1)*dtype.max)-8 for n,_ in num)
+        # The distance in bytes between consecutive payloads 
+        step = 8 + dtype.max_bytes
+        # The list of payload start-positions between data start and stop
+        pay_ran = (tuple(s+r*step for r in range(b-a)) for s,(a,b) in zip(shift, num))
+        for (first, last), ran in zip(first_last, pay_ran):
+            lims = chain([first], *((r, r+8) for r in ran), [last])
+            yield tuple(slice(*l) for l in batched(lims, 2))
 
     #--------------------------------------------------------------------------------
     def file_slices(self, limits=None):                                # unfmt_header
@@ -412,7 +435,7 @@ class unfmt_header:                                                    # unfmt_h
             #print('POS', pos)
             # Add lower and upper absolute limit to the (flattened) slice-tuples
             #abs_lim = [start + l*dtype.size for l in flatten(limits)]
-            abs_lim = list( map(self.file_datapos, limits) )
+            abs_lim = list( map(self.data_pos, limits) )
             #print('LIM', limits)
             #print('ABS', abs_lim)
             pos = list([a]+list(flatten(p))[1:-1]+[b] for (a,b),p in zip(batched(abs_lim,2), pos))
@@ -1766,6 +1789,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             ikw = enumerate(zip(self.data.keys, self.data.wells))
             # index into UNSMRY arrays
             self._ind = tuple(i for i,(k,w) in ikw if k in keys and w in wells)
+            #print(self._ind)
             if self._ind:
                 getter = itemgetter(*self._ind)
                 if self.data.measures:

@@ -222,6 +222,23 @@ def copy_recursive(src, dst, log=None) -> None:
 # except ImportError:
 #     from itertools import tee
 
+# Taken from: https://stackoverflow.com/questions/14822184/is-there-a-ceiling-equivalent-of-operator-in-python
+#-----------------------------------------------------------------------
+def ceildiv(a, b):
+#-----------------------------------------------------------------------
+    return -(-a//b)
+
+#-----------------------------------------------------------------------
+def sliding_window(iterable, n): # From Itertools Recipes at docs.python.org
+#-----------------------------------------------------------------------
+    "Collect data into overlapping fixed-length chunks or blocks."
+    # sliding_window('ABCDEFG', 4) --> ABCD BCDE CDEF DEFG
+    it = iter(iterable)
+    window = deque(islice(it, n-1), maxlen=n)
+    for x in it:
+        window.append(x)
+        yield tuple(window)
+
 #-----------------------------------------------------------------------
 def pairwise(iterable): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
