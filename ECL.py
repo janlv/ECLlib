@@ -391,11 +391,11 @@ class unfmt_header:                                                    # unfmt_h
     #--------------------------------------------------------------------------------
         dtype = self.dtype
         # Extend limit to whole range if None is given
-        flat_lim = tuple(flatten(((0, self.length) if l is None else l for l in limits)))
+        flat_lim = tuple(flatten(((0, self.length) if None in l else l for l in limits)))
         # Check for out-of-bounds limits
-        if oob_lim := [l for l in flat_lim if l<0 or l>self.length]:
+        if oob_err := [l for l in flat_lim if l<0 or l>self.length]:
             raise SyntaxWarning(
-                f'{self.key.decode().strip()}: index {oob_lim} is out of bounds ({self.length})')
+                f'{self.key.decode().strip()}: index {oob_err} is out of bounds ({self.length})')
         # First and last file (byte) position of the slices 
         first_last = batched((self.data_pos(l) for l in flat_lim), 2)
         # The number of the first and last data chunk
@@ -410,39 +410,39 @@ class unfmt_header:                                                    # unfmt_h
             lims = chain([first], *((r, r+8) for r in ran), [last])
             yield tuple(slice(*l) for l in batched(lims, 2))
 
-    #--------------------------------------------------------------------------------
-    def file_slices(self, limits=None):                                # unfmt_header
-    #--------------------------------------------------------------------------------
-        dtype = self.dtype
-        start = self.startpos + 24 + 4
-        # A is the start positions of the data pieces
-        dmax = dtype.max * dtype.size
-        A = (pos+i*8 for i,pos in enumerate(range(start, start+self.bytes, dmax)))
-        pos = ([a, a+dmax] for a in islice(A, self.bytes//dmax))
-        if rest:=self.bytes%dmax:
-            pos = chain(pos, ([a, a+rest] for a in A))
-            #pos = pos + [[a, a+rest] for a in A]
-        pos = (tuple(pos),)
-        # Modify the positions if a limit is given
-        if not any(l[0] is None for l in limits): 
-            limits = list(flatten(limits))
-            if any(l>self.length for l in limits):
-                raise SyntaxWarning(
-                    f'{self.key.decode().strip()} data index out of range ({self.length})')
-            ind = (l//dtype.max for l in limits)
-            # Use index to get the relevant slices-tuples
-            pos = [[pos[0][i] for i in range(a,b+1)] for a,b in batched(ind,2)]
-            #print('POS', pos)
-            # Add lower and upper absolute limit to the (flattened) slice-tuples
-            #abs_lim = [start + l*dtype.size for l in flatten(limits)]
-            abs_lim = list( map(self.data_pos, limits) )
-            #print('LIM', limits)
-            #print('ABS', abs_lim)
-            pos = list([a]+list(flatten(p))[1:-1]+[b] for (a,b),p in zip(batched(abs_lim,2), pos))
-            #print('POS', pos)
-            # Batch flat pos-list into slice-tuples
-            pos = ((batched(p, 2)) for p in pos)
-        return [[slice(*i) for i in p] for p in pos]
+    # #--------------------------------------------------------------------------------
+    # def file_slices(self, limits=None):                                # unfmt_header
+    # #--------------------------------------------------------------------------------
+    #     dtype = self.dtype
+    #     start = self.startpos + 24 + 4
+    #     # A is the start positions of the data pieces
+    #     dmax = dtype.max * dtype.size
+    #     A = (pos+i*8 for i,pos in enumerate(range(start, start+self.bytes, dmax)))
+    #     pos = ([a, a+dmax] for a in islice(A, self.bytes//dmax))
+    #     if rest:=self.bytes%dmax:
+    #         pos = chain(pos, ([a, a+rest] for a in A))
+    #         #pos = pos + [[a, a+rest] for a in A]
+    #     pos = (tuple(pos),)
+    #     # Modify the positions if a limit is given
+    #     if not any(l[0] is None for l in limits): 
+    #         limits = list(flatten(limits))
+    #         if any(l>self.length for l in limits):
+    #             raise SyntaxWarning(
+    #                 f'{self.key.decode().strip()} data index out of range ({self.length})')
+    #         ind = (l//dtype.max for l in limits)
+    #         # Use index to get the relevant slices-tuples
+    #         pos = [[pos[0][i] for i in range(a,b+1)] for a,b in batched(ind,2)]
+    #         #print('POS', pos)
+    #         # Add lower and upper absolute limit to the (flattened) slice-tuples
+    #         #abs_lim = [start + l*dtype.size for l in flatten(limits)]
+    #         abs_lim = list( map(self.data_pos, limits) )
+    #         #print('LIM', limits)
+    #         #print('ABS', abs_lim)
+    #         pos = list([a]+list(flatten(p))[1:-1]+[b] for (a,b),p in zip(batched(abs_lim,2), pos))
+    #         #print('POS', pos)
+    #         # Batch flat pos-list into slice-tuples
+    #         pos = ((batched(p, 2)) for p in pos)
+    #     return [[slice(*i) for i in p] for p in pos]
 
     #--------------------------------------------------------------------------------
     def unpack_format(self, limit=None):                               # unfmt_header
@@ -551,7 +551,8 @@ class unfmt_block:                                                     # unfmt_b
     #--------------------------------------------------------------------------------
         # Payload positions
         start = self.header.startpos
-        slices = self.header.file_slices()
+        #slices = self.header.file_slices()
+        slices = self.header.data_slices()
         data_pos = (((s.start-4, s.start), (s.stop, s.stop+4)) for s in slices)
         header_pos = ((start, start+4), (start+20, start+24))
         # Prepend the header positions to the data postions 
@@ -577,18 +578,14 @@ class unfmt_block:                                                     # unfmt_b
             return ()
         else:
             limit = limit or ([None],)
-            #print(limit)
-            slices = self.header.file_slices(limit)
-            #print(slices)
+            #slices = self.header.file_slices(limit)
+            slices = self.header.data_slices(limit)
             if self._data:
                 # File is mmap'ed 
                 data = (self._data[sl] for sl in flatten(slices))
             else:
                 # File object
                 data = (self.read_file(sl) for sl in flatten(slices))
-            #print('DATA',slices)
-            #print('DATA', sum(s.stop-s.start for s in slices[0]))
-            #print('DATA',self.header.unpack_format(limit))
             values = iter(unpack(self.header.unpack_format(limit), b''.join(data)))
             if self.header.is_char():
                 values = (string_split(next(values).decode(), self.header.dtype.size))
