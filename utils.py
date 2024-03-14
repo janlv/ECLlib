@@ -1,8 +1,9 @@
 
 # -*- coding: utf-8 -*-
 
+from operator import sub
 from pathlib import Path
-from re import RegexFlag, findall, compile as re_compile, DOTALL, sub, IGNORECASE, MULTILINE
+from re import findall, compile as re_compile, DOTALL, sub as re_sub, IGNORECASE, MULTILINE
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
@@ -162,11 +163,26 @@ def removeprefix(prefix, string):
     return string
 
 #-----------------------------------------------------------------------
+def group_indices(A):
+#-----------------------------------------------------------------------
+    """ 
+    Group consecutive indices into (first, last) limits. 
+    Single values are also handled: (2,) -> (2,3) 
+    Example:
+        group_indices((1,2,3,4,8,9,10,20)) --> ((1,5),(8,11),(20,21))
+    """
+    jumps = (p for p in pairwise(A) if -sub(*p)>1)
+    return ((a, b+1) for a,b in batched(chain([A[0]], *jumps, [A[-1]]), 2))
+    #return batched(chain([A[0]], jumps, [A[-1]]), 2) 
+
+
+#-----------------------------------------------------------------------
 def index_limits(index):
 #-----------------------------------------------------------------------
     """ 
-    Group consecutive indexes into (first, last) limits 
+    Group consecutive indices into (first, last) limits 
     Return () if first < 0
+    Return (0,1) if given (0,)
     """
     # index_lim((1,2,3,4,8,9,10)) --> (1,5),(8,11)
     jumps = (index[0],) + flat_list((a,b) for a,b in pairwise(index) if b-a>1) + (index[-1],)
@@ -265,7 +281,8 @@ def nth(iterable, n, default=None): # From Itertools Recipes at docs.python.org
 def take(n, iterable): # From Itertools Recipes at docs.python.org
 #-----------------------------------------------------------------------
     "Return first n items of the iterable as a list"
-    return list(islice(iterable, n))
+    return tuple(islice(iterable, n))
+    #return list(islice(iterable, n))
 
 #-----------------------------------------------------------------------
 def tail(n, iterable): # From Itertools Recipes at docs.python.org
@@ -547,7 +564,7 @@ def remove_chars(chars, text):
 #-----------------------------------------------------------------------
 def remove_leading_nondigits(txt):
 #-----------------------------------------------------------------------
-    return sub(r'^[a-zA-Z-+._]*', '', txt)
+    return re_sub(r'^[a-zA-Z-+._]*', '', txt)
 
 #-----------------------------------------------------------------------
 def try_except_loop(*args, limit=1, pause=0.05, error=None, raise_error=True, func=None, log=None, **kwargs):
