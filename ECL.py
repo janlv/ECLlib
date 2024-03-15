@@ -384,7 +384,7 @@ class unfmt_header:                                                    # unfmt_h
         return self.startpos + 24 + 4 + pos*self.dtype.size + 8*(pos//self.dtype.max)
 
     #--------------------------------------------------------------------------------
-    def _data_slices(self, limits=((None,))):                          # unfmt_header
+    def _data_slices(self, limits=((None,),)):                          # unfmt_header
     #--------------------------------------------------------------------------------
         dtype = self.dtype
         # Extend limit to whole range if None is given
@@ -403,9 +403,16 @@ class unfmt_header:                                                    # unfmt_h
         step = 8 + dtype.max_bytes
         # The list of payload start-positions between data start and stop
         pay_ran = (tuple(s+r*step for r in range(b-a)) for s,(a,b) in zip(shift, num))
-        for (first, last), ran in zip(first_last, pay_ran):
-            lims = chain([first], *((r, r+8) for r in ran), [last])
-            yield tuple(slice(*l) for l in batched(lims, 2))
+        # Add first and last index to the ends of the payload ranges
+        lims = ((f,*((r, r+8) for r in ran),l) for (f, l), ran in zip(first_last, pay_ran))
+        # lims = list(lims)
+        # print(lims)
+        # Pull pairs of indices, and return slices 
+        return (slice(*l) for l in batched(flatten_all(lims), 2))
+        #return (slice(*l) for l in batched(flatten(lims), 2))
+        #for (first, last), ran in zip(first_last, pay_ran):
+        #    lims = chain([first], *((r, r+8) for r in ran), [last])
+        #    yield (slice(*l) for l in batched(lims, 2))
 
     # #--------------------------------------------------------------------------------
     # def file_slices(self, limits=None):                                # unfmt_header
@@ -551,12 +558,13 @@ class unfmt_block:                                                     # unfmt_b
         return self._file_obj.read(sl.stop - sl.start)
 
     #--------------------------------------------------------------------------------
-    def fix_payload_errors(self):                                        # unfmt_block
+    def fix_payload_errors(self):                                       # unfmt_block
     #--------------------------------------------------------------------------------
         # Payload positions
         start = self.header.startpos
         #slices = self.header.file_slices()
         slices = self.header._data_slices()
+        #print([type(s) for s in slices])
         data_pos = (((s.start-4, s.start), (s.stop, s.stop+4)) for s in slices)
         header_pos = ((start, start+4), (start+20, start+24))
         # Prepend the header positions to the data postions 
@@ -573,12 +581,14 @@ class unfmt_block:                                                     # unfmt_b
             data = pack(ENDIAN + f'{len(sizes)}i', *sizes)
             for i, p in enumerate(pos):
                 self._data[slice(*p)] = data[i*4:i*4+4]
-
+        return len(sizes_pos)
 
     #--------------------------------------------------------------------------------
-    def _read_data(self, limit):
+    def _read_data(self, limit):                                        # unfmt_block
     #--------------------------------------------------------------------------------
-        slices = tuple(flatten(self.header._data_slices(limit)))
+        #slices = tuple(flatten(self.header._data_slices(limit)))
+        slices = tuple(self.header._data_slices(limit))
+        #print(self.key(), slices)
         if self._data:
             # File is mmap'ed 
             data = (self._data[sl] for sl in slices)
@@ -590,37 +600,26 @@ class unfmt_block:                                                     # unfmt_b
         return unpack(ENDIAN+f'{length}{self.dtype.unpack}', b''.join(data))
 
     #--------------------------------------------------------------------------------
-    def data(self, limit=None, strip=False):         # unfmt_block
+    def data(self, *index, limit=((None,),), strip=False, unpack=True):  # unfmt_block
     #--------------------------------------------------------------------------------
         if self.header.length == 0:
             return ()
-        else:
-            limit = limit or ([None],)
-            # #slices = self.header.file_slices(limit)
-            # slices = list(self.header._data_slices(limit))
-            # print(slices)
-            # if self._data:
-            #     # File is mmap'ed 
-            #     data = (self._data[sl] for sl in flatten(slices))
-            # else:
-            #     # File object
-            #     data = (self.read_file(sl) for sl in flatten(slices))
-            # #values = iter(unpack(self.header.unpack_format(limit), b''.join(data)))
-            # format = self.header.unpack_format(limit)
-            # format2 = self.header.unpack_format2(slices)
-            # print(format)
-            # print(format2)
-            # values = iter(unpack(format, b''.join(data)))
-            values = iter(self._read_data(limit))
-            if self.header.is_char():
-                values = (string_split(next(values).decode(), self.header.dtype.size))
-                if strip:
-                    values = (v.strip() for v in values)
-        if limit[0] == [None]:
-            return (tuple(values),)
+        if index:
+            #limit = [index] if len(index)==2 else [(index[0],index[0]+1)]
+            limit = [pad(index, 2, fill=index[0]+1)]
+        #print(limit, limit2)
+        values = iter(self._read_data(limit))
+        if self.header.is_char():
+            values = (string_split(next(values).decode(), self.header.dtype.size))
+            if strip:
+                values = (v.strip() for v in values)
+        if index:
+            pos = slice(*index) if len(index)>1 else index[0]
+            return tuple(values)[pos]
+        if None in limit[0]:
+            return tuple(values) if unpack else (tuple(values),)
         ndata = (-subtract(*l) for l in limit)
         return tuple(take(n, values) for n in ndata)
-        #return tuple(tuple(islice(values, n)) for n in pos)
  
     # #--------------------------------------------------------------------------------
     # def data2(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
@@ -741,7 +740,7 @@ class unfmt_file(File):                                                  # unfmt
         for block in blocks(**kwargs):
             if key:=match_in_wildlist(block.key(), keys):
                 limit = limits[key]
-                values = block.data(strip=strip, limit=limit)
+                values = block.data(strip=strip, limit=limit, unpack=False)
                 dkeys = (f'{key}_{l[0]}' for l in limit)
                 for i,dk in enumerate(dkeys):
                     data[dk] = values[i]
@@ -883,8 +882,9 @@ class unfmt_file(File):                                                  # unfmt
     #--------------------------------------------------------------------------------
     def fix_errors(self):                                                # unfmt_file
     #--------------------------------------------------------------------------------
-        for block in self.blocks(write=True):
-            block.fix_payload_errors()
+        return sum(b.fix_payload_errors() for b in self.blocks(write=True))
+        #for block in self.blocks(write=True):
+        #    block.fix_payload_errors()
 
     # #--------------------------------------------------------------------------------
     # def read(self, *varnames, tail=False, start=0, stop=None, step=None, 
@@ -955,7 +955,7 @@ class unfmt_file(File):                                                  # unfmt
     #--------------------------------------------------------------------------------
     def count_sections(self):                                            # unfmt_file
     #--------------------------------------------------------------------------------
-        return len([1 for block in self.blocks() if self.start in block])
+        return sum(1 for block in self.blocks() if self.start in block)
         #return len([i for i,block in enumerate(self.blocks()) if self.start in block])
 
     #--------------------------------------------------------------------------------
@@ -974,6 +974,7 @@ class unfmt_file(File):                                                  # unfmt
         """
         Return blocks one section at a time
         """
+        self.exists(raise_error=True)
         blocks_func = self.blocks
         if tail:
             blocks_func = self.tail_blocks
@@ -1849,7 +1850,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     def startdate(self):                                                # SMSPEC_file
     #--------------------------------------------------------------------------------
         if start := next(self.blockdata('STARTDAT'), None):
-            day, month, year, hour, minute, second = start[0]
+            day, month, year, hour, minute, second = start
+            #day, month, year, hour, minute, second = start[0]
             return datetime(year, month, day, hour, minute, second)
 
     #--------------------------------------------------------------------------------
