@@ -771,7 +771,7 @@ class unfmt_file(File):                                                  # unfmt
             if any(n>1 for n in nvar):
                 # Split values to match number of input variables
                 values = iter(values)
-                yield [take(n,values)[0] if n==1 else take(n,values) for n in nvar]
+                yield [take(n,values)[0] if n==1 else take(n,flatten(values)) for n in nvar]
             else:
                 yield values
 
