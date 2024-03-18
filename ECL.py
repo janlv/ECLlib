@@ -755,7 +755,7 @@ class unfmt_file(File):                                                  # unfmt
                 data = {key:None for key in dictkeys}
 
     #--------------------------------------------------------------------------------
-    def read2(self, *varnames, **kwargs):                     # unfmt_file
+    def read2(self, *varnames, **kwargs):                                # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Read data block by block using variable names defined in self.var_pos. 
@@ -768,10 +768,6 @@ class unfmt_file(File):                                                  # unfmt
         keylim = flatten_all(zip(repeat(v[0]), group_indices(v[1:])) for v in var_pos)
         nvar = [len(pos) for _,*pos in var_pos]
         for values in self.blockdata(*keylim, **kwargs):
-            # if len(values) == 1:
-            #     # Unpack single values
-            #     yield values[0]
-            #elif any(n>1 for n in nvar):
             if any(n>1 for n in nvar):
                 # Split values to match number of input variables
                 values = iter(values)
@@ -957,6 +953,16 @@ class unfmt_file(File):                                                  # unfmt
     #--------------------------------------------------------------------------------
         return sum(1 for block in self.blocks() if self.start in block)
         #return len([i for i,block in enumerate(self.blocks()) if self.start in block])
+
+    #--------------------------------------------------------------------------------
+    def keys_matching(self, *pattern, sec=0):                           # unfmt_file
+    #--------------------------------------------------------------------------------
+        """
+        Return matching keywords from the first section of blocks
+        """
+        #blocks = next(self.section_blocks())
+        blocks = next(islice(self.section_blocks(), sec, sec+1))
+        return [b.key() for b in blocks if match_in_wildlist(b.key(), pattern)]
 
     #--------------------------------------------------------------------------------
     def blocks_matching(self, *keys):                                    # unfmt_file
@@ -1514,13 +1520,14 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 'wells' : ('ZWEL'    , None)}  # First ZWEL in second section 
                                                 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, end=None, role=None, **kwargs): # UNRST_file
+    def __init__(self, file, wait_func=None, end=None, role=None, 
+                 **kwargs):                                              # UNRST_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.UNRST', role=role)
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self._dim = None
-        self._dates = None
+        #self._dates = None
 
     #--------------------------------------------------------------------------------
     def dim(self):                                                       # UNRST_file
@@ -1529,21 +1536,48 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return self._dim
 
     #--------------------------------------------------------------------------------
-    def _cellnr(self, coord):                                          # UNRST_file
+    def _cellnr(self, coord):                                            # UNRST_file
     #--------------------------------------------------------------------------------
         dim = self.dim()
         return coord[0]-1 + dim[0]*(coord[1]-1) + dim[0]*dim[1]*(coord[2]-1)
 
     #--------------------------------------------------------------------------------
-    def celldata(self, coord, *keywords):                                 # UNRST_file
+    def celldata(self, coord, *keywords):                                # UNRST_file
     #--------------------------------------------------------------------------------
-        self._dates = self._dates or list(self.dates())
+        #self._dates = self._dates or 
         cellnr = self._cellnr(coord)
         args = ((key, cellnr) for key in keywords)
         data = list(zip(*self.blockdata(*args, singleton=True)))
         if missing:=[k for k,d in zip(keywords, data) if not d]:
             raise RuntimeWarning(f'Missing keywords in {self.path}: {missing}')
-        return (self._dates, data)
+        return (list(self.dates()), data)
+
+    #--------------------------------------------------------------------------------
+    def cellarray(self, *keys, start=0, stop=None, step=None, skip=1):   # UNRST_file
+    #--------------------------------------------------------------------------------
+        step = step or self.count_sections()
+        keys = self.keys_matching(*keys)
+        names = [remove_chars('+-', str(k).lower()) for k in keys]
+        cellarray = namedtuple('cellarray', ['days', 'dates'] + names)
+        dim = self.dim()
+        ddd = zip(self.days(), self.dates(), self.blockdata(*keys))
+        day_date_data = islice(ddd, start, stop, skip)
+        while (batch := tuple(islice(day_date_data, step))):
+            days, dates, data = [nparray(d) for d in zip(*batch)]
+            data = data.transpose((1,0,2))
+            yield cellarray(days, dates, *data.reshape(data.shape[:-1]+dim, order='F'))
+
+    # #--------------------------------------------------------------------------------
+    # def cellarray2(self, *keys): # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     keys = self.keys_matching(*keys)
+    #     names = [remove_chars('+-', str(k).lower()) for k in keys]
+    #     cellarray = namedtuple('cellarray', ['days', 'dates'] + names)
+    #     shape = (len(keys), -1,) + self.dim()
+    #     data = nparray([*zip(*self.blockdata(*keys))]).reshape(shape, order='F')
+    #     days = nparray([*self.days()])
+    #     dates = nparray([*self.dates()])
+    #     return cellarray(days, dates, *data)
 
     #--------------------------------------------------------------------------------
     def wells(self, **kwargs):                                           # UNRST_file
@@ -1553,7 +1587,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return tuple(unique_wells)
 
     #--------------------------------------------------------------------------------
-    def steps(self):                                                    # UNRST_file
+    def steps(self):                                                     # UNRST_file
     #--------------------------------------------------------------------------------
         return flatten_all(self.read2('step'))
         #return flatten_all(self.blockdata('SEQNUM'))
