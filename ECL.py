@@ -2110,8 +2110,7 @@ class check_blocks:                                                    # check_b
         start, start_val, end, end_val = 0, 1, 2, 3
         for block in self._unfmt.blocks(only_new=only_new):
             if block.header.key == self._keys[start]:
-                #if (data := block.data()):
-                if (data := block.data()[0]):
+                if (data := block.data()):
                     self._keys[start_val].append(data[0])
                 else:
                     return False
