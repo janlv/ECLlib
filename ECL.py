@@ -955,6 +955,11 @@ class unfmt_file(File):                                                  # unfmt
         #return len([i for i,block in enumerate(self.blocks()) if self.start in block])
 
     #--------------------------------------------------------------------------------
+    def count_blocks(self):                                            # unfmt_file
+    #--------------------------------------------------------------------------------
+        return sum(1 for _ in self.blocks())
+
+    #--------------------------------------------------------------------------------
     def keys_matching(self, *pattern, sec=0):                           # unfmt_file
     #--------------------------------------------------------------------------------
         """
@@ -985,17 +990,17 @@ class unfmt_file(File):                                                  # unfmt
         if tail:
             blocks_func = self.tail_blocks
         step_gen = (i for i,b in enumerate(blocks_func()) if self.start in b)
-        step = batched(step_gen, 2)
-        a, b = next(step)
+        # Need to add the total number of blocks to include the last section
+        step = pairwise(chain(step_gen, [self.count_blocks()]))
         blocks = blocks_func()
+        a, b = next(step)
         while batch:=tuple(islice(blocks, b-a)):
             yield batch
             a, b = next(step,(0,0))
 
     #--------------------------------------------------------------------------------
     def section_data(self, start=(), end=(), rename=(), begin=0):        # unfmt_file
-    #--------------------------------------------------------------------------------
-        
+    #--------------------------------------------------------------------------------        
         # Example of start and end format: 
         # start=('SEQNUM', 'startpos'), end=('ENDSOL', 'endpos') 
         # Start by splitting args in keys=('SEQNUM', 'ENDSOL') and attrs=('startpos', 'endpos')
@@ -1006,6 +1011,7 @@ class unfmt_file(File):                                                  # unfmt
                 step, pair = zip(*step_pair)
                 if step[0] < begin:
                     continue
+                # Get 'endpos' or 'startpos' for the start/end blocks
                 _slice = slice(*(getattr(p,a) for p,a in zip(pair, attrs)))
                 data = filemap[_slice]
                 if rename and (names:=[rn for rn in rename if rn[0] in data]):
@@ -1013,6 +1019,42 @@ class unfmt_file(File):                                                  # unfmt
                         data = data.replace(old.ljust(8), new.ljust(8))
                 yield (step[0], data)
                 # yield (step[0], filemap[_slice])
+
+    #--------------------------------------------------------------------------------
+    def section_slices(self, start=(), end=()):                          # unfmt_file
+    #--------------------------------------------------------------------------------
+        """
+        Get the file-position slice defined by the 'start' and 'end' block-keywords. 
+        """
+        # Example of start and end format: 
+        # start=('SEQNUM', 'startpos'), end=('ENDSOL', 'endpos') 
+        # Start by splitting args in keys=('SEQNUM', 'ENDSOL') and attrs=('startpos', 'endpos')
+        keys, attrs = zip(start, end)
+        step = -1
+        _matches = {k:None for k in keys}
+        for section in self.section_blocks():
+            for block in section:
+                if self.start in block:
+                    step = block.data()[0]
+                if any(key in block for key in keys):
+                    _matches[block.key()] = block
+            # Get 'endpos' or 'startpos' for the start/end blocks
+            _slice = slice(*(getattr(p,a) for p,a in zip(_matches.values(), attrs)))
+            yield (step, _slice)
+            _matches = {k:None for k in keys}
+
+    #--------------------------------------------------------------------------------
+    def section_data2(self, start=(), end=(), rename=(), begin=0):       # unfmt_file
+    #--------------------------------------------------------------------------------        
+        with self.mmap() as filemap:
+            for step, _slice in self.section_slices(start, end):
+                if step < begin:
+                    continue
+                data = filemap[_slice]
+                if rename and (names:=[rn for rn in rename if rn[0] in data]):
+                    for old, new in names:
+                        data = data.replace(old.ljust(8), new.ljust(8))
+                yield (step, data)
 
     #--------------------------------------------------------------------------------
     def merge(self, *section_data, progress=lambda x:None, 
