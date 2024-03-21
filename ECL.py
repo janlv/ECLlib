@@ -359,8 +359,8 @@ class unfmt_header:                                                    # unfmt_h
         self.bytes = self.length*self.dtype.size # databytes
         if not endpos:
             if self.length:
-                # Add the last payload int of 4 bytes to reach the end
-                self.endpos = self._data_pos(self.length) + 4
+                # self._data_pos() gives start of last data value
+                self.endpos = self._data_pos(self.length-1) + self.dtype.size + 4
             else:
                 # No data, only header
                 self.endpos = self.startpos + 24
