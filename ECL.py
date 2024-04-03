@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
+from numpy import expand_dims, int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
 from .utils import (batched, batched_when, cumtrapz, decode, flatten, group_indices, last_line, match_in_wildlist, pad, tail_file, head_file,
                     flat_list, flatten_all, grouper, list2text, pairwise, remove_chars,
@@ -1606,6 +1606,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
         day_date_data = islice(ddd, start, stop, skip)
         while (batch := tuple(islice(day_date_data, step))):
             days, dates, data = [nparray(d) for d in zip(*batch)]
+            if data.ndim < 3:
+                data = expand_dims(data, 1)
             data = data.transpose((1,0,2))
             yield cellarray(days, dates, *data.reshape(data.shape[:-1]+dim, order='F'))
 
