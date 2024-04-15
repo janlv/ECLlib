@@ -46,6 +46,16 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #     return zip(*getgen)
 
 #-----------------------------------------------------------------------
+def first_index(cond, alist):
+#-----------------------------------------------------------------------
+    """
+    Return index of first element that satisfy condition cond. If cond is 
+    never true, return last index
+    """
+    return next((i for i,v in enumerate(alist) if cond(v)), len(alist)) 
+
+
+#-----------------------------------------------------------------------
 def batched_when(A, cond):
 #-----------------------------------------------------------------------    
     pos = chain((i for i,a in enumerate(A) if cond(a)), [len(A)])

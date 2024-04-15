@@ -3,6 +3,7 @@
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from itertools import chain, repeat, accumulate, groupby, zip_longest, islice
 from operator import attrgetter, itemgetter, sub as subtract
 from pathlib import Path
@@ -1595,10 +1596,14 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return (list(self.dates()), data)
 
     #--------------------------------------------------------------------------------
-    def cellarray(self, *keys, start=0, stop=None, step=None, skip=1):   # UNRST_file
+    def cellarray(self, *in_keys, start=0, stop=None, step=None, skip=1,    # UNRST_file
+                  warn_missing=True):                                   
     #--------------------------------------------------------------------------------
         step = step or self.count_sections()
-        keys = self.keys_matching(*keys)
+        keys = self.keys_matching(*in_keys)
+        if warn_missing:
+            if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
+                raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
         names = [remove_chars('+-', str(k).lower()) for k in keys]
         cellarray = namedtuple('cellarray', ['days', 'dates'] + names)
         dim = self.dim()
@@ -1634,14 +1639,11 @@ class UNRST_file(unfmt_file):                                            # UNRST
     def steps(self):                                                     # UNRST_file
     #--------------------------------------------------------------------------------
         return flatten_all(self.read2('step'))
-        #return flatten_all(self.blockdata('SEQNUM'))
 
     #--------------------------------------------------------------------------------
     def end_value(self, var:str):                                        # UNRST_file
     #--------------------------------------------------------------------------------
-        #value = next(self.read(var, tail=True), None) or [0]
         return next(self.read2(var, tail=True), None) or 0
-        #return value[0]
 
     #--------------------------------------------------------------------------------
     def end_step(self):                                                  # UNRST_file
@@ -1654,11 +1656,19 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return self.end_value('time')
 
     #--------------------------------------------------------------------------------
+    def end_date(self):                                                  # UNRST_file
+    #--------------------------------------------------------------------------------
+        return next(self.dates(tail=True), None)
+        # if ymd:=self.end_value('year', 'month', 'day'):
+        #     return datetime(*ymd)
+            #return datetime.strptime(' '.join(dmy), '%d %m %Y')
+
+    #--------------------------------------------------------------------------------
     def dates(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
-        #data = self.read('day','month','year', **kwargs)
-        data = self.read2('day','month','year', **kwargs)
-        return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
+        return (datetime(*ymd) for ymd in self.read2('year', 'month', 'day', **kwargs))
+        # data = self.read2('day','month','year', **kwargs)
+        # return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
 
     #--------------------------------------------------------------------------------
     def days(self, **kwargs):                                           # UNRST_file
