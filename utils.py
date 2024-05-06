@@ -46,6 +46,19 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #     return zip(*getgen)
 
 #-----------------------------------------------------------------------
+def daterange(start, stop, step=1, format=None):
+#-----------------------------------------------------------------------
+    """
+    daterange((1971, 7, 1), 10, format="%d-%b-%Y") -> ['01-Jul-1971', '02-Jul-1971', '03-Jul-1971']
+    """
+    if not isinstance(start, datetime):
+        start = datetime(*start)
+    dates = (start + timedelta(days=d) for d in range(0, stop, step))
+    if format:
+        return [date.strftime(format) for date in dates]
+    return list(dates)
+
+#-----------------------------------------------------------------------
 def first_index(cond, alist):
 #-----------------------------------------------------------------------
     """

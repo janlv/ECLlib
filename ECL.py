@@ -776,6 +776,7 @@ class unfmt_file(File):                                                  # unfmt
             else:
                 yield values
 
+
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
     #--------------------------------------------------------------------------------
@@ -1666,7 +1667,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
     def dates(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
-        return (datetime(*ymd) for ymd in self.read2('year', 'month', 'day', **kwargs))
+        return (datetime(*ymdhm) for ymdhm in self.read2('year', 'month', 'day', 'hour', 'min', **kwargs))
         # data = self.read2('day','month','year', **kwargs)
         # return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
 
@@ -1770,11 +1771,12 @@ class UNSMRY_file(unfmt_file):
         """
         if self.is_file() and self.spec.welldata(keys=keys, wells=wells, named=named):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
-            reader = self.read2('days', 'welldata', only_new=only_new, **kwargs)
+            reader = self.read2('days', 'welldata', only_new=only_new, singleton=True, **kwargs)
             try:
                 #days, data = zip(*self.read('days', 'welldata', only_new=only_new, **kwargs))
                 #days, data = zip(*self.read2('days', 'welldata', only_new=only_new, **kwargs))
                 days, data = zip(*islice(reader, start, stop, step))
+                days = tuple(flatten(days))
             except ValueError:
                 days, data = (), ()
             if not data:
@@ -1794,13 +1796,13 @@ class UNSMRY_file(unfmt_file):
                 values = {k:Values(**dict(g[1:] for g in gr), **units[k]) for k,gr in grouped}
                 Welldata = namedtuple('Welldata', ('days', 'dates') + self.keys)
                 return Welldata(days=days, dates=tuple(dates), **values)
-            Values = namedtuple('Values','key well data')
+            Values = namedtuple('Values', 'key well data')
             values = (Values(k, w, d) for k,w,d in kwd)
-            return namedtuple('Welldata','days dates values')(days, tuple(dates), tuple(values))
+            return namedtuple('Welldata', 'days dates values')(days, tuple(dates), tuple(values))
         return ()
 
     #--------------------------------------------------------------------------------
-    def plot(self, keys=(), wells=(), ncols=1, date=True, 
+    def plot(self, keys=(), wells=(), ncols=1, date=True, fignr=1,
              args=None, **kwargs):                                      # UNSMRY_file
     #--------------------------------------------------------------------------------
         if data := self.welldata(keys=keys, wells=wells, **kwargs):
@@ -1814,7 +1816,7 @@ class UNSMRY_file(unfmt_file):
             if not self._plots:
                 # Create figure and axes
                 nrows = -(-len(_keys)//ncols) # -(-a//b) is equivalent of ceil
-                fig = pl_figure(1, clear=True, figsize=(8*ncols,4*nrows))
+                fig = pl_figure(fignr, clear=True, figsize=(8*ncols,4*nrows))
                 axes = {key:fig.add_subplot(nrows, ncols, i+1) for i,key in enumerate(_keys)}
                 fig.subplots_adjust(hspace=0.5, wspace=0.25)
                 units = self.key_units()
@@ -1845,7 +1847,8 @@ class UNSMRY_file(unfmt_file):
                     data = welldata[key_well] = list(val.data)
                     lines[key_well], = axes[val.key].plot(welldata['time'][-len(data):], data, label=val.well, **args)
             for ax in axes.values():
-                ax.legend(loc='upper left', fontsize='smaller', ncols=-(-len(ax.lines)//7)) # max 7 labels each column
+                #ax.legend(loc='upper left', fontsize='smaller', ncols=-(-len(ax.lines)//7)) # max 7 labels each column
+                ax.legend(fontsize='smaller', ncols=-(-len(ax.lines)//7)) # max 7 labels each column
                 ax.relim()
                 ax.autoscale_view()
             fig.canvas.draw_idle()# draw()
