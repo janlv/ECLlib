@@ -406,92 +406,13 @@ class unfmt_header:                                                    # unfmt_h
         pay_ran = (tuple(s+r*step for r in range(b-a)) for s,(a,b) in zip(shift, num))
         # Add first and last index to the ends of the payload ranges
         lims = ((f,*((r, r+8) for r in ran),l) for (f, l), ran in zip(first_last, pay_ran))
-        # lims = list(lims)
-        # print(lims)
         # Pull pairs of indices, and return slices 
         return (slice(*l) for l in batched(flatten_all(lims), 2))
-        #return (slice(*l) for l in batched(flatten(lims), 2))
-        #for (first, last), ran in zip(first_last, pay_ran):
-        #    lims = chain([first], *((r, r+8) for r in ran), [last])
-        #    yield (slice(*l) for l in batched(lims, 2))
-
-    # #--------------------------------------------------------------------------------
-    # def file_slices(self, limits=None):                                # unfmt_header
-    # #--------------------------------------------------------------------------------
-    #     dtype = self.dtype
-    #     start = self.startpos + 24 + 4
-    #     # A is the start positions of the data pieces
-    #     dmax = dtype.max * dtype.size
-    #     A = (pos+i*8 for i,pos in enumerate(range(start, start+self.bytes, dmax)))
-    #     pos = ([a, a+dmax] for a in islice(A, self.bytes//dmax))
-    #     if rest:=self.bytes%dmax:
-    #         pos = chain(pos, ([a, a+rest] for a in A))
-    #         #pos = pos + [[a, a+rest] for a in A]
-    #     pos = (tuple(pos),)
-    #     # Modify the positions if a limit is given
-    #     if not any(l[0] is None for l in limits): 
-    #         limits = list(flatten(limits))
-    #         if any(l>self.length for l in limits):
-    #             raise SyntaxWarning(
-    #                 f'{self.key.decode().strip()} data index out of range ({self.length})')
-    #         ind = (l//dtype.max for l in limits)
-    #         # Use index to get the relevant slices-tuples
-    #         pos = [[pos[0][i] for i in range(a,b+1)] for a,b in batched(ind,2)]
-    #         #print('POS', pos)
-    #         # Add lower and upper absolute limit to the (flattened) slice-tuples
-    #         #abs_lim = [start + l*dtype.size for l in flatten(limits)]
-    #         abs_lim = list( map(self.data_pos, limits) )
-    #         #print('LIM', limits)
-    #         #print('ABS', abs_lim)
-    #         pos = list([a]+list(flatten(p))[1:-1]+[b] for (a,b),p in zip(batched(abs_lim,2), pos))
-    #         #print('POS', pos)
-    #         # Batch flat pos-list into slice-tuples
-    #         pos = ((batched(p, 2)) for p in pos)
-    #     return [[slice(*i) for i in p] for p in pos]
-
-    # #--------------------------------------------------------------------------------
-    # def unpack_format(self, limit=None):                               # unfmt_header
-    # #--------------------------------------------------------------------------------
-    #     #if any(l[0] is None for l in limit):
-    #     if any(None in l for l in limit):
-    #         # No limit, extract all
-    #         length = self.bytes if self.is_char() else self.length
-    #     else:
-    #         #print(limit)
-    #         length = sum(-subtract(*l) for l in limit) * (self.dtype.size if self.is_char() else 1)
-    #     return ENDIAN+f'{length}{self.dtype.unpack}'
-
-    # #--------------------------------------------------------------------------------
-    # def unpack_format2(self, slices):                               # unfmt_header
-    # #--------------------------------------------------------------------------------
-    #     length = sum(sl.stop-sl.start for sl in flatten(slices))//(1 if self.is_char() else self.dtype.size)
-    #     return ENDIAN+f'{length}{self.dtype.unpack}'
-
-    # #--------------------------------------------------------------------------------
-    # def data_positions(self, index):                                   # unfmt_header
-    # #--------------------------------------------------------------------------------
-    #     # List of [start, end] positions of the data-chunks
-    #     # Data layout: |4i|0..999 elements|4i||4i|999..1999 elements|4i|...|4i|rest data|4i|
-    #     # The 4i byte size int's are skipped
-    #     data_start = self.startpos + 24
-    #     data_limits = list(range(data_start, self.endpos, self.dtype.max*self.dtype.size+8))
-    #     data_pos = lambda x: data_limits[ slice( *(1+(i//self.dtype.max) for i in x) ) ]
-    #     byte_pos = lambda x: data_start + x*self.dtype.size + 8*(x//self.dtype.max) + 4
-    #     # Modify byte_pos by -4/+4 at start/end to match chunk-limits 
-    #     limits = ([byte_pos(a)-4]+data_pos((a,b))+[byte_pos(b)+4] for a,b in index)
-    #     # Compensate for the 4-byte size int
-    #     return ([a+4,b-4] for lim in limits for a,b in pairwise(lim))
 
     #--------------------------------------------------------------------------------
     def is_char(self):                                                 # unfmt_header
     #--------------------------------------------------------------------------------
         return self.type[0:1] == b'C'
-
-    # #--------------------------------------------------------------------------------
-    # def number_of_elements(self, index):                               # unfmt_header
-    # #--------------------------------------------------------------------------------
-    #     # CHAR data needs special care since it consists of 8 elements
-    #     return sum(j-i for i,j in index)*(self.dtype.size if self.is_char() else 1)
 
 
 #====================================================================================
@@ -1062,17 +983,28 @@ class unfmt_file(File):                                                  # unfmt
     def merge(self, *section_data, progress=lambda x:None, 
               cancel=lambda:None):                                       # unfmt_file
     #--------------------------------------------------------------------------------
+        skipped = []
         with open(self.path, 'wb') as merge_file:
             n = 0
             for steps_data in zip(*section_data):
                 cancel()
                 steps, data = zip(*steps_data)
-                if len(set(steps)) > 1:
-                    raise SystemError(f'ERROR Merged steps are different: {steps}')
+                #if len(set(steps)) > 1:
+                # Sync sections if the steps dont match
+                while len(set(steps)) > 1:
+                    if steps[0] < steps[1]:
+                        skipped.append(steps[0])
+                        steps, data = zip(next(section_data[0]), (steps[1], data[1]))
+                    else:
+                        skipped.append(steps[1])
+                        steps, data = zip((steps[0], data[0]), next(section_data[1]))
+                    #raise SystemError(f'ERROR Merged steps are different: {steps}')
                 for d in data:
                     merge_file.write(d)
                 n += 1
                 progress(n)
+        if skipped:
+            print(f'WARNING! Some steps were skipped: {skipped}')
         return self.path
 
     #--------------------------------------------------------------------------------
@@ -1665,9 +1597,13 @@ class UNRST_file(unfmt_file):                                            # UNRST
             #return datetime.strptime(' '.join(dmy), '%d %m %Y')
 
     #--------------------------------------------------------------------------------
-    def dates(self, **kwargs):                                           # UNRST_file
+    def dates(self, hour=False, min=False, **kwargs):                    # UNRST_file
     #--------------------------------------------------------------------------------
-        return (datetime(*ymdhm) for ymdhm in self.read2('year', 'month', 'day', 'hour', 'min', **kwargs))
+        varnames = ('year', 'month', 'day')
+        varnames += ('hour',) if hour else ()
+        varnames += ('min',) if min else ()
+        return (datetime(*vars) for vars in self.read2(*varnames, **kwargs))
+        #return (datetime(*ymdhm) for ymdhm in self.read2('year', 'month', 'day', 'hour', 'min', **kwargs))
         # data = self.read2('day','month','year', **kwargs)
         # return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
 
