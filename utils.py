@@ -1,7 +1,7 @@
 
 # -*- coding: utf-8 -*-
 
-from operator import sub
+from operator import itemgetter, sub
 from pathlib import Path
 from re import findall, compile as re_compile, DOTALL, sub as re_sub, IGNORECASE, MULTILINE
 from threading import Thread
@@ -59,13 +59,13 @@ def daterange(start, stop, step=1, format=None):
     return list(dates)
 
 #-----------------------------------------------------------------------
-def first_index(cond, alist):
+def first_index(cond, alist, fail=None):
 #-----------------------------------------------------------------------
     """
     Return index of first element that satisfy condition cond. If cond is 
     never true, return last index
     """
-    return next((i for i,v in enumerate(alist) if cond(v)), len(alist)) 
+    return next((i for i,v in enumerate(alist) if cond(v)), fail) 
 
 
 #-----------------------------------------------------------------------
@@ -478,6 +478,7 @@ def iter_index(iterable, value, start=0): # From https://docs.python.org/3/libra
 def groupby_sorted(iterable, key=None, reverse=False):
 #-----------------------------------------------------------------------
     """ Sort before applying groupby and remove key from result """
+    key = key or itemgetter(0)
     ordered = sorted(iterable, key=key, reverse=reverse)
     for tag, groups in groupby(ordered, key):
         yield tag, [[g for g in group if g != tag] for group in groups]

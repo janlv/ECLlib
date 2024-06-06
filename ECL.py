@@ -484,9 +484,7 @@ class unfmt_block:                                                     # unfmt_b
     #--------------------------------------------------------------------------------
         # Payload positions
         start = self.header.startpos
-        #slices = self.header.file_slices()
         slices = self.header._data_slices()
-        #print([type(s) for s in slices])
         data_pos = (((s.start-4, s.start), (s.stop, s.stop+4)) for s in slices)
         header_pos = ((start, start+4), (start+20, start+24))
         # Prepend the header positions to the data postions 
@@ -529,7 +527,6 @@ class unfmt_block:                                                     # unfmt_b
         if index:
             #limit = [index] if len(index)==2 else [(index[0],index[0]+1)]
             limit = [pad(index, 2, fill=index[0]+1)]
-        #print(limit, limit2)
         values = iter(self._read_data(limit))
         if self.header.is_char():
             values = (string_split(next(values).decode(), self.header.dtype.size))
@@ -538,6 +535,7 @@ class unfmt_block:                                                     # unfmt_b
         if index:
             pos = slice(*index) if len(index)>1 else index[0]
             return tuple(values)[pos]
+        #print('LIMIT[0]', limit[0])
         if None in limit[0]:
             return tuple(values) if unpack else (tuple(values),)
         ndata = (-subtract(*l) for l in limit)
@@ -726,6 +724,8 @@ class unfmt_file(File):                                                  # unfmt
         if use_mmap:
             return self.blocks_from_mmap(startpos, **kwargs)
         return self.blocks_from_file(startpos)
+        #     yield from self.blocks_from_mmap(startpos, **kwargs)
+        # yield from self.blocks_from_file(startpos)
 
 
     #--------------------------------------------------------------------------------
@@ -990,7 +990,7 @@ class unfmt_file(File):                                                  # unfmt
                 cancel()
                 steps, data = zip(*steps_data)
                 #if len(set(steps)) > 1:
-                # Sync sections if the steps dont match
+                # Sync sections if steps don't match
                 while len(set(steps)) > 1:
                     if steps[0] < steps[1]:
                         skipped.append(steps[0])
@@ -1549,6 +1549,26 @@ class UNRST_file(unfmt_file):                                            # UNRST
             data = data.transpose((1,0,2))
             yield cellarray(days, dates, *data.reshape(data.shape[:-1]+dim, order='F'))
 
+    #--------------------------------------------------------------------------------
+    def icellarray(self, *in_keys, start=None, stop=None, step=1,    # UNRST_file
+                  warn_missing=True):                                   
+    #--------------------------------------------------------------------------------
+        step = step or self.count_sections()
+        keys = self.keys_matching(*in_keys)
+        if warn_missing:
+            if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
+                raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
+        names = [remove_chars('+-', str(k).lower()) for k in keys]
+        cellarray = namedtuple('cellarray', ['day', 'date'] + names)
+        dim = self.dim()
+        dds = zip(self.days(), self.dates(), self.section_blocks())
+        for day, date, section in islice(dds, start, stop, step):
+            blockdata = {k:None for k in keys}
+            for block in section:
+                if (key:=block.key()) in keys:
+                    blockdata[key] = block.data()
+            yield cellarray(day, date, *[nparray(d).reshape(dim, order='F') for d in blockdata.values()])
+    
     # #--------------------------------------------------------------------------------
     # def cellarray2(self, *keys): # UNRST_file
     # #--------------------------------------------------------------------------------
@@ -1888,7 +1908,14 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         Read attributes from the named-tuple Data
         """
         if (val := getattr(self.data, item, None)) is not None:
-            return itemgetter(*self._ind)(val) if self._ind else ()
+            if not self._ind:
+                return ()
+            items = itemgetter(*self._ind)(val)
+            # Need this check because the return type of itemgetter is not consistent
+            # For single indices it returns a value instead of a list 
+            if len(self._ind) > 1:
+                return items
+            return (items,)
         return super().__getattr__(item)
 
     #--------------------------------------------------------------------------------
@@ -1976,13 +2003,11 @@ class PRT_file(text_file):                                                # PRT_
     #--------------------------------------------------------------------------------
     def end_time(self):                                                    # PRT_file
     #--------------------------------------------------------------------------------
-        default = 0
-        # timetags = ('TIME=', 'Rep    ;', 'Init   ;')
-        # chunks = (txt for txt in self.reversed(size=10*1024) if any(tag in txt for tag in timetags))
         chunks = (txt for txt in self.reversed(size=10*1024) if 'TIME' in txt)
         if data:=next(chunks, None):
             days = findall(self._pattern['time'], data)
-            return float(days[-1]) if days else default
+            return float(days[-1]) if days else 0
+        return 0
 
 
 #====================================================================================
