@@ -151,7 +151,7 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def resize(self, start=0, end=0):                                   # File
     #--------------------------------------------------------------------------------
-        # NB Very slow for large files, use with caution! 
+        # NB! Very slow for large files, use with caution! 
         if start >= end:
             raise SyntaxError("'start' must be less than 'end'")
         length = end - start
@@ -1008,7 +1008,24 @@ class unfmt_file(File):                                                  # unfmt
         return self.path
 
     #--------------------------------------------------------------------------------
-    def assert_no_duplicates(self, raise_error=True):                     # unfmt_file
+    def remove_sections(self, nsec):                                     # unfmt_file
+    #--------------------------------------------------------------------------------
+        """
+        For positive values, remove leading sections
+        For negtive values, remove tailing sections
+        """
+        if nsec > 0:
+            # Remove nsec leading sections
+            end = next(islice(self.section_blocks(), nsec, None))[-1].endpos
+            self.resize(start=0, end=end)
+        else:
+            # Remove nsec tailing sections
+            start = next(islice(self.section_blocks(tail=True), abs(nsec), None))[0].startpos
+            self.resize(start=start, end=self.size)
+
+
+    #--------------------------------------------------------------------------------
+    def assert_no_duplicates(self, raise_error=True):                    # unfmt_file
     #--------------------------------------------------------------------------------
         allowed = (self.start, 'ZTRACER')
         seen = set()
@@ -1866,7 +1883,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
             return False
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
         # Do not use mmap here because the SMSPEC-file might 
-        # get truncated while mmap'ed causing a bus-error
+        # get truncated while mmap'ed which will cause a bus-error
         self.data = Data(*next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False), ()))
         #if all(self.data):
         if self.data.keys and self.data.wells and self.data.units:
@@ -1890,6 +1907,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
                     self.wells = getter(tuple(w.replace('-','_') for w in self.data.wells))
                 else:
                     self.wells = getter(tuple(self.data.wells))
+                if not isinstance(self.wells, (list, tuple)):
+                    self.wells = (self.wells,)
                 return True
         return False
 
@@ -2316,7 +2335,7 @@ class fmt_file(File):                                                      # fmt
                 progress(n)
                 cancel()
                 # Resize file by removing data already processed
-                # This is a slow operation for large files
+                # NB! This is a slow operation for large files
                 if (end:=m*section.size) > buffer:
                     resized = True
                     m = 0
@@ -2752,6 +2771,24 @@ class IX_input:                                                            # IX_
     def __contains__(self, key):                                           # IX_input
     #--------------------------------------------------------------------------------
         return any(key in ixf for ixf in self.ixf_files)
+
+    #--------------------------------------------------------------------------------
+    def ifind(self, astr:str):                                              # IX_input
+    #--------------------------------------------------------------------------------
+        enc_str = astr.encode()
+        for file, data in self.afi._included_file_data():
+            if enc_str in data:
+                yield file
+
+    #--------------------------------------------------------------------------------
+    def find(self, *args):                                                 # IX_input
+    #--------------------------------------------------------------------------------
+        return next(self.ifind(*args), None)
+
+    #--------------------------------------------------------------------------------
+    def findall(self, *args):                                                 # IX_input
+    #--------------------------------------------------------------------------------
+        return tuple(self.ifind(*args))
 
     @classmethod
     #--------------------------------------------------------------------------------
