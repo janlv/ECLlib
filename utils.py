@@ -11,7 +11,7 @@ from mmap import mmap, ACCESS_READ
 from signal import SIGTERM
 from contextlib import contextmanager
 from itertools import chain, groupby, islice, tee, zip_longest
-from collections import deque
+from collections import deque, namedtuple
 from collections.abc import Iterable
 from shutil import copy2
 import stat
@@ -21,6 +21,7 @@ from numpy import array, trapz, sum as npsum
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
 from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_close
+from molmass import Formula
 
 # Short Python regexp guide:
 #   \s : whitespace, [ \t\n\r\f\v]
@@ -44,6 +45,58 @@ from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_
 #         #
 #         getgen = ((getter(o),) for o in objects)
 #     return zip(*getgen)
+
+
+# #-----------------------------------------------------------------------
+# def safe_itemgetter(*ind):
+# #-----------------------------------------------------------------------
+#     if len(ind) > 1:
+#         return itemgetter(*ind)
+#     return ()
+
+
+# #-----------------------------------------------------------------------
+# def day2time(day):
+# #-----------------------------------------------------------------------
+#     rest = day%1
+    
+#     for a in (24, 60, 60):
+#         r = a*rest
+
+#     h = 24*rest
+#     hour, rest = int(h), h%1
+#     m = 60*rest
+#     min, rest = int(m), m%1
+#     s = 60*rest
+#     sec, rest = int(s), s%1
+#     return int(day), hour, min, sec
+
+#--------------------------------------------------------------------------------
+def ppm2molL(specie:str):
+#--------------------------------------------------------------------------------
+    # PPM is g/Mg, where Mg is mega-gram
+    # Divide by Mg = 1000 kg to convert to g/kg
+    # For a dilute solution, 1 kg of water equals 1 L: g/kg = g/L 
+    # Divide g/L by atomic weight (g/mol) to get mol/L
+    #name = specie.lower().capitalize()
+    #name = specie.upper()
+    return 1/1000/Formula(specie).mass
+
+#--------------------------------------------------------------------------------
+def molL2ppm(specie:str):
+#--------------------------------------------------------------------------------
+    return 1000*Formula(specie).mass
+
+#-----------------------------------------------------------------------
+def day2time(days):
+#-----------------------------------------------------------------------
+    rest = (days%1)*24*3600 # Convert day to seconds
+    time = [int(days)]
+    for base in (3600, 60, 1):
+        time.append(rest//base)
+        rest -= time[-1]*base
+    return namedtuple('Time', 'day hour min sec msec')(*time, rest)
+
 
 #-----------------------------------------------------------------------
 def daterange(start, stop, step=1, format=None):
