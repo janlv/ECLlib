@@ -19,7 +19,7 @@ from struct import unpack, pack, error as struct_error
 from shutil import copy
 from numpy import expand_dims, int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
-from .utils import (batched, batched_when, cumtrapz, decode, flatten, group_indices, last_line, match_in_wildlist, pad, tail_file, head_file,
+from .utils import (batched, batched_when, cumtrapz, decode, flatten, index_limits, last_line, match_in_wildlist, pad, tail_file, head_file,
                     flat_list, flatten_all, grouper, list2text, pairwise, remove_chars,
                     list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
 from .runner import Process
@@ -685,7 +685,8 @@ class unfmt_file(File):                                                  # unfmt
         if missing := [var for var in varnames if var not in self.var_pos]:
             raise SyntaxWarning(f'Missing variable definitions for {type(self).__name__}: {missing}')
         var_pos = list(self.var_pos[var] for var in varnames)
-        keylim = flatten_all(zip(repeat(v[0]), group_indices(v[1:])) for v in var_pos)
+        #keylim = flatten_all(zip(repeat(v[0]), group_indices(v[1:])) for v in var_pos)
+        keylim = flatten_all(zip(repeat(v[0]), index_limits([-1 if i is None else i for i in v[1:]])) for v in var_pos)
         nvar = [len(pos) for _,*pos in var_pos]
         for values in self.blockdata(*keylim, **kwargs):
             if any(n>1 for n in nvar):
@@ -1240,7 +1241,8 @@ class DATA_file(File):
         tsteps = tuple(self._days(times, start=start))
         ## Checks
         if not negative_ok and any(t<=0 for t,_ in tsteps):
-            raise SystemError(f'ERROR Zero or negative timestep in {self} (check if TSTEP or RESTART oversteps a DATES keyword)')
+            raise SystemError(
+                f'ERROR Zero or negative timestep in {self} (check if TSTEP or RESTART oversteps a DATES keyword)')
         if not missing_ok and not tsteps:
             raise SystemError(f'ERROR No TSTEP or DATES in {self} (or the included files)')
         return tsteps if pos else tuple(next(zip(*tsteps)))
@@ -1262,11 +1264,11 @@ class DATA_file(File):
         if restart and step:
             unrst = UNRST_file(restart, role='RESTART file')
             unrst.exists(raise_error=True)
-            wells += unrst.wells(stop=step)
+            wells += unrst.wells(stop=int(step))
         return tuple(set(wells))
 
     #--------------------------------------------------------------------------------
-    def welspecs(self):                                                  # DATA_file
+    def welspecs(self):                                                   # DATA_file
     #--------------------------------------------------------------------------------
         """
         Get wellnames from WELSPECS definitions in the DATA-file or in a
@@ -1599,9 +1601,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #     return cellarray(days, dates, *data)
 
     #--------------------------------------------------------------------------------
-    def wells(self, **kwargs):                                           # UNRST_file
+    def wells(self, stop=None):                                           # UNRST_file
     #--------------------------------------------------------------------------------
-        wells = flatten_all(self.read2('wells', **kwargs))
+        wells = flatten_all(islice(self.read2('wells'), 0, stop))
         unique_wells = set(w for well in wells if (w:=well.strip()))
         return tuple(unique_wells)
 
