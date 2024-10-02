@@ -72,14 +72,22 @@ from molmass import Formula
 #     return int(day), hour, min, sec
 
 #--------------------------------------------------------------------------------
+def missing_elements(L):
+#--------------------------------------------------------------------------------
+    """
+    Return a set of consecutive elements missing in the given list:
+        missing_elements([1,3,4]) -> {2}
+    """
+    L = sorted(L)
+    return set(range(L[0], L[-1]+1)).difference(L)
+
+#--------------------------------------------------------------------------------
 def ppm2molL(specie:str):
 #--------------------------------------------------------------------------------
     # PPM is g/Mg, where Mg is mega-gram
     # Divide by Mg = 1000 kg to convert to g/kg
     # For a dilute solution, 1 kg of water equals 1 L: g/kg = g/L 
     # Divide g/L by atomic weight (g/mol) to get mol/L
-    #name = specie.lower().capitalize()
-    #name = specie.upper()
     return 1/1000/Formula(specie).mass
 
 #--------------------------------------------------------------------------------

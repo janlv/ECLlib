@@ -17,8 +17,9 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import expand_dims, int32, float32, float64, bool_ as np_bool, array as nparray
+from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
+from pandas import DataFrame
 from .utils import (batched, batched_when, cumtrapz, decode, flatten, index_limits, last_line, match_in_wildlist, pad, tail_file, head_file,
                     flat_list, flatten_all, grouper, list2text, pairwise, remove_chars,
                     list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
@@ -85,9 +86,31 @@ class Restart:
 #====================================================================================
 class File:                                                                    # File
 #====================================================================================
+    """
+    A class representing a file, allowing various operations such as reading, writing,
+    memory mapping, and manipulation of file metadata. This class also supports file
+    backup, text replacement, and more.
+
+    Attributes:
+        path (Path): The resolved path of the file.
+        role (str): Optional role identifier for the file.
+        debug (bool): Debug flag, prints debug messages when True.
+    """
+
     #--------------------------------------------------------------------------------
     def __init__(self, filename, suffix=None, role=None, ignore_suffix_case=False, exists=False):          # File
     #--------------------------------------------------------------------------------
+        """
+        Initializes a File object with a given filename and optional suffix, role,
+        and case sensitivity for suffix matching.
+
+        Args:
+            filename (str): The name or path of the file.
+            suffix (str, optional): A suffix to apply to the filename.
+            role (str, optional): A role description for the file.
+            ignore_suffix_case (bool, optional): Whether to ignore case when matching suffix.
+            exists (bool, optional): If True, will only set the path if the file exists.
+        """        
         #print('init',filename, suffix)
         self.path = Path(filename).resolve() if filename else None
         if suffix:
@@ -101,23 +124,47 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                        # File
     #--------------------------------------------------------------------------------
+        """
+        Returns a string representation of the File object.
+
+        Returns:
+            str: String representation of the File object including its path and role.
+        """
         return f"<{self.__class__.__name__}, file={self.path}, role={self.role or None}>"
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                         # File
     #--------------------------------------------------------------------------------
+        """
+        Returns a human-readable string representation of the file.
+
+        Returns:
+            str: The role and name of the file.
+        """
         return f'{self.role}{self.name}'
-        #return f'{self.path and self.path.name}'
 
     #--------------------------------------------------------------------------------
     def __del__(self):                                                         # File
     #--------------------------------------------------------------------------------
+        """
+        Destructor for the File object, optionally printing debug information if enabled.
+        """
         if self.__class__.__name__ == File.__name__ and self.debug:
             print(f'Deleting {repr(self)}')
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                               # File
     #--------------------------------------------------------------------------------
+        """
+        Attempts to retrieve the requested attribute from the internal path object,
+        or returns None if the file path is not set.
+
+        Args:
+            item (str): Attribute name.
+
+        Returns:
+            Any: The value of the requested attribute or a function returning None if callable.
+        """
         #print('File',self.path, item)
         try:
             attr = getattr(self.path or Path(), item)
@@ -134,6 +181,15 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def mmap(self, write=False):                                               # File
     #--------------------------------------------------------------------------------
+        """
+        Memory-maps the file for efficient file I/O operations.
+
+        Args:
+            write (bool, optional): If True, opens the file in write mode.
+
+        Yields:
+            mmap: A memory-mapped object for the file.
+        """
         filemap = None
         mode = 'rb'
         access = ACCESS_READ
@@ -151,7 +207,18 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def resize(self, start=0, end=0):                                   # File
     #--------------------------------------------------------------------------------
-        # NB! Very slow for large files, use with caution! 
+        """
+        Resizes the file by removing content between the given start and end positions.
+        NB! Very slow for large files, use with caution!
+        
+        Args:
+            start (int): Start position in the file.
+            end (int): End position in the file.
+
+        Raises:
+            SyntaxError: If start is not less than end.
+        """
+        # NB! Very slow for large files, use with caution!
         if start >= end:
             raise SyntaxError("'start' must be less than 'end'")
         length = end - start
@@ -169,6 +236,15 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def binarydata(self, raise_error=False):                                   # File
     #--------------------------------------------------------------------------------
+        """
+        Reads the file as binary data.
+
+        Args:
+            raise_error (bool, optional): If True, raises an error if the file does not exist.
+
+        Returns:
+            bytes: The binary content of the file.
+        """
         # Open as binary file to avoid encoding errors
         if self.is_file():
             with open(self.path, 'rb') as f:
@@ -180,11 +256,24 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def as_text(self, **kwargs):                                               # File
     #--------------------------------------------------------------------------------
+        """
+        Reads the file and returns its content as text.
+
+        Returns:
+            str: The textual content of the file.
+        """
         return self.binarydata(**kwargs).decode()
 
     #--------------------------------------------------------------------------------
     def delete(self, raise_error=False, echo=False):                           # File
     #--------------------------------------------------------------------------------
+        """
+        Deletes the file.
+
+        Args:
+            raise_error (bool, optional): If True, raises an error if deletion fails.
+            echo (bool, optional): If True, prints a message upon successful deletion.
+        """
         if not self.path:
             return
         try:
@@ -198,6 +287,12 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def is_file(self):                                                         # File
     #--------------------------------------------------------------------------------
+        """
+        Checks if the path points to a file.
+
+        Returns:
+            bool: True if the path is a file, False otherwise.
+        """
         if not self.path:
             return False
         return self.path.is_file()
@@ -205,6 +300,15 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def with_name(self, file):                                                 # File
     #--------------------------------------------------------------------------------
+        """
+        Returns a new file path with the given filename.
+
+        Args:
+            file (str): The new filename.
+
+        Returns:
+            Path: A new path object with the updated filename.
+        """
         if not self.path:
             return
         return (self.path.parent/file).resolve()
@@ -212,6 +316,16 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def with_tag(self, head:str='', tail:str=''):                              # File
     #--------------------------------------------------------------------------------
+        """
+        Creates a new file path with the given head and tail added to the stem of the file.
+
+        Args:
+            head (str): String to prepend to the file's stem.
+            tail (str): String to append to the file's stem.
+
+        Returns:
+            Path: A new path object with the updated name.
+        """
         if not self.path:
             return
         return self.path.parent/(head + self.path.stem + tail + self.path.suffix)
@@ -220,8 +334,17 @@ class File:                                                                    #
     def with_suffix(self, suffix, ignore_case=False, exists=False):            # File
     #--------------------------------------------------------------------------------
         """
-            exists = True:  return first existing file with filename = self.stem + suffix or None
-                   = False: return Path.with_suffix()
+        Adds a suffix to the file's name, with optional case-insensitive matching and 
+        checking if the file exists.
+
+        Args:
+            suffix (str): The suffix to append to the file's name.
+            ignore_case (bool, optional): If True, ignores case when matching suffix.
+            exists (bool, optional): If True, only returns an existing file path with the suffix.
+                                     If False, return path with the suffix (ignore existance) 
+            
+        Returns:
+            Path: A new path object with the suffix applied, or None if no matching file is found.
         """
 
         if not self.path:
@@ -636,7 +759,8 @@ class unfmt_file(File):                                                  # unfmt
         # but at different locations will be grouped toghether
         dictkeys = [f'{b[0]}_{b[1][0]}' for b in B]
         # Group on keywords
-        groups = list((k, list(zip(*sorted(g)))) for k,g in groupby(B, lambda x:x[0]))
+        # groups = list((k, list(zip(*sorted(g)))) for k,g in groupby(B, lambda x:x[0]))
+        groups = ((k, list(zip(*sorted(g)))) for k,g in groupby(B, lambda x:x[0]))
         keys, lims = zip(*groups)
         # Variables from the same keyword must be listed together as input args
         if len(set(keys)) != len(keys):
@@ -650,6 +774,11 @@ class unfmt_file(File):                                                  # unfmt
         """ 
         Return data in the order of the given keys, not the reading order.
         The keys-list may contain wildcards (*, ?, [seq], [!seq]) 
+        A key may be followed by zero, one, or two index values. 
+        Two indices are interpreted as a slice, zero indices are 
+        interpreted as the whole array.
+
+        Example: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
         """
         keys, limits, dictkeys = self.__prepare_limits(*keylim)
         limits = dict(zip(keys, limits))
@@ -667,7 +796,7 @@ class unfmt_file(File):                                                  # unfmt
             #if not any(val is None for val in data.values()):
             if all(data.values()):
                 if singleton:
-                    yield tuple(data.values()) 
+                    yield tuple(data.values())
                 else:
                     # Unpack single values
                     values = tuple(v if len(v)>1 else v[0] for v in data.values())
@@ -884,7 +1013,7 @@ class unfmt_file(File):                                                  # unfmt
         return sum(1 for _ in self.blocks())
 
     #--------------------------------------------------------------------------------
-    def keys_matching(self, *pattern, sec=0):                           # unfmt_file
+    def find_keys(self, *pattern, sec=0):                           # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Return matching keywords from the first section of blocks
@@ -1531,56 +1660,90 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return self._dim
 
     #--------------------------------------------------------------------------------
-    def _cellnr(self, coord):                                            # UNRST_file
+    def _check_for_missing_keys(self, *in_keys, keys=None):              # UNRST_file
     #--------------------------------------------------------------------------------
-        dim = self.dim()
-        return coord[0]-1 + dim[0]*(coord[1]-1) + dim[0]*dim[1]*(coord[2]-1)
+        keys = keys or self.find_keys(*in_keys)
+        if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
+            raise ValueError(f'The following keywords are missing in {self}: {missing}')
+        return keys
 
     #--------------------------------------------------------------------------------
-    def celldata(self, coord, *keywords):                                # UNRST_file
+    def _cellnr(self, coord, base=0):                                    # UNRST_file
     #--------------------------------------------------------------------------------
-        #self._dates = self._dates or 
-        cellnr = self._cellnr(coord)
-        args = ((key, cellnr) for key in keywords)
-        data = list(zip(*self.blockdata(*args, singleton=True)))
-        if missing:=[k for k,d in zip(keywords, data) if not d]:
-            raise RuntimeWarning(f'Missing keywords in {self.path}: {missing}')
-        return (list(self.dates()), data)
+        """
+        Return position in 1D array given 3D coordinate of base=0 (default) or base=1
+        """
+        dim = self.dim()
+        # Apply negative index from the end
+        coord = [c if c>=0 else dim[i]+c+base for i,c in enumerate(coord)]
+        return coord[0]-base + dim[0]*(coord[1]-base) + dim[0]*dim[1]*(coord[2]-base)
 
     #--------------------------------------------------------------------------------
-    def cellarray(self, *in_keys, start=0, stop=None, step=None, skip=1,    # UNRST_file
-                  warn_missing=True):                                   
+    def celldata(self, coord, *keywords, base=0, time_res='day'):        # UNRST_file
     #--------------------------------------------------------------------------------
-        step = step or self.count_sections()
-        keys = self.keys_matching(*in_keys)
-        if warn_missing:
-            if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
-                raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
-        names = [remove_chars('+-', str(k).lower()) for k in keys]
-        cellarray = namedtuple('cellarray', ['days', 'dates'] + names)
-        dim = self.dim()
-        ddd = zip(self.days(), self.dates(), self.blockdata(*keys))
-        day_date_data = islice(ddd, start, stop, skip)
-        while (batch := tuple(islice(day_date_data, step))):
-            days, dates, data = [nparray(d) for d in zip(*batch)]
-            if data.ndim < 3:
-                data = expand_dims(data, 1)
-            data = data.transpose((1,0,2))
-            yield cellarray(days, dates, *data.reshape(data.shape[:-1]+dim, order='F'))
+        """
+        Return the given keywords as a celldata namedtuple for the given cell-coordinate.
+        
+        Keyword arguments 
+            base     : Zero- or one-based indexing (0 is default)
+            time_res : Time resolution, valid values are 'day', 'hour', 'min', 'sec' ('day' is default)
+        """
+        self._check_for_missing_keys(*keywords)
+        cellnr = self._cellnr(coord, base=base)
+        args = flatten((key, cellnr) for key in keywords)
+        data = (zip(*self.blockdata(*args, singleton=False)))
+        celldata = namedtuple('celldata', ('days',)+keywords)
+        return celldata(tuple(self.days(resolution=time_res)), *data)
+        # for dd in zip(self.days(resolution=time_res), *data):
+        #     yield celldata(*dd)
+
+    #--------------------------------------------------------------------------------
+    def celldata_to_csv(self, filename, coord, *keywords, base=0, time_res='day',
+                        sep='\t', float_format='%.8e', **kwargs):        # UNRST_file
+    #--------------------------------------------------------------------------------
+        """
+        Write given keywords for the given cell-coordinate to a tab-separated file
+        """
+        data = self.celldata(coord, *keywords, base=base, time_res=time_res)
+        DataFrame(data._asdict()).to_csv(filename, sep=sep, float_format=float_format, **kwargs)
+
+    # #--------------------------------------------------------------------------------
+    # def cellarray(self, *in_keys, start=0, stop=None, step=None, skip=1,    # UNRST_file
+    #               warn_missing=True):
+    # #--------------------------------------------------------------------------------
+    #     step = step or self.count_sections()
+    #     keys = self.keys_matching(*in_keys)
+    #     if warn_missing:
+    #         if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
+    #             raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
+    #     names = [remove_chars('+-', str(k).lower()) for k in keys]
+    #     cellarray = namedtuple('cellarray', ['days', 'dates'] + names)
+    #     dim = self.dim()
+    #     ddd = zip(self.days(), self.dates(), self.blockdata(*keys))
+    #     day_date_data = islice(ddd, start, stop, skip)
+    #     while (batch := tuple(islice(day_date_data, step))):
+    #         days, dates, data = [nparray(d) for d in zip(*batch)]
+    #         if data.ndim < 3:
+    #             data = expand_dims(data, 1)
+    #         data = data.transpose((1,0,2))
+    #         yield cellarray(days, dates, *data.reshape(data.shape[:-1]+dim, order='F'))
 
     #--------------------------------------------------------------------------------
     def icellarray(self, *in_keys, start=None, stop=None, step=1,    # UNRST_file
-                  warn_missing=True):                                   
+                  warn_missing=True, time_res='day'):
     #--------------------------------------------------------------------------------
         step = step or self.count_sections()
-        keys = self.keys_matching(*in_keys)
+        keys = self.find_keys(*in_keys)
         if warn_missing:
-            if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
-                raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
-        names = [remove_chars('+-', str(k).lower()) for k in keys]
-        cellarray = namedtuple('cellarray', ['day', 'date'] + names)
+            self._check_for_missing_keys(*in_keys, keys=keys)
+        # if warn_missing:
+        #     if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
+        #         raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
+        # names = [remove_chars('+-', str(k).lower()) for k in keys]
+        names = [remove_chars('+-', k) for k in keys]
+        cellarray = namedtuple('cellarray', ['days', 'date'] + names)
         dim = self.dim()
-        dds = zip(self.days(), self.dates(), self.section_blocks())
+        dds = zip(self.days(resolution=time_res), self.dates(), self.section_blocks())
         for day, date, section in islice(dds, start, stop, step):
             blockdata = {k:None for k in keys}
             for block in section:
@@ -1636,11 +1799,25 @@ class UNRST_file(unfmt_file):                                            # UNRST
             #return datetime.strptime(' '.join(dmy), '%d %m %Y')
 
     #--------------------------------------------------------------------------------
-    def dates(self, hour=False, min=False, **kwargs):                    # UNRST_file
+    #def dates(self, hour=False, min=False, sec=False, **kwargs):         # UNRST_file
+    def dates(self, resolution='day', **kwargs):         # UNRST_file
     #--------------------------------------------------------------------------------
         varnames = ('year', 'month', 'day')
-        varnames += ('hour',) if hour else ()
-        varnames += ('min',) if min else ()
+        if resolution == 'day':
+            pass
+        elif resolution == 'hour':
+            varnames += ('hour',)
+        elif resolution == 'min':
+            varnames += ('hour', 'min')
+        elif resolution == 'sec':
+            varnames += ('hour', 'min', 'sec')
+            # Seconds are reported as microseconds, integer-divide by 1e6
+            return (datetime(*vars[:-1], int(vars[-1]//1e6)) for vars in self.read2(*varnames, **kwargs))
+        else:
+            raise SyntaxError("resolution must be 'hour', 'min', or 'sec'")
+        # if sec:
+        #     # Seconds are reported as microseconds, integer-divide by 1e6
+        #     return (datetime(*vars[:-1], int(vars[-1]//1e6)) for vars in self.read2(*varnames, **kwargs))
         return (datetime(*vars) for vars in self.read2(*varnames, **kwargs))
         #return (datetime(*ymdhm) for ymdhm in self.read2('year', 'month', 'day', 'hour', 'min', **kwargs))
         # data = self.read2('day','month','year', **kwargs)
@@ -1650,7 +1827,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
     def days(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
         start = next(self.dates(**kwargs))
-        return ((date-start).days for date in self.dates(**kwargs))
+        return ((date-start).total_seconds()/86400 for date in self.dates(**kwargs))
+        #return ((date-start).days for date in self.dates(**kwargs))
 
     # #--------------------------------------------------------------------------------
     # def step(self, block, step):                                         # UNRST_file
@@ -2978,7 +3156,8 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
     def report_dates(self):                                                # IX_input
     #--------------------------------------------------------------------------------
-        return [self.start() + timedelta(days=days) for days in accumulate(self.timesteps())]
+        start = self.start()
+        return [start + timedelta(days=days) for days in accumulate(self.timesteps())]
     
     #--------------------------------------------------------------------------------
     def wellnames(self):                                                   # IX_input
