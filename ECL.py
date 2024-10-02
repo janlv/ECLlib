@@ -365,6 +365,15 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def glob(self, pattern):                                                   # File
     #--------------------------------------------------------------------------------
+        """
+        Performs a glob pattern search in the file's directory.
+
+        Args:
+            pattern (str): The glob pattern to match.
+
+        Returns:
+            generator: A generator yielding paths that match the pattern.
+        """
         if not self.path:
             return ()
         return self.path.parent.glob(self.path.stem + pattern)
@@ -372,6 +381,15 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def exists(self, raise_error=False):                                       # File
     #--------------------------------------------------------------------------------
+        """
+        Checks if the file exists.
+
+        Args:
+            raise_error (bool, optional): If True, raises an error if the file does not exist.
+
+        Returns:
+            bool: True if the file exists, False otherwise.
+        """
         if self.is_file():
             return True
         if raise_error:
@@ -381,6 +399,15 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def __stat(self, attr):                                                    # File
     #--------------------------------------------------------------------------------
+        """
+        Retrieves a specific file metadata attribute.
+
+        Args:
+            attr (str): The name of the attribute to retrieve.
+
+        Returns:
+            Any: The value of the specified attribute, or -1 if the file does not exist.
+        """
         if self.is_file():
             return getattr(self.path.stat(), attr)
         return -1
@@ -388,31 +415,67 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def size(self):                                                            # File
     #--------------------------------------------------------------------------------
+        """
+        Returns the size of the file in bytes.
+
+        Returns:
+            int: The file size in bytes, or -1 if the file does not exist.
+        """
         return self.__stat('st_size')
 
     #--------------------------------------------------------------------------------
     def creation_time(self):                                                   # File
     #--------------------------------------------------------------------------------
+        """
+        Returns the file creation time.
+
+        Returns:
+            float: The file's creation time as a timestamp, or -1 if the file does not exist.
+        """
         return self.__stat('st_ctime')
 
     #--------------------------------------------------------------------------------
     def tail(self, **kwargs):                                                  # File
     #--------------------------------------------------------------------------------
+        """
+        Returns the last few lines of the file.
+
+        Returns:
+            str: The last lines of the file.
+        """
         return next(tail_file(self.path, **kwargs), '')
 
     #--------------------------------------------------------------------------------
     def reversed(self, **kwargs):                                             # File
     #--------------------------------------------------------------------------------
+        """
+        Reads the file's content in reverse order.
+
+        Returns:
+            generator: A generator yielding lines in reverse order.
+        """
         return tail_file(self.path, **kwargs)
 
     #--------------------------------------------------------------------------------
     def head(self, **kwargs):                                                  # File
     #--------------------------------------------------------------------------------
+        """
+        Returns the first few lines of the file.
+
+        Returns:
+            str: The first lines of the file.
+        """
         return next(head_file(self.path, **kwargs), '')
 
     #--------------------------------------------------------------------------------
     def lines(self):                                                           # File
     #--------------------------------------------------------------------------------
+        """
+        Reads the file line by line.
+
+        Returns:
+            generator: A generator yielding lines from the file.
+        """
         if self.is_file():
             with open(self.path, 'r', encoding='utf-8') as file:
                 while line:=file.readline():
@@ -422,16 +485,41 @@ class File:                                                                    #
     #--------------------------------------------------------------------------------
     def line_matching(self, word):                                             # File
     #--------------------------------------------------------------------------------
+        """
+        Finds the first line in the file that contains the specified word.
+
+        Args:
+            word (str): The word to search for in the file.
+
+        Returns:
+            str: The first line that contains the word, or None if not found.
+        """
         return next((line for line in self.lines() if word in line), None)
 
     #--------------------------------------------------------------------------------
     def last_line(self):                                                       # File
     #--------------------------------------------------------------------------------
+        """
+        Returns the last line of the file.
+
+        Returns:
+            str: The last line of the file.
+        """
         return last_line(self.path)
 
     #--------------------------------------------------------------------------------
     def backup(self, tag, overwrite=False):                                    # File
     #--------------------------------------------------------------------------------
+        """
+        Creates a backup of the file with an optional tag appended to the filename.
+
+        Args:
+            tag (str): The tag to append to the filename.
+            overwrite (bool, optional): If True, overwrites an existing backup file.
+
+        Returns:
+            Path: The path to the backup file.
+        """
         backup_file = self.path.with_name(f'{self.stem}{tag}{self.suffix}')
         if overwrite or not backup_file.exists():
             copy(self.path, backup_file)
@@ -442,11 +530,15 @@ class File:                                                                    #
     def replace_text(self, text=(), pos=()):                                   # File
     #--------------------------------------------------------------------------------
         """
-        Replace or append text. Replace text if pos is a (start, len+start) tuple, 
-        append '\n'+text if pos is a (start, start) tuple
-        
-        text : tuple of strings
-        pos  : tuple of tuples of length 2
+        Replaces or appends text in the file at specified positions.
+
+        Args:
+            text (tuple): A tuple of strings to replace or append.
+            pos (tuple): A tuple of (start, end) positions for replacement or appending.
+                         Replace text if pos is a (start, len+start) tuple, append 
+                         '\n'+text if pos is a (start, start) tuple
+        Returns:
+            None
         """
         data = self.binarydata().decode()
         size = len(data)
