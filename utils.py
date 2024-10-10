@@ -1170,17 +1170,24 @@ class Progress:
     #--------------------------------------------------------------------------------
     def __init__(self, N=1, format='%', indent=3, min=0):
     #--------------------------------------------------------------------------------
+        """
+        format: '%'   - show percent
+                '10#' - show max 10 hashes 
+        """
         self.start_time = datetime.now()
         #self.update = update
         self.N = N
+        self.n = 0
         self.n0 = 0       # n0 != 0 if time-counter is reset
         self.min = min    # sets a minimum for the progress bar
         if '%' in format:
             self.format = self.format_percent
         if '#' in format:
             self.format = self.format_bar
-            try: n = int(format.split('#')[0])
-            except ValueError: n = 1
+            try:
+                n = int(format.split('#')[0])
+            except ValueError:
+                n = 1
             self.bar_length = n
         self.indent = indent*' '
         #self.eta = 0
@@ -1279,8 +1286,11 @@ class Progress:
         self.N = N
 
     #--------------------------------------------------------------------------------
-    def print(self, n, head=None, text=None):
+    def print(self, n=-1, head=None, text=None):
     #--------------------------------------------------------------------------------
+        if n<0:
+            self.n += 1
+            n = self.n
         self.remaining_time(n)
         line = self.format(n)
         trail_space = max(1, self.length - len(line))

@@ -566,6 +566,17 @@ class unfmt_header:                                                    # unfmt_h
     def __init__(self, key:str=b'', length:int=0, type:str=b'', 
                  startpos:int=0, endpos:int=0):                        # unfmt_header
     #--------------------------------------------------------------------------------
+        """
+        Initialize the unfmt_header object, which represents the header for unformatted data.
+
+        Parameters:
+        key (str): The identifier for the data block.
+        length (int): The length of the data array.
+        type (str): The data type.
+        startpos (int): Starting position of the data block.
+        endpos (int): Ending position of the data block. 
+                      If not provided, it is calculated from the data length and type.
+        """
         self.key = key
         self.length = length  # datalength
         self.type = type
@@ -584,6 +595,9 @@ class unfmt_header:                                                    # unfmt_h
     #--------------------------------------------------------------------------------
     def __str__(self):                                                 # unfmt_header
     #--------------------------------------------------------------------------------
+        """
+        Return a string representation of the unfmt_header object.
+        """
         return (f'key={self.key.decode():8s}, type={self.type.decode():4s}, bytes={self.bytes:8d},' 
                 f'length={self.length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
@@ -591,7 +605,13 @@ class unfmt_header:                                                    # unfmt_h
     def _data_pos(self, pos):                                          # unfmt_header
     #--------------------------------------------------------------------------------
         """
-        Return absolute file-position of given the relative index of the data-array 
+        Return the absolute file position for the given relative index in the data array.
+
+        Parameters:
+        pos (int): The index of the data item in the array.
+
+        Returns:
+        int: The absolute byte position in the file.
         """
         #  | h e a d e r  |   d a t a     |   d a t a     |   d a t a     |
         #  |4i|8s|4i|4s|4i|4i|1000 data|4i|4i|1000 data|4i|4i|1000 data|4i| 
@@ -602,6 +622,15 @@ class unfmt_header:                                                    # unfmt_h
     #--------------------------------------------------------------------------------
     def _data_slices(self, limits=((None,),)):                          # unfmt_header
     #--------------------------------------------------------------------------------
+        """
+        Calculate byte slices for accessing the data between the given limits.
+
+        Parameters:
+        limits (tuple): A tuple representing start and end indices for slicing the data.
+
+        Returns:
+        generator: A generator yielding slice objects representing byte positions.
+        """
         dtype = self.dtype
         # Extend limit to whole range if None is given
         flat_lim = tuple(flatten(((0, self.length) if None in l else l for l in limits)))
@@ -627,6 +656,12 @@ class unfmt_header:                                                    # unfmt_h
     #--------------------------------------------------------------------------------
     def is_char(self):                                                 # unfmt_header
     #--------------------------------------------------------------------------------
+        """
+        Check if the data type is a character (string) type.
+
+        Returns:
+        bool: True if the data type is character-based, False otherwise.
+        """
         return self.type[0:1] == b'C'
 
 
@@ -645,6 +680,15 @@ class unfmt_block:                                                     # unfmt_b
     def __init__(self, header:unfmt_header=None, data=None, 
                  file=None, file_obj=None):                             # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Initialize the unfmt_block object, which represents a block of unformatted data.
+
+        Parameters:
+        header (unfmt_header): The header associated with the block.
+        data (optional): The data associated with the block.
+        file (optional): The file where the block data is stored.
+        file_obj (optional): A file object for accessing the block data.
+        """
         self.header = header
         self._data = data
         self._file = file
@@ -655,48 +699,102 @@ class unfmt_block:                                                     # unfmt_b
     #--------------------------------------------------------------------------------
     def __str__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Return a string representation of the unfmt_block object.
+        """
         return str(self.header)
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                 # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Return a formal string representation of the unfmt_block object.
+        """
         return f'<{self}>'
 
     #--------------------------------------------------------------------------------
     def __contains__(self, key):                                        # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Check if a specific key is present in the block.
+
+        Parameters:
+        key (str): The key to check.
+
+        Returns:
+        bool: True if the key is present, False otherwise.
+        """
         return self.key() == key
 
     #--------------------------------------------------------------------------------
     def __del__(self):                                                  # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Destructor for unfmt_block object. Prints debug information if DEBUG is enabled.
+        """
         if DEBUG:
             print(f'Deleting {self}')
 
     #--------------------------------------------------------------------------------
     def __getattr__(self, item):                                        # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Delegate attribute access to the associated unfmt_header if the attribute is not found.
+
+        Parameters:
+        item (str): The attribute name.
+
+        Returns:
+        object: The value of the attribute from the umfmt_header.
+        """
         return getattr(self.header, item)
 
     #--------------------------------------------------------------------------------
     def key(self):                                                      # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Return the decoded key of the block.
+
+        Returns:
+        str: The key as a string.
+        """
         return self.header.key.decode().strip()
 
     #--------------------------------------------------------------------------------
     def type(self):                                                     # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Return the decoded type of the block.
+
+        Returns:
+        str: The type of the block.
+        """
         return self.header.type.decode()
         
     #--------------------------------------------------------------------------------
     def read_file(self, sl:slice):                                      # unfmt_block
     #--------------------------------------------------------------------------------        
+        """
+        Read data from a file within the given slice range.
+
+        Parameters:
+        sl (slice): A slice object specifying the range of bytes to read.
+
+        Returns:
+        bytes: The read data.
+        """
         self._file_obj.seek(sl.start)
         return self._file_obj.read(sl.stop - sl.start)
 
     #--------------------------------------------------------------------------------
     def fix_payload_errors(self):                                       # unfmt_block
     #--------------------------------------------------------------------------------
+        """
+        Fix errors in the payload sizes by comparing the stored sizes with calculated sizes.
+
+        Returns:
+        int: The number of errors fixed.
+        """
         # Payload positions
         start = self.header.startpos
         slices = self.header._data_slices()
@@ -725,7 +823,7 @@ class unfmt_block:                                                     # unfmt_b
         slices = tuple(self.header._data_slices(limit))
         #print(self.key(), slices)
         if self._data:
-            # File is mmap'ed 
+            # File is mmap'ed
             data = (self._data[sl] for sl in slices)
         else:
             # File object
@@ -755,56 +853,6 @@ class unfmt_block:                                                     # unfmt_b
             return tuple(values) if unpack else (tuple(values),)
         ndata = (-subtract(*l) for l in limit)
         return tuple(take(n, values) for n in ndata)
- 
-    # #--------------------------------------------------------------------------------
-    # def data2(self, *index, raise_error=False, unwrap_tuple=True, nchar=1, strip=False):    # unfmt_block
-    # #--------------------------------------------------------------------------------
-    #     length = self.header.length
-    #     # Abort if no data to return
-    #     if length == 0:
-    #         return ()
-    #     # Return all data if no argument given
-    #     if index == () or () in index:
-    #         index = ((0, length),)
-    #         unwrap_tuple = False
-    #     # Fix negative positions, and create tuple if not tuple
-    #     fix_lim = lambda x: x+length if x < 0 else x
-    #     index = [[fix_lim(ii) for ii in i] if isinstance(i,(tuple,list)) else [fix_lim(i)+a for a in (0,1)] for i in index]
-    #     # Out of index error
-    #     if any(i>length or i<0 for i in flatten_all(index)):
-    #         raise IndexError(f'index out of range for {self.key()}-block of length {length}')
-    #     # Fix CHAR data for strings > 8 char (nchar > 1)
-    #     if nchar > 1 and self.header.is_char():
-    #         index = [[min(i*nchar, length) for i in ind] for ind in index]
-    #     # List of data chunk [start,end] positions, stepping over the 4 byte size int before and after 
-    #     data_chunks = self.header.data_positions(index)
-    #     try:
-    #         # Join chunks of data
-    #         if self._data:
-    #             # Join mmap'ed data
-    #             data = b''.join(self._data[a:b] for a,b in data_chunks)
-    #         else:
-    #             # Read data from file-object
-    #             start = self.header.startpos
-    #             self._file_obj.seek(start)
-    #             bytedata = self._file_obj.read(self.header.endpos - start)
-    #             # Shift positions from absolute to relative
-    #             data = b''.join(bytedata[a-start:b-start] for a,b in data_chunks)      
-    #         # Get number of data elements from the index-list. 
-    #         num = self.header.number_of_elements(index)
-    #         values = unpack(ENDIAN+f'{num}{self.header.dtype.unpack}', data)
-    #     except struct_error as err:
-    #         if raise_error:
-    #             raise SystemError(f'ERROR Unable to read {self.key()} from {self._file.name}') from err
-    #         return None
-    #     # Decode string data
-    #     if self.header.is_char():
-    #         values = tuple(string_split(values[0].decode(), self.header.dtype.size*nchar, strip=strip))
-    #     # Return value instead of single-value tuple
-    #     if unwrap_tuple and len(values) == 1:
-    #         return values[0]
-    #     return values
-
 
 
 #====================================================================================
@@ -1721,6 +1769,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
 #====================================================================================
     start = 'SEQNUM'
     end = 'ENDSOL'
+    #           variable   keyword   position (None = whole array)
     var_pos =  {'step'  : ('SEQNUM'  ,  0),
                 'nx'    : ('INTEHEAD',  8),
                 'ny'    : ('INTEHEAD',  9),
@@ -1733,7 +1782,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 'min'   : ('INTEHEAD', 207),
                 'sec'   : ('INTEHEAD', 410),
                 'time'  : ('DOUBHEAD', 0),
-                'wells' : ('ZWEL'    , None)}  # First ZWEL in second section 
+                'wells' : ('ZWEL'    , None)}  # No ZWEL in first section 
                                                 
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, end=None, role=None, 
@@ -1744,6 +1793,11 @@ class UNRST_file(unfmt_file):                                            # UNRST
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self._dim = None
         #self._dates = None
+
+    #--------------------------------------------------------------------------------
+    def __len__(self):                                                   # UNRST_file
+    #--------------------------------------------------------------------------------
+        return len(list(self.steps()))
 
     #--------------------------------------------------------------------------------
     def dim(self):                                                       # UNRST_file
@@ -1790,14 +1844,15 @@ class UNRST_file(unfmt_file):                                            # UNRST
         #     yield celldata(*dd)
 
     #--------------------------------------------------------------------------------
-    def celldata_to_csv(self, filename, coord, *keywords, base=0, time_res='day',
-                        sep='\t', float_format='%.8e', **kwargs):        # UNRST_file
+    # def celldata_as_dataframe(self, coord, *keywords, base=0, time_res='day'):        # UNRST_file
+    def celldata_as_dataframe(self, *args, **kwargs):        # UNRST_file
     #--------------------------------------------------------------------------------
         """
         Write given keywords for the given cell-coordinate to a tab-separated file
         """
-        data = self.celldata(coord, *keywords, base=base, time_res=time_res)
-        DataFrame(data._asdict()).to_csv(filename, sep=sep, float_format=float_format, **kwargs)
+        # data = self.celldata(coord, *keywords, base=base, time_res=time_res)
+        data = self.celldata(*args, **kwargs)
+        return DataFrame(data._asdict())
 
     # #--------------------------------------------------------------------------------
     # def cellarray(self, *in_keys, start=0, stop=None, step=None, skip=1,    # UNRST_file
