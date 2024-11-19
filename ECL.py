@@ -20,7 +20,7 @@ from shutil import copy
 from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
-from .utils import (batched, batched_when, cumtrapz, decode, flatten, index_limits, last_line, match_in_wildlist, pad, tail_file, head_file,
+from .utils import (batched, batched_when, cumtrapz, daterange, decode, flatten, index_limits, last_line, match_in_wildlist, pad, tail_file, head_file,
                     flat_list, flatten_all, grouper, list2text, pairwise, remove_chars,
                     list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
 from .runner import Process
@@ -393,7 +393,9 @@ class File:                                                                    #
         if self.is_file():
             return True
         if raise_error:
-            raise SystemError(f'ERROR {self} is missing in folder {self.parent}')
+            if self.path.parent.is_dir():
+                raise SystemError(f'ERROR {self} is missing in folder {self.path.parent}')
+            raise SystemError(f'ERROR {self} not found because folder {self.path.parent} is missing')
         return False
 
     #--------------------------------------------------------------------------------
@@ -3073,8 +3075,19 @@ class IX_input:                                                            # IX_
 #====================================================================================
     STAT_FILE = '.ecl2ix' # Check if ECL-input has changed and new conversion is needed
 
+    @classmethod
     #--------------------------------------------------------------------------------
-    def __init__(self, case, check=False, **kwargs):         # IX_input
+    def datesteps(cls, start, stop, step=1):
+    #--------------------------------------------------------------------------------
+        """
+        datesteps((1971, 7, 1), 10, 5) -> DATE "01-Jul-1971"
+                                          DATE "06-Jul-1971"
+        """
+        dates = (f'DATE "{date}"' for date in daterange(start, stop, step, fmt='%d-%b-%Y'))
+        print('\n'.join(dates))
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, case, check=False, **kwargs):                       # IX_input
     #--------------------------------------------------------------------------------
         self.afi = AFI_file(case)
         self.path = self.afi.path

@@ -72,6 +72,25 @@ from molmass import Formula
 #     return int(day), hour, min, sec
 
 #--------------------------------------------------------------------------------
+def unique_key(key, keylist:list, symbol='#'):
+#--------------------------------------------------------------------------------
+    # Append number if key is not unique
+    if (count := keylist.count(key)):
+        key += f'{symbol}{count}'
+    return key
+
+#--------------------------------------------------------------------------------
+def list_prec(iterable, fmt):
+#--------------------------------------------------------------------------------
+    return '[' + ', '.join(f'{i:{fmt}}' for i in iterable) + ']'
+
+#--------------------------------------------------------------------------------
+def batched_as_list(iterable, n):
+#--------------------------------------------------------------------------------
+    for batch in batched(iterable, n):
+        yield list(batch)
+
+#--------------------------------------------------------------------------------
 def missing_elements(L):
 #--------------------------------------------------------------------------------
     """
@@ -107,7 +126,7 @@ def day2time(days):
 
 
 #-----------------------------------------------------------------------
-def daterange(start, stop, step=1, format=None):
+def daterange(start, stop, step=1, fmt=None):
 #-----------------------------------------------------------------------
     """
     daterange((1971, 7, 1), 10, format="%d-%b-%Y") -> ['01-Jul-1971', '02-Jul-1971', '03-Jul-1971']
@@ -115,8 +134,8 @@ def daterange(start, stop, step=1, format=None):
     if not isinstance(start, datetime):
         start = datetime(*start)
     dates = (start + timedelta(days=d) for d in range(0, stop, step))
-    if format:
-        return [date.strftime(format) for date in dates]
+    if fmt:
+        return [date.strftime(fmt) for date in dates]
     return list(dates)
 
 #-----------------------------------------------------------------------
@@ -1073,8 +1092,7 @@ def list2str(alist, start='', end='', sep='', count=False):
     #return start + '%s'%', '.join(f'{sep}{i}{sep}' for i in alist) + end
     if count:
         return ', '.join([f'{v} (n={npsum(array(alist)==v)})' for v in set(alist)])
-    else:
-        return f"{start}{', '.join(f'{sep}{i}{sep}' for i in alist)}{end}"
+    return f"{start}{', '.join(f'{sep}{i}{sep}' for i in alist)}{end}"
 
 #------------------------------------------------
 def list2text(alist):
@@ -1130,8 +1148,9 @@ def matches(file=None, pattern=None, length=0, multiline=False, pos=None, check=
                 data = data[pos:]
             if check and not check in data:
                 data = b''
-            for match in regexp.finditer(data):
-                yield match
+            yield from regexp.finditer(data)
+            # for match in regexp.finditer(data):
+            #     yield match
 
 #--------------------------------------------------------------------------------
 def bytes_string(size, d=0):
