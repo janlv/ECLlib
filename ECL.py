@@ -4,7 +4,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
-from itertools import chain, repeat, accumulate, groupby, zip_longest, islice
+from itertools import chain, product, repeat, accumulate, groupby, zip_longest, islice
 from operator import attrgetter, itemgetter, sub as subtract
 from pathlib import Path
 from platform import system
@@ -20,7 +20,8 @@ from shutil import copy
 from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
-from .utils import (batched, batched_when, cumtrapz, daterange, decode, flatten, index_limits, last_line, match_in_wildlist, pad, tail_file, head_file,
+from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, expand_pattern, flatten,
+                    index_limits, last_line, match_in_wildlist, nth, pad, slice_range, tail_file, head_file,
                     flat_list, flatten_all, grouper, list2text, pairwise, remove_chars,
                     list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
 from .runner import Process
@@ -81,6 +82,26 @@ class Restart:
     step: int = 0
     file: str = ''
     run : bool = False
+
+
+# #--------------------------------------------------------------------------------
+# def catch_error_write_log(error=(Exception,), error_msg=None, echo=None, echo_msg=None): 
+# #--------------------------------------------------------------------------------
+#     def decorator(func):
+#         def inner(*args, **kwargs):
+#             try:
+#                 return func(*args, **kwargs)
+#             except error as err:
+#                 if error_msg:
+#                     raise SystemError(error_msg) from err
+#             if echo:
+#                 if callable(echo):
+#                     echo(echo_msg)
+#                 else:
+#                     print(echo_msg)
+#             return inner
+#         return decorator
+
 
 
 #====================================================================================
@@ -281,8 +302,40 @@ class File:                                                                    #
         except (PermissionError, FileNotFoundError) as error:
             if raise_error:
                 raise SystemError(f'Unable to delete {self}: {error}') from error
-            if echo:
-                print(f'Deleted {self}')
+        if echo:
+            msg = f'Deleted {self}'
+            if callable(echo):
+                echo(msg)
+            else:
+                print(msg)
+
+    #--------------------------------------------------------------------------------
+    def rename(self, newname, raise_error=False, echo=False):                  # File
+    #--------------------------------------------------------------------------------
+        """
+        Rename the file.
+
+        Args:
+            newname (str, Path, File): Name of the new file 
+            raise_error (bool, optional): If True, raises an error if deletion fails.
+            echo (bool, optional): If True, prints a message upon successful renaming.
+        """
+        if not self.path:
+            return
+        if isinstance(newname, File):
+            newname = newname.path
+        try:
+            self.path.rename(newname)
+        except (PermissionError, FileNotFoundError) as error:
+            if raise_error:
+                raise SystemError(f'Unable to rename {self}: {error}') from error
+        if echo:
+            msg = f'Renamed {self.path} --> {newname}'
+            if callable(echo):
+                echo(msg)
+            else:
+                print(msg)
+
 
     #--------------------------------------------------------------------------------
     def is_file(self):                                                         # File
@@ -554,18 +607,25 @@ class File:                                                                    #
             new_data = data[:a+1+shift] + txt + data[b+shift:]
             data = new_data
         self.write_text(data)
-        
+
+    #--------------------------------------------------------------------------------
+    def append_bytes(self, data):                                   # File
+    #--------------------------------------------------------------------------------
+        with open(self.path, 'ab') as file:
+            file.write(data)
 
 
 #====================================================================================
 class unfmt_header:                                                    # unfmt_header
 #====================================================================================
     #         | h e a d e r  |     d a t a     |     d a t a     |    d a t a      |
-    #         |4i|8s|4i|4s|4i|4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i| 
+    #         |4i|8s|4i|4s|4i|4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i|
     #  bytes  |      24      |4 | 1000*size |  8  | 1000*size |  8  | 1000*size |4 |
 
+    #pack_format = 'i8si4si'
+
     #--------------------------------------------------------------------------------
-    def __init__(self, key:str=b'', length:int=0, type:str=b'', 
+    def __init__(self, key:str=b'', length:int=0, type:str=b'',
                  startpos:int=0, endpos:int=0):                        # unfmt_header
     #--------------------------------------------------------------------------------
         """
@@ -579,7 +639,7 @@ class unfmt_header:                                                    # unfmt_h
         endpos (int): Ending position of the data block. 
                       If not provided, it is calculated from the data length and type.
         """
-        self.key = key
+        self._key = key
         self.length = length  # datalength
         self.type = type
         self.startpos = startpos
@@ -594,13 +654,34 @@ class unfmt_header:                                                    # unfmt_h
                 # No data, only header
                 self.endpos = self.startpos + 24
 
+    @classmethod
+    #--------------------------------------------------------------------------------
+    def from_bytes(cls, _bytes, startpos=0):                           # unfmt_header
+    #--------------------------------------------------------------------------------
+        try:
+            # Header is 24 bytes, but we skip size int of length 4 before and after
+            # Length of data must be 24 - 8 = 16
+            key, length, typ = unpack(ENDIAN+'8si4s', _bytes)
+            return cls(key, length, typ, startpos)
+        except (ValueError, struct_error):
+            return False
+
+    #--------------------------------------------------------------------------------
+    def as_bytes(self):                                               # unfmt_header
+    #--------------------------------------------------------------------------------
+        #  | h e a d e r  |
+        #  |4i|8s|4i|4s|4i|
+        #key = self.key if isinstance(self.key, bytes) else self.key.encode()
+        #data = (16, ensure_bytes(self.key), self.length, ensure_bytes(self.type), 16)
+        return pack(ENDIAN+'i8si4si', 16, self._key, self.length, ensure_bytestring(self.type), 16)
+
     #--------------------------------------------------------------------------------
     def __str__(self):                                                 # unfmt_header
     #--------------------------------------------------------------------------------
         """
         Return a string representation of the unfmt_header object.
         """
-        return (f'key={self.key.decode():8s}, type={self.type.decode():4s}, bytes={self.bytes:8d},' 
+        return (f'key={self._key.decode():8s}, type={self.type.decode():4s}, bytes={self.bytes:8d},' 
                 f'length={self.length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
     #--------------------------------------------------------------------------------
@@ -639,7 +720,7 @@ class unfmt_header:                                                    # unfmt_h
         # Check for out-of-bounds limits
         if oob_err := [l for l in flat_lim if l<0 or l>self.length]:
             raise SyntaxWarning(
-                f'{self.key.decode().strip()}: index {oob_err} is out of bounds {(0, self.length)}')
+                f'{self._key.decode().strip()}: index {oob_err} is out of bounds {(0, self.length)}')
         # First and last file (byte) position of the slices 
         first_last = batched((self._data_pos(l) for l in flat_lim), 2)
         # The number of the first and last data chunk
@@ -667,6 +748,8 @@ class unfmt_header:                                                    # unfmt_h
         return self.type[0:1] == b'C'
 
 
+
+
 #====================================================================================
 class unfmt_block:                                                     # unfmt_block
 #====================================================================================
@@ -679,7 +762,7 @@ class unfmt_block:                                                     # unfmt_b
     #  |              |4i|8d| 
 
     #--------------------------------------------------------------------------------
-    def __init__(self, header:unfmt_header=None, data=None, 
+    def __init__(self, header:unfmt_header=None, data=None,
                  file=None, file_obj=None):                             # unfmt_block
     #--------------------------------------------------------------------------------
         """
@@ -697,6 +780,23 @@ class unfmt_block:                                                     # unfmt_b
         self._file_obj = file_obj
         if DEBUG:
             print(f'Creating {self}')
+
+    @classmethod
+    #--------------------------------------------------------------------------------
+    def from_data(cls, key:str, data, _dtype):                          # unfmt_block
+    #--------------------------------------------------------------------------------
+        dtype = {'int':b'INTE', 'float':b'REAL', 'double':b'DOUB', 'bool':b'LOGI', 'char':b'CHAR'}[_dtype]
+        header = unfmt_header(ensure_bytestring(key.ljust(8)), len(data), dtype)
+        return cls(header, data)
+
+    #--------------------------------------------------------------------------------
+    def binarydata(self):                                               # unfmt_block
+    #--------------------------------------------------------------------------------
+        sl = slice(self.header.startpos, self.header.endpos)
+        if self._data:
+            return self._data[sl]
+        return self.read_file(sl)
+
 
     #--------------------------------------------------------------------------------
     def __str__(self):                                                  # unfmt_block
@@ -760,7 +860,7 @@ class unfmt_block:                                                     # unfmt_b
         Returns:
         str: The key as a string.
         """
-        return self.header.key.decode().strip()
+        return self.header._key.decode().strip()
 
     #--------------------------------------------------------------------------------
     def type(self):                                                     # unfmt_block
@@ -856,6 +956,20 @@ class unfmt_block:                                                     # unfmt_b
         ndata = (-subtract(*l) for l in limit)
         return tuple(take(n, values) for n in ndata)
 
+    #--------------------------------------------------------------------------------
+    def _pack_data(self):                                               # unfmt_block
+    #--------------------------------------------------------------------------------
+        # 4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i|...|4i| 1000 data |4i|
+        dtype = self.header.dtype
+        for a,b in slice_range(0, len(self._data), dtype.max):
+            length = b - a
+            size = length * dtype.size
+            yield pack(ENDIAN + f'i{length}{dtype.unpack}i', size, *self._data[a:b], size)
+        
+    #--------------------------------------------------------------------------------
+    def as_bytes(self):                                               # unfmt_block
+    #--------------------------------------------------------------------------------
+        return self.header.as_bytes() + b''.join(self._pack_data())
 
 #====================================================================================
 class unfmt_file(File):                                                  # unfmt_file
@@ -886,7 +1000,7 @@ class unfmt_file(File):                                                  # unfmt
     def offset(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
-    
+
     #--------------------------------------------------------------------------------
     def __prepare_limits(self, *keylim):                                 # unfmt_file
     #--------------------------------------------------------------------------------
@@ -908,6 +1022,34 @@ class unfmt_file(File):                                                  # unfmt
         if len(set(keys)) != len(keys):
             raise SyntaxWarning(f'Wrong input: similar keywords must be listed together: {keys}')
         return keys, [l[-1] for l in lims], dictkeys
+
+    #--------------------------------------------------------------------------------
+    def blocks_to_file(self, filename, keys=None, invert=False, append=False): # unfmt_file
+    #--------------------------------------------------------------------------------
+        """
+        Write binary blocks with keys matching the given keys to file.
+
+        Args:
+            filename (str,Path): The name or path of the file.
+            keys (list,tuple): Keywords of the blocks to write, wildcard patterns 
+                               are allowed. If empty, all keywords are selected. 
+            invert (bool): Write all blocks except the given keywords.
+            append (bool): Append to file instead of creating new file
+        """
+        mode = 'wb'
+        if append:
+            mode = 'ab'
+        if keys:
+            keylist = expand_pattern(keys, self.section_keys(), invert=invert)
+        else:
+            keylist = self.section_keys()
+        if isinstance(filename, UNRST_file):
+            filename = filename.path
+        with open(filename, mode) as file:
+            for block in self.blocks():
+                if block.key() in keylist:
+                    file.write(block.binarydata())
+
 
     #--------------------------------------------------------------------------------
     def blockdata(self, *keylim, limits=None, strip=True, 
@@ -946,7 +1088,7 @@ class unfmt_file(File):                                                  # unfmt
                 data = {key:None for key in dictkeys}
 
     #--------------------------------------------------------------------------------
-    def read2(self, *varnames, **kwargs):                                # unfmt_file
+    def read(self, *varnames, **kwargs):                                # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Read data block by block using variable names defined in self.var_pos. 
@@ -1074,74 +1216,6 @@ class unfmt_file(File):                                                  # unfmt
     def fix_errors(self):                                                # unfmt_file
     #--------------------------------------------------------------------------------
         return sum(b.fix_payload_errors() for b in self.blocks(write=True))
-        #for block in self.blocks(write=True):
-        #    block.fix_payload_errors()
-
-    # #--------------------------------------------------------------------------------
-    # def read(self, *varnames, tail=False, start=0, stop=None, step=None, 
-    #          drop=None, unpack_single=True, **kwargs):                   # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     if not self.is_file():
-    #         return
-    #     # Check for wrong value names
-    #     if missing := [val for val in varnames if val not in self.var_pos]:
-    #         err = f'ERROR! Invalid variable names in {self.__class__.__name__}.read() call: {missing}'
-    #         raise SystemError(err)
-    #     # Get order of keywords
-    #     key_order = {v[0]:0 for k,v in self.var_pos.items() if k in varnames}.keys()
-    #     # Make list of [key, pos, var]: ['INTEHEAD', 66, 'year']
-    #     in_order = [self.var_pos[v]+(v,) for v in varnames]
-    #     # Group positions and varnames: 'INTEHEAD': [[207, 'min'],[66, 'year']]
-    #     key_pos_name = dict(groupby_sorted(in_order, key=itemgetter(0)))
-    #     # Sort on positions for each keyword: 'INTEHEAD': [[66, 'year'],[207, 'min']]
-    #     key_pos_name = [(v,sorted(key_pos_name[v], key=itemgetter(0))) for v in key_order]
-    #     blocks = self.blocks
-    #     end_key = self.end
-    #     if tail:
-    #         # Read file reversed from tail to top
-    #         blocks = self.tail_blocks
-    #         # Reverse keyword read-order
-    #         key_pos_name = key_pos_name[::-1]
-    #         # Reverse start/end keywords
-    #         end_key = self.start
-    #     # keyword : ([pos1], size1, name1, [pos2], size2, name2)
-    #     tmp = {k:flat_list((v[:-1], len(v[:-1]), v[-1]) for v in pn) for k,pn in key_pos_name}
-    #     values = flat_list(tmp.values())
-    #     var_limits = list(pairwise(accumulate((0,)+values[1::3])))
-    #     read_order = values[2::3]
-    #     # Get positions for each keyword: INTEHEAD:[66, 207]
-    #     keypos_to_read = {k:index_limits(flat_list(v[0::3])) for k,v in tmp.items()}
-    #     #print(keypos_to_read)
-    #     # Map input to read-order limits: [(1,2), (0,1)] if ('min','year') is input
-    #     out_limits = [var_limits[read_order.index(v)] for v in varnames]
-    #     if unpack_single:
-    #         # Only slice (return a list) for non-single variables
-    #         out_slice = [slice(a,b) if b-a>1 else a for a,b in out_limits]
-    #     else:
-    #         # Always slice
-    #         out_slice = [slice(*i) for i in out_limits]
-    #     section = []
-    #     num = 0
-    #     for block in blocks(**kwargs):
-    #         if end_key in block:
-    #             num += 1
-    #         if num < start:
-    #             continue
-    #         if step and (num-start)%step > 0:
-    #             continue
-    #         if block and (positions:=keypos_to_read.get(block.key())):
-    #             # A pos < 0 in self.var_pos makes index_limits return () 
-    #             # which cause the whole array to be read
-    #             if () in positions:
-    #                 out_slice = [slice(0,block.length)]
-    #             section.extend(block.data2(*positions, unwrap_tuple=False))
-    #         if end_key in block and section: # and i > 0:
-    #             data = [section[s] for s in out_slice]
-    #             if not drop or not drop(data):
-    #                 yield data
-    #             section = []
-    #         if stop and num >= stop:
-    #             return
 
     #--------------------------------------------------------------------------------
     def count_sections(self):                                            # unfmt_file
@@ -1150,19 +1224,26 @@ class unfmt_file(File):                                                  # unfmt
         #return len([i for i,block in enumerate(self.blocks()) if self.start in block])
 
     #--------------------------------------------------------------------------------
-    def count_blocks(self):                                            # unfmt_file
+    def count_blocks(self):                                              # unfmt_file
     #--------------------------------------------------------------------------------
         return sum(1 for _ in self.blocks())
 
     #--------------------------------------------------------------------------------
-    def find_keys(self, *pattern, sec=0):                           # unfmt_file
+    def section_keys(self, n=0):                                         # unfmt_file
+    #--------------------------------------------------------------------------------
+        """ 
+        Return keywords from section n, n=0 is default
+        """
+        return [bl.key() for bl in nth(self.section_blocks(), n)]
+
+    #--------------------------------------------------------------------------------
+    def find_keys(self, *keys, sec=0):                                   # unfmt_file
     #--------------------------------------------------------------------------------
         """
-        Return matching keywords from the first section of blocks
+        Return matching keywords from section sec, sec=0 is default
         """
-        #blocks = next(self.section_blocks())
-        blocks = next(islice(self.section_blocks(), sec, sec+1))
-        return [b.key() for b in blocks if match_in_wildlist(b.key(), pattern)]
+        #block_keys = [bl.key() for bl in nth(self.section_blocks(), sec)]
+        return expand_pattern(keys, self.section_keys(sec))
 
     #--------------------------------------------------------------------------------
     def blocks_matching(self, *keys):                                    # unfmt_file
@@ -1261,9 +1342,8 @@ class unfmt_file(File):                                                  # unfmt
             for steps_data in zip(*section_data):
                 cancel()
                 steps, data = zip(*steps_data)
-                #if len(set(steps)) > 1:
-                # Sync sections if steps don't match
                 while len(set(steps)) > 1:
+                    # Sync sections if steps don't match
                     if steps[0] < steps[1]:
                         skipped.append(steps[0])
                         steps, data = zip(next(section_data[0]), (steps[1], data[1]))
@@ -1398,7 +1478,7 @@ class DATA_file(File):
             file = UNRST_file(file)
             if not file.is_file():
                 raise SystemError(f'ERROR Restart file {file.path} is missing')
-            days, n = next(((t,s) for t,s in file.read2('time', 'step') if s >= step), (-1,-1))
+            days, n = next(((t,s) for t,s in file.read('time', 'step') if s >= step), (-1,-1))
             #days, n = next(file.read('time', 'step', drop=lambda x:x[1]<step))
             if n != step:
                 raise SystemError(f'ERROR Step {step} is missing in restart file {file}')
@@ -1751,19 +1831,36 @@ class INIT_file(unfmt_file):                                              # INIT
     def __init__(self, file, **kwargs):                                   # INIT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.INIT', **kwargs)
-        self.var_pos = {'nx'       : ('INTEHEAD',  8),
-                        'ny'       : ('INTEHEAD',  9),
-                        'nz'       : ('INTEHEAD', 10),
-                        'simulator': ('INTEHEAD', 94)}
+        self.var_pos = {'nx'        : ('INTEHEAD',  8),
+                        'ny'        : ('INTEHEAD',  9),
+                        'nz'        : ('INTEHEAD', 10),
+                        'day'       : ('INTEHEAD', 64),
+                        'month'     : ('INTEHEAD', 65),
+                        'year'      : ('INTEHEAD', 66),
+                        'simulator' : ('INTEHEAD', 94),
+                        'hour'      : ('INTEHEAD', 206),
+                        'minute'    : ('INTEHEAD', 207),
+                        'second'    : ('INTEHEAD', 410),
+}
 
     #--------------------------------------------------------------------------------
     def simulator(self):                                                  # INIT_file
     #--------------------------------------------------------------------------------
         sim_codes = {100:'ecl', 300:'ecl', 500:'ecl', 700:'ix', 800:'FrontSim'}
-        if sim:=next(self.read2('simulator'), None):
+        if sim:=next(self.read('simulator'), None):
             if sim < 0:
                 return 'other simulator'
             return sim_codes[sim]
+
+    #--------------------------------------------------------------------------------
+    def start_date(self):                                                  # INIT_file
+    #--------------------------------------------------------------------------------
+        keys = ('year', 'month', 'day', 'hour', 'minute', 'second')
+        if data := next(self.read(*keys), None):
+            kwargs = dict(zip(keys, data))
+            # Unit of second is microsecond
+            kwargs['second'] = int(kwargs['second']/1e6)
+            return datetime(**kwargs)
 
 
 #====================================================================================
@@ -1787,10 +1884,10 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 'wells' : ('ZWEL'    , None)}  # No ZWEL in first section 
                                                 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, end=None, role=None, 
+    def __init__(self, file, suffix='.UNRST', wait_func=None, end=None, role=None, 
                  **kwargs):                                              # UNRST_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, suffix='.UNRST', role=role)
+        super().__init__(file, suffix=suffix, role=role)
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self._dim = None
@@ -1804,7 +1901,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
     def dim(self):                                                       # UNRST_file
     #--------------------------------------------------------------------------------
-        self._dim = self._dim or next(self.read2('nx', 'ny', 'nz'))
+        self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
         return self._dim
 
     #--------------------------------------------------------------------------------
@@ -1846,7 +1943,6 @@ class UNRST_file(unfmt_file):                                            # UNRST
         #     yield celldata(*dd)
 
     #--------------------------------------------------------------------------------
-    # def celldata_as_dataframe(self, coord, *keywords, base=0, time_res='day'):        # UNRST_file
     def celldata_as_dataframe(self, *args, **kwargs):        # UNRST_file
     #--------------------------------------------------------------------------------
         """
@@ -1856,29 +1952,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
         data = self.celldata(*args, **kwargs)
         return DataFrame(data._asdict())
 
-    # #--------------------------------------------------------------------------------
-    # def cellarray(self, *in_keys, start=0, stop=None, step=None, skip=1,    # UNRST_file
-    #               warn_missing=True):
-    # #--------------------------------------------------------------------------------
-    #     step = step or self.count_sections()
-    #     keys = self.keys_matching(*in_keys)
-    #     if warn_missing:
-    #         if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
-    #             raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
-    #     names = [remove_chars('+-', str(k).lower()) for k in keys]
-    #     cellarray = namedtuple('cellarray', ['days', 'dates'] + names)
-    #     dim = self.dim()
-    #     ddd = zip(self.days(), self.dates(), self.blockdata(*keys))
-    #     day_date_data = islice(ddd, start, stop, skip)
-    #     while (batch := tuple(islice(day_date_data, step))):
-    #         days, dates, data = [nparray(d) for d in zip(*batch)]
-    #         if data.ndim < 3:
-    #             data = expand_dims(data, 1)
-    #         data = data.transpose((1,0,2))
-    #         yield cellarray(days, dates, *data.reshape(data.shape[:-1]+dim, order='F'))
-
     #--------------------------------------------------------------------------------
-    def icellarray(self, *in_keys, start=None, stop=None, step=1,    # UNRST_file
+    def cellarray(self, *in_keys, start=None, stop=None, step=1,    # UNRST_file
                   warn_missing=True, time_res='day'):
     #--------------------------------------------------------------------------------
         step = step or self.count_sections()
@@ -1890,7 +1965,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
         #         raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
         # names = [remove_chars('+-', str(k).lower()) for k in keys]
         names = [remove_chars('+-', k) for k in keys]
-        cellarray = namedtuple('cellarray', ['days', 'date'] + names)
+        celltuple = namedtuple('cellarray', ['days', 'date'] + names)
         dim = self.dim()
         dds = zip(self.days(resolution=time_res), self.dates(), self.section_blocks())
         for day, date, section in islice(dds, start, stop, step):
@@ -1898,36 +1973,25 @@ class UNRST_file(unfmt_file):                                            # UNRST
             for block in section:
                 if (key:=block.key()) in keys:
                     blockdata[key] = block.data()
-            yield cellarray(day, date, *[nparray(d).reshape(dim, order='F') for d in blockdata.values()])
+            yield celltuple(day, date, *[nparray(d).reshape(dim, order='F') for d in blockdata.values()])
     
-    # #--------------------------------------------------------------------------------
-    # def cellarray2(self, *keys): # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     keys = self.keys_matching(*keys)
-    #     names = [remove_chars('+-', str(k).lower()) for k in keys]
-    #     cellarray = namedtuple('cellarray', ['days', 'dates'] + names)
-    #     shape = (len(keys), -1,) + self.dim()
-    #     data = nparray([*zip(*self.blockdata(*keys))]).reshape(shape, order='F')
-    #     days = nparray([*self.days()])
-    #     dates = nparray([*self.dates()])
-    #     return cellarray(days, dates, *data)
 
     #--------------------------------------------------------------------------------
     def wells(self, stop=None):                                           # UNRST_file
     #--------------------------------------------------------------------------------
-        wells = flatten_all(islice(self.read2('wells'), 0, stop))
+        wells = flatten_all(islice(self.read('wells'), 0, stop))
         unique_wells = set(w for well in wells if (w:=well.strip()))
         return tuple(unique_wells)
 
     #--------------------------------------------------------------------------------
     def steps(self):                                                     # UNRST_file
     #--------------------------------------------------------------------------------
-        return flatten_all(self.read2('step'))
+        return flatten_all(self.read('step'))
 
     #--------------------------------------------------------------------------------
     def end_value(self, var:str):                                        # UNRST_file
     #--------------------------------------------------------------------------------
-        return next(self.read2(var, tail=True), None) or 0
+        return next(self.read(var, tail=True), None) or 0
 
     #--------------------------------------------------------------------------------
     def end_step(self):                                                  # UNRST_file
@@ -1943,13 +2007,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
     def end_date(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
         return next(self.dates(tail=True), None)
-        # if ymd:=self.end_value('year', 'month', 'day'):
-        #     return datetime(*ymd)
-            #return datetime.strptime(' '.join(dmy), '%d %m %Y')
 
     #--------------------------------------------------------------------------------
-    #def dates(self, hour=False, min=False, sec=False, **kwargs):         # UNRST_file
-    def dates(self, resolution='day', **kwargs):         # UNRST_file
+    def dates(self, resolution='day', **kwargs):                         # UNRST_file
     #--------------------------------------------------------------------------------
         varnames = ('year', 'month', 'day')
         if resolution == 'day':
@@ -1961,38 +2021,22 @@ class UNRST_file(unfmt_file):                                            # UNRST
         elif resolution == 'sec':
             varnames += ('hour', 'min', 'sec')
             # Seconds are reported as microseconds, integer-divide by 1e6
-            return (datetime(*vars[:-1], int(vars[-1]//1e6)) for vars in self.read2(*varnames, **kwargs))
+            return (datetime(*vars[:-1], int(vars[-1]//1e6)) for vars in self.read(*varnames, **kwargs))
         else:
             raise SyntaxError("resolution must be 'hour', 'min', or 'sec'")
-        # if sec:
-        #     # Seconds are reported as microseconds, integer-divide by 1e6
-        #     return (datetime(*vars[:-1], int(vars[-1]//1e6)) for vars in self.read2(*varnames, **kwargs))
-        return (datetime(*vars) for vars in self.read2(*varnames, **kwargs))
-        #return (datetime(*ymdhm) for ymdhm in self.read2('year', 'month', 'day', 'hour', 'min', **kwargs))
-        # data = self.read2('day','month','year', **kwargs)
-        # return (datetime.strptime(f'{d} {m} {y}', '%d %m %Y') for d,m,y in data)
+        return (datetime(*vars) for vars in self.read(*varnames, **kwargs))
 
     #--------------------------------------------------------------------------------
     def days(self, **kwargs):                                           # UNRST_file
     #--------------------------------------------------------------------------------
         start = next(self.dates(**kwargs))
         return ((date-start).total_seconds()/86400 for date in self.dates(**kwargs))
-        #return ((date-start).days for date in self.dates(**kwargs))
 
-    # #--------------------------------------------------------------------------------
-    # def step(self, block, step):                                         # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Used in sections to get step of current section
-    #     """
-    #     if block.key() == 'SEQNUM':
-    #         return block.data(0)
-    #     return step
-
-    # #--------------------------------------------------------------------------------
-    # def sections(self, **kwargs):                                        # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     return super().sections(init_key=self.start, check_sync=self.step, **kwargs)
+    #--------------------------------------------------------------------------------
+    def find_section(self, year, month, day):                            # UNRST_file
+    #--------------------------------------------------------------------------------
+        stop = datetime(year, month, day)
+        return next(i for i,date in enumerate(self.dates()) if date >= stop)
 
     #--------------------------------------------------------------------------------
     def end_key(self):                                                   # UNRST_file
@@ -2001,6 +2045,27 @@ class UNRST_file(unfmt_file):                                            # UNRST
         if block:
             return block.key()
 
+    @classmethod
+    #--------------------------------------------------------------------------------
+    def from_Xfile(cls, xfile, log=False, delete=False):                 # UNRST_file
+    #--------------------------------------------------------------------------------
+        """
+        Append a SEQNUM block at the beginning of the non-unified restart X-file. 
+        """
+        xfile = unfmt_file(xfile)
+        step = int(xfile.suffix[-4:])
+        # Create missing SEQNUM block
+        seqnum = unfmt_block.from_data('SEQNUM', [step], 'int')
+        unrst = cls(xfile.with_suffix('.UNRST'))
+        # Add missing SEQNUM at beginning
+        unrst.merge([(step, seqnum.as_bytes())], [(step, xfile.binarydata())])
+        if delete:
+            xfile.delete(raise_error=True)
+            if log:
+                log(f'Deleted {xfile}')
+        if callable(log):
+            log(f'Created {unrst} from {xfile}')
+        return unrst
 
 
 #====================================================================================
@@ -2009,7 +2074,12 @@ class RFT_file(unfmt_file):                                                # RFT
     start = 'TIME'
     end = 'CONNXT'
     var_pos =  {'time'     : ('TIME', 0),
-                'wellname' : ('WELLETC', 1)}
+                'wellname' : ('WELLETC', 1),
+                'welltype' : ('WELLETC', 6),
+                'waterrate': ('CONWTUB', None),
+                'I'        : ('CONIPOS', None),
+                'J'        : ('CONJPOS', None),
+                'K'        : ('CONKPOS', None)}
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
@@ -2026,16 +2096,68 @@ class RFT_file(unfmt_file):                                                # RFT
         return False
         
     #--------------------------------------------------------------------------------
-    def end_time(self):                                                   # RFT_file
+    def end_time(self):                                                    # RFT_file
     #--------------------------------------------------------------------------------
         # Return data from last check if it exists
         if data := self.check.data():
             return data[-1]
         # Return time-value from tail of file
-        return next(self.read2('time', tail=True), None) or 0
+        return next(self.read('time', tail=True), None) or 0
         #return time
         #return (data := self.check.data()) and data[-1] or 0
 
+    # #--------------------------------------------------------------------------------
+    # def wellpos(self, *wellnames):                                         # RFT_file
+    # #--------------------------------------------------------------------------------
+    #     wpos = {well:None for well in wellnames}
+    #     well_list = list(wellnames)
+    #     keys = ('WELLETC', 'CONIPOS', 'CONJPOS', 'CONKPOS')
+    #     #nwells = len(wellnames)
+    #     for welletc, *pos in self.blockdata(*keys):
+    #         #print(f'\r {nwells-len(well_list)}/{nwells}', end='')
+    #         if not well_list:
+    #             break
+    #         wname = welletc[1]
+    #         if wname in well_list:
+    #             well_list.remove(wname)
+    #             wpos[wname] = tuple(zip(*pos))
+    #     if missing_wells := [well for well, pos in wpos.items() if pos is None]:
+    #         raise ValueError(f'Wells {missing_wells} are missing in {self}')
+    #     return tuple(wpos.values())
+
+    #     # pos_gen = (pos for welletc, *pos in self.blockdata(*keys) if welletc[1]==wellname)
+    #     # pos = next(pos_gen, None)
+    #     # if pos:
+    #     #     return zip(*pos)
+    #     #     #return list(zip(*pos))
+    #     #raise ValueError(f'Well {wellname} not found!')
+
+    #--------------------------------------------------------------------------------
+    def wellpos(self, *wellnames, zerobase=True):                                         # RFT_file
+    #--------------------------------------------------------------------------------
+        wells = list(wellnames)
+        wpos = {well:None for well in wells}
+        for name, *pos in self.read('wellname', 'I', 'J', 'K'):
+            if not wells:
+                break
+            if name in wells:
+                wells.remove(name)
+                if zerobase:
+                    pos = [[x-1 for x in p] for p in pos]
+                wpos[name] = tuple(zip(*pos))
+        if missing_wells := [well for well, pos in wpos.items() if pos is None]:
+            raise ValueError(f'Wells {missing_wells} are missing in {self}')
+        return tuple(wpos.values())
+
+    #--------------------------------------------------------------------------------
+    def grid2wellname(self, dim, *wellnames):
+    #--------------------------------------------------------------------------------
+        poswell = {pos:[] for pos in product(*(range(d) for d in dim))}
+        for well, pos in zip(wellnames, self.wellpos(*wellnames)):
+            for p in pos:
+                poswell[p].append(well)
+        return poswell
+        
 
 #====================================================================================
 class UNSMRY_file(unfmt_file):
@@ -2073,7 +2195,7 @@ class UNSMRY_file(unfmt_file):
         """
         if self.is_file() and self.spec.welldata(keys=keys, wells=wells, named=named):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
-            reader = self.read2('days', 'welldata', only_new=only_new, singleton=True, **kwargs)
+            reader = self.read('days', 'welldata', only_new=only_new, singleton=True, **kwargs)
             try:
                 #days, data = zip(*self.read('days', 'welldata', only_new=only_new, **kwargs))
                 #days, data = zip(*self.read2('days', 'welldata', only_new=only_new, **kwargs))
@@ -2433,12 +2555,12 @@ class check_blocks:                                                    # check_b
         block = None
         start, start_val, end, end_val = 0, 1, 2, 3
         for block in self._unfmt.blocks(only_new=only_new):
-            if block.header.key == self._keys[start]:
+            if block.header._key == self._keys[start]:
                 if (data := block.data()):
                     self._keys[start_val].append(data[0])
                 else:
                     return False
-            if block.header.key == self._keys[end]:
+            if block.header._key == self._keys[end]:
                 self._keys[end_val] += 1
                 if self.steps_complete() and self._keys[end_val] == nblocks:
                     # nblocks complete blocks read, reset counters and return True
@@ -3083,7 +3205,7 @@ class IX_input:                                                            # IX_
         datesteps((1971, 7, 1), 10, 5) -> DATE "01-Jul-1971"
                                           DATE "06-Jul-1971"
         """
-        dates = (f'DATE "{date}"' for date in daterange(start, stop, step, fmt='%d-%b-%Y'))
+        dates = (f'DATE "{date}"' for date in date_range(start, stop, step, fmt='%d-%b-%Y'))
         print('\n'.join(dates))
 
     #--------------------------------------------------------------------------------
@@ -3320,15 +3442,19 @@ class IX_input:                                                            # IX_
         return [start + timedelta(days=days) for days in accumulate(self.timesteps())]
     
     #--------------------------------------------------------------------------------
-    def wellnames(self):                                                   # IX_input
+    def wellnames(self, contains:str=''):                                                   # IX_input
     #--------------------------------------------------------------------------------
-        return tuple(set(node.name for node in self.nodes('Well')))
+        wells = self.wells()
+        if contains:
+            return sorted(well[0] for well in wells if contains in well[1])
+        return sorted(well[0] for well in wells)
+        #return tuple(set(node.name for node in self.nodes('Well')))
         #return tuple(set(node.name for node in self.nodes('WellDef')))
 
     #--------------------------------------------------------------------------------
     def wells(self):                                                   # IX_input
     #--------------------------------------------------------------------------------
-        return tuple(set((well.name, _type[0]) for well in self.nodes('Well') if (_type:=well.get('Type'))))
+        return (set((well.name, _type[0]) for well in self.nodes('Well') if (_type:=well.get('Type'))))
 
     #--------------------------------------------------------------------------------
     def summary_keys(self, matching=()):                                   # IX_input

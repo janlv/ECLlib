@@ -71,6 +71,54 @@ from molmass import Formula
 #     sec, rest = int(s), s%1
 #     return int(day), hour, min, sec
 
+# #--------------------------------------------------------------------------------
+# def elapsed_months(start:datetime, step:timedelta):
+# #--------------------------------------------------------------------------------
+#     stop = start + step
+#     return 12*(stop.year - start.year) + stop.month - start.month
+
+#--------------------------------------------------------------------------------
+def day2date(start, days):
+#--------------------------------------------------------------------------------
+    return start + timedelta(days=days)
+
+#--------------------------------------------------------------------------------
+def slice_range(start=0, stop=None, step=None):
+#--------------------------------------------------------------------------------
+    range_with_stop = chain(range(start, stop, step), [stop])
+    return (pair for pair in pairwise(range_with_stop))
+
+#--------------------------------------------------------------------------------
+def split_number(input_number, base):
+#--------------------------------------------------------------------------------
+    # Finn antall hele base-enheter
+    num_full_units = input_number // base
+    # Finn rest
+    remainder = input_number % base
+    # Lag en liste med alle base-enhetene, pluss resten hvis den finnes
+    result = [base] * num_full_units
+    if remainder > 0:
+        result.append(remainder)
+    return result
+
+#--------------------------------------------------------------------------------
+def ensure_bytestring(astring:str):
+#--------------------------------------------------------------------------------
+    if isinstance(astring, bytes):
+        return astring
+    return astring.encode()
+
+#--------------------------------------------------------------------------------
+def ensure_list(values):
+#--------------------------------------------------------------------------------
+    try:
+        return values[:]
+    except TypeError:
+        return [values]
+    # if isinstance(var, list):
+    #     return var
+    # return [var]
+
 #--------------------------------------------------------------------------------
 def unique_key(key, keylist:list, symbol='#'):
 #--------------------------------------------------------------------------------
@@ -80,7 +128,7 @@ def unique_key(key, keylist:list, symbol='#'):
     return key
 
 #--------------------------------------------------------------------------------
-def list_prec(iterable, fmt):
+def list_prec(iterable, fmt='.2e'):
 #--------------------------------------------------------------------------------
     return '[' + ', '.join(f'{i:{fmt}}' for i in iterable) + ']'
 
@@ -126,7 +174,7 @@ def day2time(days):
 
 
 #-----------------------------------------------------------------------
-def daterange(start, stop, step=1, fmt=None):
+def date_range(start, stop, step=1, fmt=None):
 #-----------------------------------------------------------------------
     """
     daterange((1971, 7, 1), 10, format="%d-%b-%Y") -> ['01-Jul-1971', '02-Jul-1971', '03-Jul-1971']
@@ -221,6 +269,14 @@ def match_in_wildlist(string, wildlist):
     return next((pattern for pattern in wildlist if fnmatch(string, pattern)), None)
     #return any(fnmatch(string, pattern) for pattern in wildlist)
 
+#-----------------------------------------------------------------------
+def expand_pattern(patterns, strings, invert=False):
+#-----------------------------------------------------------------------
+    """ Return expanded patterns that match strings, preserve pattern order """
+    if invert:
+        return [s for s in strings if not any(fnmatch(s, pat) for pat in patterns)]
+    return [s for s in strings if any(fnmatch(s, pat) for pat in patterns)]
+    #return [s for pat in patterns for s in strings if fnmatch(s, pat) != invert]
 
 #-----------------------------------------------------------------------
 def make_user_executable(path):
