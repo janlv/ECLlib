@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import int32, float32, float64, bool_ as np_bool, array as nparray
+from numpy import int32, float32, float64, bool_ as np_bool, array as nparray, sum as npsum
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, expand_pattern, flatten,
@@ -132,6 +132,8 @@ class File:                                                                    #
             ignore_suffix_case (bool, optional): Whether to ignore case when matching suffix.
             exists (bool, optional): If True, will only set the path if the file exists.
         """        
+        if isinstance(filename, File):
+            filename = filename.path
         #print('init',filename, suffix)
         self.path = Path(filename).resolve() if filename else None
         if suffix:
@@ -255,12 +257,13 @@ class File:                                                                    #
             infile.resize(size - length)
 
     #--------------------------------------------------------------------------------
-    def binarydata(self, raise_error=False):                                   # File
+    def binarydata(self, pos=None, raise_error=False):                                   # File
     #--------------------------------------------------------------------------------
         """
         Reads the file as binary data.
 
         Args:
+            pos (tuple, optional): Only read from pos[0] to pos[1] 
             raise_error (bool, optional): If True, raises an error if the file does not exist.
 
         Returns:
@@ -269,6 +272,9 @@ class File:                                                                    #
         # Open as binary file to avoid encoding errors
         if self.is_file():
             with open(self.path, 'rb') as f:
+                if pos:
+                    f.seek(pos[0])
+                    return f.read(pos[1]-pos[0])
                 return f.read()
         if raise_error:
             raise SystemError(f'File {self} does not exist')
@@ -609,9 +615,15 @@ class File:                                                                    #
         self.write_text(data)
 
     #--------------------------------------------------------------------------------
-    def append_bytes(self, data):                                   # File
+    def append_bytes(self, data):                                              # File
     #--------------------------------------------------------------------------------
         with open(self.path, 'ab') as file:
+            file.write(data)
+
+    #--------------------------------------------------------------------------------
+    def write_bytes(self, data):                                              # File
+    #--------------------------------------------------------------------------------
+        with open(self.path, 'wb') as file:
             file.write(data)
 
 
@@ -997,6 +1009,14 @@ class unfmt_file(File):                                                  # unfmt
         return self.endpos == self.size()
 
     #--------------------------------------------------------------------------------
+    def is_flushed(self, endkey):                                        # unfmt_file
+    #--------------------------------------------------------------------------------
+        if self.is_file():
+            last_block = next(self.tail_blocks(), None)
+            if last_block and last_block.key() == endkey:
+                return True
+
+    #--------------------------------------------------------------------------------
     def offset(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
         return self.size() - self.endpos
@@ -1109,6 +1129,11 @@ class unfmt_file(File):                                                  # unfmt
             else:
                 yield values
 
+
+    #--------------------------------------------------------------------------------
+    def last_value(self, var:str):                                        # unfmt_file
+    #--------------------------------------------------------------------------------
+        return next(self.read(var, tail=True), None) or 0
 
     #--------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
@@ -1827,6 +1852,8 @@ class EGRID_file(unfmt_file):                                            # EGRID
 #====================================================================================
 class INIT_file(unfmt_file):                                              # INIT_file
 #====================================================================================
+    start = 'INTEHEAD'
+
     #--------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):                                   # INIT_file
     #--------------------------------------------------------------------------------
@@ -1862,6 +1889,10 @@ class INIT_file(unfmt_file):                                              # INIT
             kwargs['second'] = int(kwargs['second']/1e6)
             return datetime(**kwargs)
 
+    # #--------------------------------------------------------------------------------
+    # def is_flushed(self, end='TRANNNC'):                                  # INIT_file
+    # #--------------------------------------------------------------------------------
+    #     return super().is_flushed(end)
 
 #====================================================================================
 class UNRST_file(unfmt_file):                                            # UNRST_file
@@ -1891,6 +1922,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
         self.end = end or self.end
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self._dim = None
+        self._units = None
         #self._dates = None
 
     #--------------------------------------------------------------------------------
@@ -1924,7 +1956,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return coord[0]-base + dim[0]*(coord[1]-base) + dim[0]*dim[1]*(coord[2]-base)
 
     #--------------------------------------------------------------------------------
-    def celldata(self, coord, *keywords, base=0, time_res='day'):        # UNRST_file
+    #def celldata(self, coord, *keywords, base=0, time_res='day'):        # UNRST_file
+    def celldata(self, coord, *keywords, base=0):                         # UNRST_file
     #--------------------------------------------------------------------------------
         """
         Return the given keywords as a celldata namedtuple for the given cell-coordinate.
@@ -1938,7 +1971,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
         args = flatten((key, cellnr) for key in keywords)
         data = (zip(*self.blockdata(*args, singleton=False)))
         celldata = namedtuple('celldata', ('days',)+keywords)
-        return celldata(tuple(self.days(resolution=time_res)), *data)
+        return celldata(tuple(self.days()), *data)
+        #return celldata(tuple(self.days(resolution=time_res)), *data)
         # for dd in zip(self.days(resolution=time_res), *data):
         #     yield celldata(*dd)
 
@@ -1953,8 +1987,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return DataFrame(data._asdict())
 
     #--------------------------------------------------------------------------------
-    def cellarray(self, *in_keys, start=None, stop=None, step=1,    # UNRST_file
-                  warn_missing=True, time_res='day'):
+    def cellarray(self, *in_keys, start=None, stop=None, step=1, warn_missing=True):   # UNRST_file                  
     #--------------------------------------------------------------------------------
         step = step or self.count_sections()
         keys = self.find_keys(*in_keys)
@@ -1967,7 +2000,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
         names = [remove_chars('+-', k) for k in keys]
         celltuple = namedtuple('cellarray', ['days', 'date'] + names)
         dim = self.dim()
-        dds = zip(self.days(resolution=time_res), self.dates(), self.section_blocks())
+        # dds = zip(self.days(resolution=time_res), self.dates(), self.section_blocks())
+        dds = zip(self.days(), self.dates(), self.section_blocks())
         for day, date, section in islice(dds, start, stop, step):
             blockdata = {k:None for k in keys}
             for block in section:
@@ -1977,11 +2011,20 @@ class UNRST_file(unfmt_file):                                            # UNRST
     
 
     #--------------------------------------------------------------------------------
-    def wells(self, stop=None):                                           # UNRST_file
+    def wells(self, stop=None):                                          # UNRST_file
     #--------------------------------------------------------------------------------
         wells = flatten_all(islice(self.read('wells'), 0, stop))
         unique_wells = set(w for well in wells if (w:=well.strip()))
         return tuple(unique_wells)
+
+    #--------------------------------------------------------------------------------
+    def open_wells(self):                                                # UNRST_file
+    #--------------------------------------------------------------------------------
+        for ihead, icon in self.blockdata('INTEHEAD', 'ICON'):
+            niconz, ncwmax, nwells  = ihead[32], ihead[17], ihead[16]
+            icon = nparray(icon).reshape((niconz, ncwmax, nwells), order='F')
+            yield sum(npsum(icon[5,:,:], axis=0) > 0)
+
 
     #--------------------------------------------------------------------------------
     def steps(self):                                                     # UNRST_file
@@ -1989,19 +2032,14 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return flatten_all(self.read('step'))
 
     #--------------------------------------------------------------------------------
-    def end_value(self, var:str):                                        # UNRST_file
-    #--------------------------------------------------------------------------------
-        return next(self.read(var, tail=True), None) or 0
-
-    #--------------------------------------------------------------------------------
     def end_step(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
-        return self.end_value('step')
+        return self.last_value('step')
 
     #--------------------------------------------------------------------------------
     def end_time(self):                                                  # UNRST_file
     #--------------------------------------------------------------------------------
-        return self.end_value('time')
+        return self.last_value('time')
 
     #--------------------------------------------------------------------------------
     def end_date(self):                                                  # UNRST_file
@@ -2027,10 +2065,32 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return (datetime(*vars) for vars in self.read(*varnames, **kwargs))
 
     #--------------------------------------------------------------------------------
-    def days(self, **kwargs):                                           # UNRST_file
+    def units(self):                                                     # UNRST_file
     #--------------------------------------------------------------------------------
-        start = next(self.dates(**kwargs))
-        return ((date-start).total_seconds()/86400 for date in self.dates(**kwargs))
+        ihead = next(self.blockdata('INTEHEAD'), None)
+        if ihead:
+            return {1:'metric', 2:'field', 3:'lab', 4:'pvt-m'}[ihead[2]]
+
+    #--------------------------------------------------------------------------------
+    def days(self):                                                      # UNRST_file
+    #--------------------------------------------------------------------------------
+        # Read units only once
+        self._units = self._units or self.units()
+        convert = 1
+        if self._units == 'lab':
+            # DOUBHEAD[0] is given in hours in lab units
+            convert = 1/24
+        return (dh[0]*convert for dh in self.blockdata('DOUBHEAD'))
+        #start = next(self.dates(**kwargs))
+        #return ((date-start).total_seconds()/86400 for date in self.dates(**kwargs))
+
+    # #--------------------------------------------------------------------------------
+    # def days2(self, start:datetime, **kwargs):                           # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     for date in self.dates(**kwargs):
+    #         delta = date-start
+    #         yield delta.total_seconds()/86400 + delta.microseconds/86400e6
+    #     #return ((date-start).total_seconds()/86400 for date in self.dates(**kwargs))
 
     #--------------------------------------------------------------------------------
     def find_section(self, year, month, day):                            # UNRST_file
@@ -2045,27 +2105,36 @@ class UNRST_file(unfmt_file):                                            # UNRST
         if block:
             return block.key()
 
-    @classmethod
     #--------------------------------------------------------------------------------
-    def from_Xfile(cls, xfile, log=False, delete=False):                 # UNRST_file
+    def from_Xfile(self, xfile, log=False, delete=False):                 # UNRST_file
     #--------------------------------------------------------------------------------
         """
         Append a SEQNUM block at the beginning of the non-unified restart X-file. 
         """
-        xfile = unfmt_file(xfile)
-        step = int(xfile.suffix[-4:])
-        # Create missing SEQNUM block
-        seqnum = unfmt_block.from_data('SEQNUM', [step], 'int')
-        unrst = cls(xfile.with_suffix('.UNRST'))
+        xfile = File(xfile)
         # Add missing SEQNUM at beginning
-        unrst.merge([(step, seqnum.as_bytes())], [(step, xfile.binarydata())])
+        step = int(xfile.suffix[-4:])
+        seqnum = unfmt_block.from_data('SEQNUM', [step], 'int')
+        self.merge([(step, seqnum.as_bytes())], [(step, xfile.binarydata())])
         if delete:
             xfile.delete(raise_error=True)
             if log:
                 log(f'Deleted {xfile}')
         if callable(log):
-            log(f'Created {unrst} from {xfile}')
-        return unrst
+            log(f'Created {self} from {xfile}')
+        #return self
+
+    #--------------------------------------------------------------------------------
+    def as_Xfiles(self, log=False):                                      # UNRST_file
+    #--------------------------------------------------------------------------------
+        for i, sec in enumerate(self.section_blocks()):
+            xfile = self.with_suffix(f'.X{i:04d}')
+            with open(xfile, 'wb') as file:
+                for block in sec:
+                    if block.key() != 'SEQNUM':
+                        file.write(block.binarydata())
+            if callable(log):
+                log(f'Wrote {xfile}')
 
 
 #====================================================================================
@@ -2086,6 +2155,7 @@ class RFT_file(unfmt_file):                                                # RFT
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.RFT')
         self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
+        self.current_section = 0
 
     #--------------------------------------------------------------------------------
     def not_in_sync(self, time, prec=0.1):                                 # RFT_file
@@ -2106,34 +2176,40 @@ class RFT_file(unfmt_file):                                                # RFT
         #return time
         #return (data := self.check.data()) and data[-1] or 0
 
-    # #--------------------------------------------------------------------------------
-    # def wellpos(self, *wellnames):                                         # RFT_file
-    # #--------------------------------------------------------------------------------
-    #     wpos = {well:None for well in wellnames}
-    #     well_list = list(wellnames)
-    #     keys = ('WELLETC', 'CONIPOS', 'CONJPOS', 'CONKPOS')
-    #     #nwells = len(wellnames)
-    #     for welletc, *pos in self.blockdata(*keys):
-    #         #print(f'\r {nwells-len(well_list)}/{nwells}', end='')
-    #         if not well_list:
-    #             break
-    #         wname = welletc[1]
-    #         if wname in well_list:
-    #             well_list.remove(wname)
-    #             wpos[wname] = tuple(zip(*pos))
-    #     if missing_wells := [well for well, pos in wpos.items() if pos is None]:
-    #         raise ValueError(f'Wells {missing_wells} are missing in {self}')
-    #     return tuple(wpos.values())
-
-    #     # pos_gen = (pos for welletc, *pos in self.blockdata(*keys) if welletc[1]==wellname)
-    #     # pos = next(pos_gen, None)
-    #     # if pos:
-    #     #     return zip(*pos)
-    #     #     #return list(zip(*pos))
-    #     #raise ValueError(f'Well {wellname} not found!')
+    #--------------------------------------------------------------------------------
+    def time_sections(self, days, acc=1e-5):                               # RFT_file
+    #--------------------------------------------------------------------------------
+        """
+        Yield sections matching given time
+        """
+        for i, sec in enumerate(self.section_blocks()):
+            time = sec[0].data()[0]
+            if days-acc < time < days+acc and sec[-1].key() == self.end:
+                yield sec
+            if time > days + acc:
+                self.current_section += i-1
+                return ()
 
     #--------------------------------------------------------------------------------
-    def wellpos(self, *wellnames, zerobase=True):                                         # RFT_file
+    def sections_matching_time(self, days, acc=1e-5):                      # RFT_file
+    #--------------------------------------------------------------------------------
+        """
+        Yield the start- and end-pos of neighbouring sections matching given time
+        """
+        start, end = 9e9, 0
+        for sec in self.section_blocks():
+            time = sec[0].data()[0]
+            if days-acc < time < days+acc and sec[-1].key() == self.end:
+                if (pos := sec[0].header.startpos) < start:
+                    start = pos
+                if (pos := sec[-1].header.endpos) > end:
+                    end = pos
+            if time > days + acc:
+                break
+        return (start, end)
+
+    #--------------------------------------------------------------------------------
+    def wellpos(self, *wellnames, zerobase=True):                          # RFT_file
     #--------------------------------------------------------------------------------
         wells = list(wellnames)
         wpos = {well:None for well in wells}
@@ -3442,7 +3518,7 @@ class IX_input:                                                            # IX_
         return [start + timedelta(days=days) for days in accumulate(self.timesteps())]
     
     #--------------------------------------------------------------------------------
-    def wellnames(self, contains:str=''):                                                   # IX_input
+    def wellnames(self, contains:str=''):                                  # IX_input
     #--------------------------------------------------------------------------------
         wells = self.wells()
         if contains:
@@ -3452,7 +3528,7 @@ class IX_input:                                                            # IX_
         #return tuple(set(node.name for node in self.nodes('WellDef')))
 
     #--------------------------------------------------------------------------------
-    def wells(self):                                                   # IX_input
+    def wells(self):                                                       # IX_input
     #--------------------------------------------------------------------------------
         return (set((well.name, _type[0]) for well in self.nodes('Well') if (_type:=well.get('Type'))))
 

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from itertools import chain, groupby, islice, tee, zip_longest
 from collections import deque, namedtuple
 from collections.abc import Iterable
-from shutil import copy2
+from shutil import copy2, rmtree
 import stat
 from fnmatch import fnmatch
 from os import SEEK_END, SEEK_CUR
@@ -76,6 +76,16 @@ from molmass import Formula
 # #--------------------------------------------------------------------------------
 #     stop = start + step
 #     return 12*(stop.year - start.year) + stop.month - start.month
+
+#--------------------------------------------------------------------------------
+def empty_folder(folder):
+#--------------------------------------------------------------------------------
+    if not isinstance(folder, Path):
+        folder = Path(folder)
+    if folder.exists():
+        rmtree(folder)
+    folder.mkdir()
+    return folder
 
 #--------------------------------------------------------------------------------
 def day2date(start, days):
@@ -1055,7 +1065,7 @@ def assert_python_version(major=None, minor=None):
     ##                                                                                          ##
     ##############################################################################################
     
-    ### check python version
+    # check python version
     sysmajor = version_info.major
     sysminor = version_info.minor
     if sysmajor<major or (sysmajor==major and sysminor<minor):
@@ -1076,11 +1086,11 @@ def silentdelete(*fname, echo=False):
         except (PermissionError, FileNotFoundError) as e:
             if echo:
                 print(f'Unable to delete {f}: {e}')
-            else:
-                pass
-        else:
-            if echo:
-                print(f'Deleted {f}')
+            # else:
+            #     pass
+        # else:
+        if echo:
+            print(f'Deleted {f}')
     # else:
     #     raise SystemError(f'silentdelete: Unknown format {type(fname)} passed')
 
@@ -1105,11 +1115,11 @@ def float_or_str(words):
 
     
 #------------------------------------------------
-def delete_files_matching(pattern, echo=False, raise_error=False):
+def delete_files_matching(*pattern, echo=False, raise_error=False):
 #------------------------------------------------
     msg = ''
-    if not isinstance(pattern, (list, tuple)):
-        pattern = (pattern,)
+    # if not isinstance(pattern, (list, tuple)):
+    #     pattern = (pattern,)
     for pat in pattern:
         pat = Path(pat)
         for file in pat.parent.glob(pat.name):
@@ -1117,10 +1127,10 @@ def delete_files_matching(pattern, echo=False, raise_error=False):
                 print('Removing ' + str(file))
             try:
                 file.unlink()
-            except PermissionError:
+            except PermissionError as err:
                 msg = 'WARNING Unable to delete file '+str(file)+', maybe it belongs to another process'
                 if raise_error:
-                    raise SystemError(msg)
+                    raise SystemError(msg) from err
     return msg
 
 
@@ -1131,7 +1141,7 @@ def loop_until(func, *args, limit=None, pause=None, loop_func=None, **kwargs):
     if not loop_func:
         loop_func = lambda:None
     while True:
-        if func(**kwargs):
+        if func(*args, **kwargs):
             return n
         if pause:
             sleep(pause)
