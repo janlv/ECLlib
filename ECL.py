@@ -78,10 +78,11 @@ DTYPE_LIST = [v.name for v in DTYPE.values()]
 @dataclass
 class Restart:
 #====================================================================================
+    start: datetime = None
     days: float = 0
     step: int = 0
-    file: str = ''
-    run : bool = False
+    # file: str = ''
+    # run : bool = False
 
 
 # #--------------------------------------------------------------------------------
@@ -1148,8 +1149,7 @@ class unfmt_file(File):                                                  # unfmt
             return False
 
     #--------------------------------------------------------------------------------
-    def blocks(self, only_new=False, start=None, use_mmap=True, 
-               **kwargs):                                                # unfmt_file
+    def blocks(self, only_new=False, start=None, use_mmap=True, **kwargs):  # unfmt_file
     #--------------------------------------------------------------------------------
         if not self.is_file():
             return ()
@@ -1161,14 +1161,13 @@ class unfmt_file(File):                                                  # unfmt
         if self.size() - startpos < 24: # Header is 24 bytes
             return ()
         if use_mmap:
-            return self.blocks_from_mmap(startpos, **kwargs)
-        return self.blocks_from_file(startpos)
+            return self.blocks_from_mmap(startpos, only_new=only_new, **kwargs)
+        return self.blocks_from_file(startpos, only_new=only_new)
         #     yield from self.blocks_from_mmap(startpos, **kwargs)
         # yield from self.blocks_from_file(startpos)
 
-
     #--------------------------------------------------------------------------------
-    def blocks_from_mmap(self, startpos, write=False):                   # unfmt_file
+    def blocks_from_mmap(self, startpos, only_new=False, write=False):    # unfmt_file
     #--------------------------------------------------------------------------------
         try:
             with self.mmap(write=write) as data:
@@ -1179,13 +1178,16 @@ class unfmt_file(File):                                                  # unfmt
                     #header = self.read_header(data[pos:pos+20], pos)
                     if not header:
                         return #() #False
-                    pos = self.endpos = header.endpos
+                    # pos = self.endpos = header.endpos
+                    pos = header.endpos
+                    if only_new:
+                        self.endpos = pos
                     yield unfmt_block(header=header, data=data, file=self.path)
         except ValueError: # Catch 'cannot mmap an empty file'
             return #() #False
 
     #--------------------------------------------------------------------------------
-    def blocks_from_file(self, startpos):                                # unfmt_file
+    def blocks_from_file(self, startpos, only_new=False):                # unfmt_file
     #--------------------------------------------------------------------------------
         with open(self.path, mode='rb') as file:
             size = self.size()
@@ -1196,7 +1198,10 @@ class unfmt_file(File):                                                  # unfmt
                 #header = self.read_header(file.read(20), pos)
                 if not header:
                     return #() #False
-                pos = self.endpos = header.endpos
+                # pos = self.endpos = header.endpos
+                pos = header.endpos
+                if only_new:
+                    self.endpos = pos
                 yield unfmt_block(header=header, file_obj=file, file=self.path)
 
 
@@ -1240,13 +1245,16 @@ class unfmt_file(File):                                                  # unfmt
     #--------------------------------------------------------------------------------
     def fix_errors(self):                                                # unfmt_file
     #--------------------------------------------------------------------------------
-        return sum(b.fix_payload_errors() for b in self.blocks(write=True))
+        # If reading from tail does not work we need to fix block payload errors
+        if not next(self.tail_blocks(), False):
+            # Fix errors in-place
+            return sum(b.fix_payload_errors() for b in self.blocks(write=True))
+        return 0
 
     #--------------------------------------------------------------------------------
     def count_sections(self):                                            # unfmt_file
     #--------------------------------------------------------------------------------
         return sum(1 for block in self.blocks() if self.start in block)
-        #return len([i for i,block in enumerate(self.blocks()) if self.start in block])
 
     #--------------------------------------------------------------------------------
     def count_blocks(self):                                              # unfmt_file
@@ -1281,7 +1289,7 @@ class unfmt_file(File):                                                  # unfmt
                 yield (step, b)
 
     #--------------------------------------------------------------------------------
-    def section_blocks(self, tail=False):                                # unfmt_file
+    def section_blocks(self, tail=False):                      # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Return blocks one section at a time
@@ -1356,6 +1364,18 @@ class unfmt_file(File):                                                  # unfmt
                     for old, new in names:
                         data = data.replace(old.ljust(8), new.ljust(8))
                 yield (step, data)
+
+    #--------------------------------------------------------------------------------
+    def section_ends(self, **kwargs):
+    #--------------------------------------------------------------------------------
+        endwords = [self.start, self.end]
+        ends = (bl for bl in self.blocks(**kwargs) if bl.key() in endwords)
+        for first, last in batched(ends, 2):
+            if first.key() == last.key():
+                endwords.remove(first.key())
+                raise ValueError(f"Incomplete section: '{endwords[0]}' keyword is missing")
+            yield (first, last)
+        #return batched(ends, 2)
 
     #--------------------------------------------------------------------------------
     def merge(self, *section_data, progress=lambda x:None, 
@@ -1504,11 +1524,13 @@ class DATA_file(File):
             if not file.is_file():
                 raise SystemError(f'ERROR Restart file {file.path} is missing')
             days, n = next(((t,s) for t,s in file.read('time', 'step') if s >= step), (-1,-1))
-            #days, n = next(file.read('time', 'step', drop=lambda x:x[1]<step))
             if n != step:
                 raise SystemError(f'ERROR Step {step} is missing in restart file {file}')
-            return Restart(days=days, step=n, file=file, run=True)
-        return Restart()
+            start = next(file.dates())
+            return Restart(start=start, days=days, step=n)
+        # Get start from DATA-file
+        start = self.start()
+        return Restart(start=self.start(), step=step)
 
 
     #--------------------------------------------------------------------------------
@@ -2072,7 +2094,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
             return {1:'metric', 2:'field', 3:'lab', 4:'pvt-m'}[ihead[2]]
 
     #--------------------------------------------------------------------------------
-    def days(self):                                                      # UNRST_file
+    def days(self, **kwargs):                                            # UNRST_file
     #--------------------------------------------------------------------------------
         # Read units only once
         self._units = self._units or self.units()
@@ -2080,9 +2102,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
         if self._units == 'lab':
             # DOUBHEAD[0] is given in hours in lab units
             convert = 1/24
-        return (dh[0]*convert for dh in self.blockdata('DOUBHEAD'))
-        #start = next(self.dates(**kwargs))
-        #return ((date-start).total_seconds()/86400 for date in self.dates(**kwargs))
+        return (next(flatten(dh))*convert for dh in self.blockdata('DOUBHEAD', singleton=True, **kwargs))
+        #return (dh[0]*convert for dh in self.blockdata('DOUBHEAD', singleton=True, **kwargs))
 
     # #--------------------------------------------------------------------------------
     # def days2(self, start:datetime, **kwargs):                           # UNRST_file
@@ -2112,6 +2133,8 @@ class UNRST_file(unfmt_file):                                            # UNRST
         Append a SEQNUM block at the beginning of the non-unified restart X-file. 
         """
         xfile = File(xfile)
+        if not xfile.exists():
+            raise FileNotFoundError(f'{xfile} is missing')
         # Add missing SEQNUM at beginning
         step = int(xfile.suffix[-4:])
         seqnum = unfmt_block.from_data('SEQNUM', [step], 'int')
@@ -2125,16 +2148,40 @@ class UNRST_file(unfmt_file):                                            # UNRST
         #return self
 
     #--------------------------------------------------------------------------------
-    def as_Xfiles(self, log=False):                                      # UNRST_file
+    def as_Xfiles(self, log=False, stop=None):                           # UNRST_file
     #--------------------------------------------------------------------------------
         for i, sec in enumerate(self.section_blocks()):
             xfile = self.with_suffix(f'.X{i:04d}')
             with open(xfile, 'wb') as file:
                 for block in sec:
-                    if block.key() != 'SEQNUM':
+                    key = block.key()
+                    if key != 'SEQNUM':
                         file.write(block.binarydata())
+                    if key == 'ENDSOL':
+                        break
             if callable(log):
                 log(f'Wrote {xfile}')
+            if stop and i == stop:
+                return    
+
+# #====================================================================================
+# class X_files:                                                              # X_files
+# #====================================================================================
+
+#     #--------------------------------------------------------------------------------
+#     def __init__(self, root):                                               # X_files
+#     #--------------------------------------------------------------------------------
+#         self.root = root
+
+#     #--------------------------------------------------------------------------------
+#     def files(self):
+#     #--------------------------------------------------------------------------------
+#         return File(self.root).glob('*.X????')
+
+#     #--------------------------------------------------------------------------------
+#     def file(self, num):
+#     #--------------------------------------------------------------------------------
+#         unfmt_file(self.root.with_suffix(f'.X{num:04d}'))
 
 
 #====================================================================================
@@ -2177,18 +2224,33 @@ class RFT_file(unfmt_file):                                                # RFT
         #return (data := self.check.data()) and data[-1] or 0
 
     #--------------------------------------------------------------------------------
-    def time_sections(self, days, acc=1e-5):                               # RFT_file
+    def time_slice(self):                                                  # RFT_file
     #--------------------------------------------------------------------------------
         """
-        Yield sections matching given time
+        Yield time and slice for equal time sections
         """
-        for i, sec in enumerate(self.section_blocks()):
-            time = sec[0].data()[0]
-            if days-acc < time < days+acc and sec[-1].key() == self.end:
-                yield sec
-            if time > days + acc:
-                self.current_section += i-1
-                return ()
+        endpos = self.endpos
+        ends = self.section_ends(only_new=True)
+        try:
+            first, last = next(ends, (None, None))
+            if first is None:
+                return
+            time = first.data()[0]
+            while True:
+                a,b = next(ends, (None, None))
+                if a is None:
+                    yield (time, (first.header.startpos, last.header.endpos))
+                    return
+                if (t:=a.data()[0]) > time:
+                    self.endpos = a.header.startpos
+                    yield (time, (first.header.startpos, self.endpos))
+                    first = a
+                    time = t
+                last = b
+        except ValueError:
+            self.endpos = endpos
+            yield (None, None)
+            return
 
     #--------------------------------------------------------------------------------
     def sections_matching_time(self, days, acc=1e-5):                      # RFT_file
@@ -3036,46 +3098,73 @@ class RSM_file(File):                                                      # RSM
 #====================================================================================
 class AFI_file(File):                                                      # AFI_file
 #====================================================================================
-    include_regex = rb'^[ \t]*\bINCLUDE\b\s*"*([\w.-]+)"*'
+    #include_regex = rb'^[ \t]*\bINCLUDE\b\s*"*([\w.-]+)"*'
+    # Return 'filename' and 'key1=val1 key2=val2' as groups from the following format:
+    # INCLUDE "filename" {key1=val1, key2=val2}
+    include_regex = rb'\bINCLUDE\b\s*"*([^"]+)"*\s*\{([^}]+)\}'
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, check=False, **kwargs):                       # AFI_file
     #--------------------------------------------------------------------------------
-        super().__init__(file, suffix='.afi', role='Top level Intersect input-file', 
+        super().__init__(file, suffix='.afi', role='Top level Intersect input-file',
                          ignore_suffix_case=True, **kwargs)
-        self.data = None
+        self._data = None
+        self.pattern = None
         if check:
             self.exists(raise_error=True)
+            
+    #--------------------------------------------------------------------------------
+    def data(self):                                                        # AFI_file
+    #--------------------------------------------------------------------------------
+        self._data = self._data or self.binarydata()
+        return self._data
 
     #--------------------------------------------------------------------------------
-    def ixf_files(self):
+    def ixf_files(self):                                                   # AFI_file
     #--------------------------------------------------------------------------------
-        self.data = self.data or self.binarydata()
-        matches_ = findall(self.include_regex, self.data, flags=MULTILINE)
-        files = (Path(m.decode()) for m in matches_)
-        return (self.with_name(file) for file in files if file.suffix.lower() == '.ixf')
+        #self.data = self.data or self.binarydata()
+        # self.pattern = self.pattern or re_compile(self.include_regex, flags=MULTILINE)
+        #matches_ = findall(self.include_regex, self.data, flags=MULTILINE)
+        #files = (Path(m[0].decode()) for m in matches_)
+        #return (self.with_name(file) for file in files if file.suffix.lower() == '.ixf')
+        #return (self.with_name(file) for file in self.files(self.data) if file.suffix.lower() == '.ixf')
+        return (file for file in self.include_files(self.data()) if file.suffix.lower() == '.ixf')
 
     #--------------------------------------------------------------------------------
-    def include_files(self):                                               # AFI_file
+    def matches(self, data:bytes=None):                                   # AFI_file
     #--------------------------------------------------------------------------------
-        return (f[0] for f in self._included_file_data(self.data))
+        self.pattern = self.pattern or re_compile(self.include_regex, flags=MULTILINE)
+        return self.pattern.finditer(data or self.data())
 
     #--------------------------------------------------------------------------------
-    def _included_file_data(self, data:bytes=None):                        # AFI_file
+    def include_files(self, data:bytes=None):                              # AFI_file
+    #--------------------------------------------------------------------------------
+        return (self.path.with_name(m[1].decode()) for m in self.matches(data or self.data()))
+        #data =  #binarydata()
+        #self.pattern = self.pattern or re_compile(self.include_regex, flags=MULTILINE)
+        #return (self.path.with_name(m.group(1).decode()) for m in self.finditer(data or self.data()))
+        # return (f[0] for f in self._included_file_data(self.data))
+
+    #--------------------------------------------------------------------------------
+    def included_file_data(self, data:bytes=None):                        # AFI_file
     #--------------------------------------------------------------------------------
         """ Return tuple of filename and binary-data for each include file """
-        data = data or self.binarydata()
-        regex = self.include_regex
-        files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
+        # data = data or self.binarydata()
+        # self.pattern = self.pattern or re_compile(self.include_regex, flags=MULTILINE)
+        # files = (m.group(1).decode() for m in self.pattern.finditer(data))
+        # #regex = self.include_regex
+        # #files = (m.group(1).decode() for m in re_compile(regex, flags=MULTILINE).finditer(data))
         # Loop over files included in self
-        for file in files:
-            inc_file = self.with_name(file)
+        # for file in files:
+        for inc_file in self.include_files(data):
+            #inc_file = self.with_name(file)
             inc_data = File(inc_file).binarydata()
             yield (inc_file, inc_data)
             # Recursive call for files included deeper down
             if b'INCLUDE' in inc_data:
-                for inc_inc in self._included_file_data(inc_data):
-                    yield inc_inc
+                yield from self.included_file_data(inc_data)
+                # for inc_inc in self._included_file_data(inc_data):
+                #     yield inc_inc
 
 #====================================================================================
 @dataclass
@@ -3187,12 +3276,15 @@ class IXF_node:                                                            # IXF
         return {k:v for k,*v in self.rows()}
 
     #--------------------------------------------------------------------------------
-    def get(self, item):                                                     # IXF_node
+    def get(self, *items):                                                   # IXF_node
     #--------------------------------------------------------------------------------
-        return self.as_dict().get(item)
+        #return self.as_dict().get(item)
+        values = flatten(self.as_dict().get(item) or [None] for item in items)
+        return [val.split('#')[0].strip().replace('"', '') for val in values if val]
+        # return list(flatten(self.as_dict().get(item) or [None] for item in items))
 
     #--------------------------------------------------------------------------------
-    def update(self, node=None): #, on_top=False):                              # IXF_node
+    def update(self, node=None): #, on_top=False):                         # IXF_node
     #--------------------------------------------------------------------------------
         adict = self.as_dict()
         ndict = node.as_dict()
@@ -3255,7 +3347,7 @@ class IXF_file(File):                                                      # IXF
             keys = rb'\w+'
         else:
             keys = '|'.join(nodes).encode()
-        # The pattern is explained at https://regex101.com/r/4FVBxU/5
+        # The pattern is explained here: https://regex101.com/r/4FVBxU/5
         not_brackets = rb'[^' + begin + end + rb']*'
         nested_brackets = begin + not_brackets + end
         pattern = ( rb'^\s*\b(' + keys + rb')\b *[\"\']?([\w .:\\/*-]+)?[\"\']? *(' + begin +
@@ -3314,7 +3406,7 @@ class IX_input:                                                            # IX_
     def ifind(self, astr:str):                                              # IX_input
     #--------------------------------------------------------------------------------
         enc_str = astr.encode()
-        for file, data in self.afi._included_file_data():
+        for file, data in self.afi.included_file_data():
             if enc_str in data:
                 yield file
 
@@ -3611,4 +3703,43 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
     def restart(self):                                                     # IX_input
     #--------------------------------------------------------------------------------
+        # Check if this is a restart-run
+        match = next((m for m in self.afi.matches() if b'restart' in m[2]), None)
+        if match:
+            folder = self.path.with_name(match[1].decode())
+            keymatch = finditer(rb'(\w+)=["\']([^"\']+)["\']', match[2])
+            days = float(next(keymatch)[2])
+            if not folder.exists():
+                raise SystemError(f'ERROR Restart folder {folder} is missing')
+            ixf = IXF_file(folder/'fm/fmworld.ixf')
+            step = 0
+            if ixf.is_file():
+                fm = next(ixf.node('FieldManagement'), None)
+                if fm:
+                    step = int(fm.get('ConvergedTimeStepsCount')[0])
+                    timeunits = ('Year', 'Month', 'Day', 'Hour', 'Minute', 'Second')
+                    date = '-'.join(fm.get(*['Start'+name for name in timeunits]))
+                    start = datetime.strptime(date, '%Y-%B-%d-%H-%M-%S')
+                else:
+                    raise SystemError(f'ERROR Missing FieldManagement node in {ixf}')
+            else:
+                raise SystemError(f'ERROR {ixf.path} is missing')
+            return Restart(start=start, days=days, step=int(step))
         return Restart()
+
+    #--------------------------------------------------------------------------------
+    def UNRST_settings(self):                                              # IX_input
+    #--------------------------------------------------------------------------------
+        nodename = 'Recurrent3DReport'
+        nodes = list(self.nodes(nodename))
+        if nodes:
+            return nodes[-1]
+        raise SystemError((f"ERROR Node {nodename} not found in {self}"))
+
+    #--------------------------------------------------------------------------------
+    def write_unified_UNRST(self):                                         # IX_input
+    #--------------------------------------------------------------------------------
+        unified = self.UNRST_settings().get('Unified')
+        if unified and unified[0] in ('TRUE', 'True', 'true'):
+            return True
+        return False

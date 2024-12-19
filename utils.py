@@ -78,6 +78,39 @@ from molmass import Formula
 #     return 12*(stop.year - start.year) + stop.month - start.month
 
 #--------------------------------------------------------------------------------
+def call_if_callable(func, *args, **kwargs):
+#--------------------------------------------------------------------------------
+    """
+    Calls the given function if it is callable.
+
+    Parameters:
+    func (callable): The function to be called.
+    *args: Variable length argument list to pass to the function.
+    **kwargs: Arbitrary keyword arguments to pass to the function.
+
+    Returns:
+    The return value of the function if it is callable, otherwise False.
+    """
+    if callable(func):
+        return func(*args, **kwargs)
+    return False
+
+#--------------------------------------------------------------------------------
+def dates_after(date, datelist):
+#--------------------------------------------------------------------------------
+    """
+    Filters a list of dates, returning only those that are on or after a specified date.
+
+    Args:
+        date (datetime.date): The reference date to compare against.
+        datelist (list of datetime.date): A list of dates to be filtered.
+
+    Returns:
+        list of datetime.date: A list of dates from `datelist` that are on or after the specified `date`.
+    """
+    return [d for d in datelist if d >= date]
+
+#--------------------------------------------------------------------------------
 def empty_folder(folder):
 #--------------------------------------------------------------------------------
     if not isinstance(folder, Path):
@@ -86,11 +119,6 @@ def empty_folder(folder):
         rmtree(folder)
     folder.mkdir()
     return folder
-
-#--------------------------------------------------------------------------------
-def day2date(start, days):
-#--------------------------------------------------------------------------------
-    return start + timedelta(days=days)
 
 #--------------------------------------------------------------------------------
 def slice_range(start=0, stop=None, step=None):
