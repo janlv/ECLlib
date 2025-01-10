@@ -3373,7 +3373,8 @@ class IX_input:                                                            # IX_
         datesteps((1971, 7, 1), 10, 5) -> DATE "01-Jul-1971"
                                           DATE "06-Jul-1971"
         """
-        dates = (f'DATE "{date}"' for date in date_range(start, stop, step, fmt='%d-%b-%Y'))
+        fmt = '%d-%b-%Y %H:%M:%S'
+        dates = (f'DATE "{date}"' for date in date_range(start, stop, step, fmt=fmt))
         print('\n'.join(dates))
 
     #--------------------------------------------------------------------------------
@@ -3492,9 +3493,9 @@ class IX_input:                                                            # IX_
         # Check if top level afi-file exist
         self.afi.exists(raise_error=True)
         # Check if included files exists
-        if include and (missing := [f for f in self.include_files() if not f.is_file()]):
+        if include and (missing := [f for f in self.include_files() if not f.exists()]):
             raise SystemError(f'ERROR {list2text([f.name for f in missing])} '
-                              'included from {self} is missing in folder {missing[0].parent}')
+                              f'included from {self} is missing in folder {missing[0].parent}')
         return True
 
     #--------------------------------------------------------------------------------

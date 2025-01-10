@@ -210,6 +210,12 @@ def day2time(days):
         rest -= time[-1]*base
     return namedtuple('Time', 'day hour min sec msec')(*time, rest)
 
+#-----------------------------------------------------------------------
+def float_range(start, stop, step):
+#-----------------------------------------------------------------------
+    while start < stop:
+        yield round(start, 10)  # rounding to avoid floating-point arithmetic issues
+        start += step
 
 #-----------------------------------------------------------------------
 def date_range(start, stop, step=1, fmt=None):
@@ -219,7 +225,7 @@ def date_range(start, stop, step=1, fmt=None):
     """
     if not isinstance(start, datetime):
         start = datetime(*start)
-    dates = (start + timedelta(days=d) for d in range(0, stop, step))
+    dates = (start + timedelta(days=d) for d in float_range(0, stop, step))
     if fmt:
         return [date.strftime(fmt) for date in dates]
     return list(dates)
@@ -310,11 +316,14 @@ def match_in_wildlist(string, wildlist):
 #-----------------------------------------------------------------------
 def expand_pattern(patterns, strings, invert=False):
 #-----------------------------------------------------------------------
-    """ Return expanded patterns that match strings, preserve pattern order """
+    """ 
+    Return expanded patterns that match strings. For invert=True, return 
+    strings that do not match any pattern. Pattern order is preserved for 
+    non-inverted patterns.
+    """
     if invert:
         return [s for s in strings if not any(fnmatch(s, pat) for pat in patterns)]
-    return [s for s in strings if any(fnmatch(s, pat) for pat in patterns)]
-    #return [s for pat in patterns for s in strings if fnmatch(s, pat) != invert]
+    return [s for pat in patterns for s in strings if fnmatch(s, pat)]
 
 #-----------------------------------------------------------------------
 def make_user_executable(path):
