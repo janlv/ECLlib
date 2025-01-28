@@ -4,6 +4,7 @@
 from operator import itemgetter, sub
 from pathlib import Path
 from re import findall, compile as re_compile, DOTALL, sub as re_sub, IGNORECASE, MULTILINE
+from subprocess import check_output
 from threading import Thread
 from time import sleep, time
 from datetime import timedelta, datetime, time as dt_time
@@ -32,50 +33,12 @@ from molmass import Formula
 #    + : 1 or more rep.
 #    * : 0 or more rep.
 
-# #-----------------------------------------------------------------------
-# def zipgetter(items, objects):
-# #-----------------------------------------------------------------------
-#     """
-#     zipgetter(('A','B'),(obj1, obj2)) -> (obj1.A, obj2.A), (obj1.B, obj2.B)
-#     """
-#     getter = attrgetter(*items)
-#     if len(items) > 1:
-#         getgen = (getter(o) for o in objects)
-#     else:
-#         #
-#         getgen = ((getter(o),) for o in objects)
-#     return zip(*getgen)
-
-
-# #-----------------------------------------------------------------------
-# def safe_itemgetter(*ind):
-# #-----------------------------------------------------------------------
-#     if len(ind) > 1:
-#         return itemgetter(*ind)
-#     return ()
-
-
-# #-----------------------------------------------------------------------
-# def day2time(day):
-# #-----------------------------------------------------------------------
-#     rest = day%1
-    
-#     for a in (24, 60, 60):
-#         r = a*rest
-
-#     h = 24*rest
-#     hour, rest = int(h), h%1
-#     m = 60*rest
-#     min, rest = int(m), m%1
-#     s = 60*rest
-#     sec, rest = int(s), s%1
-#     return int(day), hour, min, sec
-
-# #--------------------------------------------------------------------------------
-# def elapsed_months(start:datetime, step:timedelta):
-# #--------------------------------------------------------------------------------
-#     stop = start + step
-#     return 12*(stop.year - start.year) + stop.month - start.month
+#--------------------------------------------------------------------------------
+def get_terminal_environment(var, file='~/.bashrc'):
+#--------------------------------------------------------------------------------
+    env = check_output(['bash', '-c', f'source {file} && env'], text=True)
+    match = (v for v in env.split('\n') if v.startswith(var))
+    return next(match, '=').split('=')[1]
 
 #--------------------------------------------------------------------------------
 def call_if_callable(func, *args, **kwargs):

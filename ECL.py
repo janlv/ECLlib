@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from itertools import chain, product, repeat, accumulate, groupby, zip_longest, islice
+from math import hypot
 from operator import attrgetter, itemgetter, sub as subtract
 from pathlib import Path
 from platform import system
@@ -17,7 +18,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import int32, float32, float64, bool_ as np_bool, array as nparray, sum as npsum
+from numpy import array_equal, int32, float32, float64, bool_ as np_bool, array as nparray, sum as npsum, zeros
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, expand_pattern, flatten,
@@ -1663,7 +1664,7 @@ class DATA_file(File):
             unrst = UNRST_file(restart, role='RESTART file')
             unrst.exists(raise_error=True)
             wells += unrst.wells(stop=int(step))
-        return tuple(set(wells))
+        return list(set(wells))
 
     #--------------------------------------------------------------------------------
     def welspecs(self):                                                   # DATA_file
@@ -1862,20 +1863,133 @@ class DATA_file(File):
 #====================================================================================
 class EGRID_file(unfmt_file):                                            # EGRID_file
 #====================================================================================
+    start = 'FILEHEAD'
+    end = 'ENDGRID'
     #--------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):                                  # EGRID_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.EGRID', **kwargs)
         self.var_pos = {'nx': ('GRIDHEAD', 1),
                         'ny': ('GRIDHEAD', 2),
-                        'nz': ('GRIDHEAD', 3)}
+                        'nz': ('GRIDHEAD', 3),
+                        'unit': ('MAPUNITS', 0)}
+        self._nijk = None
 
+    #--------------------------------------------------------------------------------
+    def length(self):                                                    # EGRID_file
+    #--------------------------------------------------------------------------------
+        convert = {'METRES':1.0, 'FEET':0.3048, 'CM':0.01}
+        unit = next(self.blockdata('MAPUNITS'), None)
+        if unit:
+            return convert[unit]
+        raise SystemError(f'ERROR Missing MAPUNITS in {self}')
+
+    #--------------------------------------------------------------------------------
+    def axes(self):                                                      # EGRID_file
+    #--------------------------------------------------------------------------------
+        ax = next(self.blockdata('MAPAXES'), None)
+        origin = (ax[2], ax[3])
+        unit_x = (ax[4]-ax[2], ax[5]-ax[3])
+        unit_y = (ax[0]-ax[2], ax[1]-ax[3])
+        norm_x = 1 / hypot(*unit_x)
+        norm_y = 1 / hypot(*unit_y)
+        return origin, (unit_x[0]*norm_x, unit_x[1]*norm_x), (unit_y[0]*norm_y, unit_y[1]*norm_y)
+
+    #--------------------------------------------------------------------------------
+    def nijk(self):                                           # EGRID_file
+    #--------------------------------------------------------------------------------
+        self._nijk = self._nijk or next(self.read('nx', 'ny', 'nz'))
+        return self._nijk        
+
+    # #--------------------------------------------------------------------------------
+    # def _pillar_indices(self, ijk_list):                            # EGRID_file
+    # #--------------------------------------------------------------------------------
+    #     nijk = self.nijk()   
+    #     # Calculate indices for grid pillars in COORD 
+    #     for ijk in ijk_list:
+    #         pind = zeros(4, dtype=int)
+    #         pind[0] = ijk[1]*(nijk[0]+1)*6 + ijk[0]*6
+    #         pind[1] = pind[0] + 6
+    #         pind[2] = pind[0] + (nijk[0]+1)*6
+    #         pind[3] = pind[2] + 6
+    #         # top (xyz) and bottom (xyz) indices
+    #         yield (pind, pind+1, pind+2), (pind+3, pind+4, pind+5)
+
+    # #--------------------------------------------------------------------------------
+    # def _zcorn_depths(self, ijk_list):                            # EGRID_file
+    # #--------------------------------------------------------------------------------
+    #     nijk = self.nijk()   
+    #     # Get depths from ZCORN
+    #     for ijk in ijk_list:
+    #         zind = []
+    #         zind.append(ijk[2]*nijk[0]*nijk[1]*8 + ijk[1]*nijk[0]*4 + ijk[0]*2)
+    #         zind.append(zind[0] + 1)
+    #         zind.append(zind[0] + nijk[0]*2)
+    #         zind.append(zind[2] + 1)
+    #         yield zind
+
+    #--------------------------------------------------------------------------------
+    def _indices(self, ijk):                            # EGRID_file
+    #--------------------------------------------------------------------------------
+        nijk = self.nijk()   
+        # Calculate indices for grid pillars in COORD 
+        pind = zeros(4, dtype=int)
+        pind[0] = ijk[1]*(nijk[0]+1)*6 + ijk[0]*6
+        pind[1] = pind[0] + 6
+        pind[2] = pind[0] + (nijk[0]+1)*6
+        pind[3] = pind[2] + 6
+        
+        # Get depths from ZCORN
+        zind = zeros(4, dtype=int)
+        # zind[0] = ijk[2]*nijk[0]*nijk[1]*8 + ijk[1]*nijk[0]*4 + ijk[0]*2
+        zind[0] = ijk[1]*nijk[0]*4 + ijk[0]*2
+        zind[1] = zind[0] + 1
+        zind[2] = zind[0] + nijk[0]*2
+        zind[3] = zind[2] + 1
+
+        #           top (xyz)             bottom (xyz)         depths
+        return (pind, pind+1, pind+2), (pind+3, pind+4, pind+5), zind
+
+    #--------------------------------------------------------------------------------
+    def cell_corners(self, ijk_list):                                         # EGRID_file
+    #--------------------------------------------------------------------------------
+        nijk = self.nijk()
+        nodes_pr_surf = nijk[0] * nijk[1] * 4
+        
+        coord, zcorn = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
+        #ijk_list = ijk_list or product(range(nijk[0]), range(nijk[1]), range(nijk[2]))
+        for ijk in ijk_list:
+            #box = box or (0, nijk[0], 0, nijk[1], 0, nijk[2])
+            #for ijk in product(*(range(s.start, s.stop) for a,b in (a,b,c))):
+            #for ijk in product(i, j, k):
+            layer = ijk[2]
+            zcorn_offset = nodes_pr_surf * layer * 2
+            if layer == 0:
+                zcorn_offset += nodes_pr_surf
+            layer_zcorn = zcorn[zcorn_offset:zcorn_offset+nodes_pr_surf]
+            top, bot, zind = self._indices(ijk)
+            z = layer_zcorn[zind]
+            xt = coord[top[0]]
+            yt = coord[top[1]]
+            zt = coord[top[2]]
+            xb = coord[bot[0]]
+            yb = coord[bot[1]]
+            zb = coord[bot[2]]
+            #print(zt, zb, z)
+            if array_equal(zb, zt):
+                x = xt
+                y = yt
+            else:
+                denom = (zt - zb) * (zt - z)
+                x = xt + (xb - xt) / denom
+                y = yt + (yb - yt) / denom
+            #print(ijk, x, y, z)
+            yield nparray((x, y, z)).T
 
 #====================================================================================
 class INIT_file(unfmt_file):                                              # INIT_file
 #====================================================================================
     start = 'INTEHEAD'
-
     #--------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):                                   # INIT_file
     #--------------------------------------------------------------------------------
@@ -1957,7 +2071,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
         self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
         return self._dim
-
+    
     #--------------------------------------------------------------------------------
     def _check_for_missing_keys(self, *in_keys, keys=None):              # UNRST_file
     #--------------------------------------------------------------------------------
@@ -2114,10 +2228,25 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #     #return ((date-start).total_seconds()/86400 for date in self.dates(**kwargs))
 
     #--------------------------------------------------------------------------------
-    def find_section(self, year, month, day):                            # UNRST_file
+    def section(self, days=None, date=None):                      # UNRST_file
     #--------------------------------------------------------------------------------
-        stop = datetime(year, month, day)
-        return next(i for i,date in enumerate(self.dates()) if date >= stop)
+        stop = None
+        if days:
+            data_func = self.days
+            stop = days
+            return next(i for i,val in enumerate(self.days()) if val >= days)
+        if date:
+            data_func = self.dates
+            stop = datetime(*date)
+        if not stop:
+            raise ValueError('Either days or date must be given')
+        return next(i for i,val in enumerate(data_func()) if val >= stop)
+
+    # #--------------------------------------------------------------------------------
+    # def find_section(self, year, month, day):                            # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     stop = 
+    #     return next(i for i,date in enumerate(self.dates()) if date >= stop)
 
     #--------------------------------------------------------------------------------
     def end_key(self):                                                   # UNRST_file
@@ -2271,6 +2400,30 @@ class RFT_file(unfmt_file):                                                # RFT
         return (start, end)
 
     #--------------------------------------------------------------------------------
+    def wellstart(self, *wellnames):                                       # RFT_file
+    #--------------------------------------------------------------------------------
+        wells = list(wellnames)
+        start = {well:None for well in wells}
+        for time, name in self.read('time', 'wellname'):
+            if not wells:
+                break
+            if name in wells:
+                wells.remove(name)
+                start[name] = time
+        if missing_wells := [well for well, pos in start.items() if pos is None]:
+            raise ValueError(f'Wells {missing_wells} are missing in {self}')
+        return tuple(start.values())
+
+    #--------------------------------------------------------------------------------
+    def wellbbox(self, *wellnames, zerobase=True):                          # RFT_file
+    #--------------------------------------------------------------------------------
+        wpos = self.wellpos(*wellnames, zerobase=zerobase)
+        bbox = {well:None for well in wellnames}       
+        for well, wp in zip(wellnames, wpos):
+            bbox[well] = [(p[0], p[-1]) for p in map(sorted, zip(*wp))]
+        return tuple(bbox.values())
+
+    #--------------------------------------------------------------------------------
     def wellpos(self, *wellnames, zerobase=True):                          # RFT_file
     #--------------------------------------------------------------------------------
         wells = list(wellnames)
@@ -2288,7 +2441,7 @@ class RFT_file(unfmt_file):                                                # RFT
         return tuple(wpos.values())
 
     #--------------------------------------------------------------------------------
-    def grid2wellname(self, dim, *wellnames):
+    def grid2wellname(self, dim, *wellnames):                              # RFT_file
     #--------------------------------------------------------------------------------
         poswell = {pos:[] for pos in product(*(range(d) for d in dim))}
         for well, pos in zip(wellnames, self.wellpos(*wellnames)):
@@ -3567,7 +3720,7 @@ class IX_input:                                                            # IX_
         return datetime(**values)
 
     #--------------------------------------------------------------------------------
-    def _timestep_files(self):                                                  # IX_input
+    def _timestep_files(self):                                             # IX_input
     #--------------------------------------------------------------------------------
         date_files = [ixf for ixf in self.ixf_files if 'DATE' in ixf]
         field_files = [ixf for ixf in date_files if next(ixf.node('FieldManagement'), None)]
