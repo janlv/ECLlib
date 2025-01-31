@@ -1875,6 +1875,7 @@ class EGRID_file(unfmt_file):                                            # EGRID
                         'nz': ('GRIDHEAD', 3),
                         'unit': ('MAPUNITS', 0)}
         self._nijk = None
+        self._coord_zcorn = None
 
     #--------------------------------------------------------------------------------
     def length(self):                                                    # EGRID_file
@@ -1902,82 +1903,11 @@ class EGRID_file(unfmt_file):                                            # EGRID
         self._nijk = self._nijk or next(self.read('nx', 'ny', 'nz'))
         return self._nijk        
 
-
-    # #--------------------------------------------------------------------------------
-    # def _indices(self, ijk):                            # EGRID_file
-    # #--------------------------------------------------------------------------------
-    #     nijk = self.nijk()   
-    #     # Calculate indices for grid pillars in COORD 
-    #     pind = zeros(4, dtype=int)
-    #     pind[0] = ijk[1]*(nijk[0]+1)*6 + ijk[0]*6
-    #     pind[1] = pind[0] + 6
-    #     pind[2] = pind[0] + (nijk[0]+1)*6
-    #     pind[3] = pind[2] + 6
-    #     # Get depths from ZCORN
-    #     zind = zeros(4, dtype=int)
-    #     # ijk[2] is always 0
-    #     # zind[0] = ijk[2]*nijk[0]*nijk[1]*8 + ijk[1]*nijk[0]*4 + ijk[0]*2
-    #     zind[0] = ijk[1]*nijk[0]*4 + ijk[0]*2
-    #     zind[1] = zind[0] + 1
-    #     zind[2] = zind[0] + nijk[0]*2
-    #     zind[3] = zind[2] + 1
-
-    #     #           top (xyz)             bottom (xyz)         depths
-    #     return (pind, pind+1, pind+2), (pind+3, pind+4, pind+5), zind
-
-    # #--------------------------------------------------------------------------------
-    # def cell_corners(self, ijk_iter):                                         # EGRID_file
-    # #--------------------------------------------------------------------------------
-    #     nijk = self.nijk()
-    #     nodes_pr_surf = nijk[0] * nijk[1] * 4
-    #     coord, zcorn = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
-    #     for ijk in ijk_iter:
-    #         layer = ijk[2]
-    #         zcorn_offset = nodes_pr_surf * layer * 2
-    #         if layer == 0:
-    #             zcorn_offset += nodes_pr_surf
-    #         layer_zcorn = zcorn[zcorn_offset:zcorn_offset+nodes_pr_surf]
-    #         top, bot, zind = self._indices(ijk)
-    #         z = layer_zcorn[zind]
-    #         xt = coord[top[0]]
-    #         yt = coord[top[1]]
-    #         zt = coord[top[2]]
-    #         xb = coord[bot[0]]
-    #         yb = coord[bot[1]]
-    #         zb = coord[bot[2]]
-    #         if array_equal(zb, zt):
-    #             x = xt
-    #             y = yt
-    #         else:
-    #             denom = (zt - zb) * (zt - z)
-    #             x = xt + (xb - xt) / denom
-    #             y = yt + (yb - yt) / denom
-    #         yield nparray((x, y, z)).T
-
-    # #--------------------------------------------------------------------------------
-    # def grid(self, i=None, j=None, k=None):                              # EGRID_file
-    # #--------------------------------------------------------------------------------
-    #     nijk = self.nijk()
-    #     i = i or (0, nijk[0])
-    #     j = j or (0, nijk[1])
-    #     k = k or (0, nijk[2])
-    #     dim = [b-a for a, b in (i, j, k)]
-    #     ijk = product(range(*i), range(*j), range(*k))
-    #     #print(i, j, k, dim, ijk)
-    #     corners = list(self.cell_corners(ijk))
-    #     # Create an unstructured VTK grid using pyvista 
-    #     # Interchange first and second point to match QUAD cell order
-    #     points = nparray(corners).reshape(*dim, 4, 3)[...,[1,0,2,3],:]
-    #     if dim[1] == 1:
-    #         # Slice in y-direction
-    #         dim[2] = max(1, dim[2]-1)
-    #         # Make horizontal cells by connecting neighbouring z-layers
-    #         points = hstack([hstack((points[:,:,i,[0,1]], points[:,:,i+1,[1,0]])) for i in range(dim[2])])
-    #         points = points.reshape(*dim, 4, 3)
-    #     ncells = prod(dim)
-    #     cells = nparray(list(flatten((a, *b) for a,b in zip(repeat(4), batched(range(ncells*4), 4)))))
-    #     cell_type = CellType.QUAD*ones(ncells, dtype=int)
-    #     return UnstructuredGrid(cells, cell_type, points.reshape(-1, 3))
+    #--------------------------------------------------------------------------------
+    def coord_zcorn(self):                                           # EGRID_file
+    #--------------------------------------------------------------------------------
+        self._coord_zcorn = self._coord_zcorn or list(map(nparray, next(self.blockdata('COORD', 'ZCORN'))))
+        return self._coord_zcorn        
 
     #--------------------------------------------------------------------------------
     def _indices(self, ijk):                                         # EGRID_file
@@ -2003,14 +1933,15 @@ class EGRID_file(unfmt_file):                                            # EGRID
     #--------------------------------------------------------------------------------
     def cell_corners(self, ijk_iter):                                     # EGRID_file
     #--------------------------------------------------------------------------------
-        nijk = self.nijk()
-        coord, zcorn = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
+        #nijk = self.nijk()
+        coord, zcorn = self.coord_zcorn() 
+        #coord, zcorn = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
         for ijk in ijk_iter:
             top, bot, zind = self._indices(ijk)
             z = zcorn[zind]
             xt, yt, zt = coord[top]
             xb, yb, zb = coord[bot]
-            if array_equal(zb, zt):
+            if any(a==b for a,b in zip(zt, z)):
                 x = xt
                 y = yt
             else:
