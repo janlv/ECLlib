@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import array_equal, int32, float32, float64, bool_ as np_bool, array as nparray, sum as npsum, zeros, ones, hstack
+from numpy import array_equal, fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, sum as npsum, zeros, ones, hstack
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
@@ -1087,6 +1087,7 @@ class unfmt_file(File):                                                  # unfmt
 
         Example: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
         """
+        #print(keylim)
         keys, limits, dictkeys = self.__prepare_limits(*keylim)
         limits = dict(zip(keys, limits))
         data = {key:None for key in dictkeys}
@@ -1118,6 +1119,7 @@ class unfmt_file(File):                                                  # unfmt
         The number of returned values match the number of input variables. 
         Single values are unpacked. Use zip to collect values across blocks.
         """
+        #print(varnames)
         if missing := [var for var in varnames if var not in self.var_pos]:
             raise SyntaxWarning(f'Missing variable definitions for {type(self).__name__}: {missing}')
         var_pos = list(self.var_pos[var] for var in varnames)
@@ -3383,6 +3385,11 @@ class IXF_node:                                                            # IXF
         return IXF_node(self.type, self.name, self.brace[0]+self.content+self.brace[1])
 
     #--------------------------------------------------------------------------------
+    def __contains__(self, key):                                           # IXF_node
+    #--------------------------------------------------------------------------------
+        return key in self.content
+
+    #--------------------------------------------------------------------------------
     def set_content(self, rows):                                           # IXF_node
     #--------------------------------------------------------------------------------
         if self.is_context:
@@ -3395,7 +3402,7 @@ class IXF_node:                                                            # IXF
     #--------------------------------------------------------------------------------
     def lines(self):                                                       # IXF_node
     #--------------------------------------------------------------------------------
-        return tuple(split_in_lines(self.content))
+        return split_in_lines(self.content)
 
     #--------------------------------------------------------------------------------
     def columns(self):                                                     # IXF_node
@@ -3480,9 +3487,13 @@ class IXF_file(File):                                                      # IXF
         # return end and self.data[:end.end()] or self.data
 
     #--------------------------------------------------------------------------------
-    def node(self, *nodes, convert=(), brace=(rb'{',rb'}')):               # IXF_file
+    #def node(self, *nodes, convert=(), brace=(rb'{',rb'}')):               # IXF_file
+    def node(self, *nodes, convert=(), table=False):               # IXF_file
     #--------------------------------------------------------------------------------
-        begin, end = brace
+        if table:
+            begin, end = b'\\[', b'\\]'
+        else:
+            begin, end = rb'{', rb'}'
         self.data = self.data or self.binarydata()
         if nodes[0] == 'all':
             keys = rb'\w+'
@@ -3676,8 +3687,9 @@ class IX_input:                                                            # IX_
                 files = list(self.files_matching(*types))
         #files = files or ixf_files
         # Prepare generators of both context and table nodes
-        contexts = flatten(file.node(*types, **kwargs) for file in files)
-        tables = flatten(file.node(*types, brace=(b'\\[',b'\\]'), **kwargs) for file in files)
+        contexts = flatten(file.node(*types, table=False, **kwargs) for file in files)
+        # tables = flatten(file.node(*types, brace=(b'\\[',b'\\]'), **kwargs) for file in files)
+        tables = flatten(file.node(*types, table=True, **kwargs) for file in files)
         if table and context:
             return (node for node in chain(contexts, tables) if node.content)
         if table:
@@ -3691,7 +3703,6 @@ class IX_input:                                                            # IX_
     def get_node(self, node):                                              # IX_input
     #--------------------------------------------------------------------------------
         return next(self.nodes(node.type, table=node.is_table, context=node.is_context), None)
-
 
     #--------------------------------------------------------------------------------
     def start(self):                                                       # IX_input
@@ -3765,6 +3776,23 @@ class IX_input:                                                            # IX_
     def wells(self):                                                       # IX_input
     #--------------------------------------------------------------------------------
         return (set((well.name, _type[0]) for well in self.nodes('Well') if (_type:=well.get('Type'))))
+
+    #--------------------------------------------------------------------------------
+    def wellpos(self, *wellnames):                                         # IX_input
+    #--------------------------------------------------------------------------------
+        well_list = list(wellnames)
+        wpos = {well:[] for well in wellnames}
+        regex = re_compile(r'^\s*\(([\d ]+)\)', MULTILINE)
+        for node in self.nodes('WellDef'):
+            if 'WellToCellConnections' in node and 'Completion' in node and node.name in well_list:
+                strings = (m.group(1) for m in regex.finditer(node.content))
+                # Subtract 1 to make indices zero-based
+                index = fromstring(' '.join(strings), dtype=int, sep=' ') - 1
+                wpos[node.name] = tuple(map(tuple, index.reshape(-1, 3).tolist()))
+                well_list.remove(node.name)
+                if not well_list:
+                    break
+        return tuple(wpos.values())
 
     #--------------------------------------------------------------------------------
     def summary_keys(self, matching=()):                                   # IX_input
@@ -3885,3 +3913,9 @@ class IX_input:                                                            # IX_
         if unified and unified[0] in ('TRUE', 'True', 'true'):
             return True
         return False
+
+
+#====================================================================================
+class Grid():                                                                  # Grid
+#====================================================================================
+    pass
