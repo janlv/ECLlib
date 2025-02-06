@@ -1370,7 +1370,7 @@ class unfmt_file(File):                                                  # unfmt
                 yield (step, data)
 
     #--------------------------------------------------------------------------------
-    def section_ends(self, **kwargs):
+    def section_ends(self, **kwargs):                                    # unfmt_file
     #--------------------------------------------------------------------------------
         endwords = [self.start, self.end]
         ends = (bl for bl in self.blocks(**kwargs) if bl.key() in endwords)
@@ -2439,6 +2439,18 @@ class RFT_file(unfmt_file):                                                # RFT
                 poswell[p].append(well)
         return poswell
         
+    #--------------------------------------------------------------------------------
+    def active_wells(self):                                                # RFT_file
+    #--------------------------------------------------------------------------------
+        wells = []
+        current_time = next(self.read('time'))
+        for time, well in self.read('time', 'wellname'):
+            if time > current_time:
+                yield current_time, wells
+                wells = []
+            wells.append(well)
+            current_time = time
+
 
 #====================================================================================
 class UNSMRY_file(unfmt_file):
