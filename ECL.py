@@ -18,11 +18,15 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import array_equal, fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, sum as npsum, zeros, ones, hstack
+from numpy import array_equal, fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, mean as npmean, sum as npsum, zeros, ones, hstack
+from numpy.linalg import norm as npnorm
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
-from pyvista import CellType, UnstructuredGrid
-from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, expand_pattern, flatten,
+from pyvista import CellType, UnstructuredGrid, PolyData, Label, Arrow, Sphere, Cylinder
+from pyvistaqt import BackgroundPlotter
+from threading import Thread
+
+from .utils import (any_cell_in_box, batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, expand_pattern, flatten,
                     index_limits, last_line, match_in_wildlist, nth, pad, slice_range, tail_file, head_file,
                     flat_list, flatten_all, grouper, list2text, pairwise, remove_chars,
                     list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
@@ -3928,6 +3932,235 @@ class IX_input:                                                            # IX_
 
 
 #====================================================================================
-class Grid():                                                                  # Grid
+class Plotter():                                                            # Plotter
 #====================================================================================
-    pass
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, root, wells=True, only_active=True, scale=(1, -1, -5)):    # Plotter
+    #--------------------------------------------------------------------------------
+        self.root = root
+        self.egrid = EGRID_file(root)
+        #self.var = None #var
+        #self.limit = limit
+        self.plotter = BackgroundPlotter()
+        self.wells = wells
+        self.only_active = only_active
+        self.scale = scale
+        self.ijk = None
+        #self.dim = None
+        #self.limit = None
+        self.tube_opacity = None
+        self.tube_size = None
+        self.tube_height = None
+        self.tube_radius = None
+        self.sphere_radius = None
+        self.well_grid_opacity = None
+        self.res_grid_opacity = None
+        self.label_fontsize = 12
+        self.arrow_scale = None
+        # self.start = None
+        # self.stop = None
+        # self.step = 1
+        # self.rft = None
+        # self.unrst = None
+        self.grid_box = None
+        # self.box_mask = None
+        # self.well_mask = None
+        # self.res_mask = None
+        # self.wells = None
+        #self.active_wells = None
+        self.grid = None
+        self.labels = []
+        self.tubes = {}
+        self.datestring = None
+        #self.tube_grid = {}
+        # self.well_actor = {}
+        #self.well_grid = None
+        self.grid_mask = []
+        #self.well_off = {}
+        self.set_tube_values()
+        self.set_grid_values()
+
+    #--------------------------------------------------------------------------------
+    def set_tube_values(self, opacity=0.75, size=10, height=700, radius=35, sphere=45, 
+                        fontsize=10, arrow_scale=400):
+    #--------------------------------------------------------------------------------
+        self.tube_opacity = opacity
+        self.tube_size = size
+        self.tube_height = height
+        self.tube_radius = radius
+        self.sphere_radius = sphere
+        self.tube_fontsize = fontsize
+        self.arrow_scale = arrow_scale
+
+    #--------------------------------------------------------------------------------
+    def set_grid_values(self, well_opacity=0.75, res_opacity=1):
+    #--------------------------------------------------------------------------------
+        self.well_grid_opacity = well_opacity
+        self.res_grid_opacity = res_opacity
+
+    #--------------------------------------------------------------------------------
+    def make_grid_and_masks(self):                                                     # Plotter
+    #--------------------------------------------------------------------------------
+        dim = self.egrid.nijk()
+        self.grid_box = [slice(*dir) for dir in self.ijk]
+        # Mask out the box defined by the ijk-tuple 
+        box_mask = zeros(dim, dtype=bool)
+        box_mask[*self.grid_box] = True
+        # Create grid
+        self.grid = self.egrid.grid(*self.ijk, self.scale)
+        # Create well and reservoir masks
+        well_mask = zeros(dim, dtype=bool)
+        if self.wells:
+            wellpos = self.add_wells()
+            well_mask[*zip(*wellpos)] = True
+            well_mask *= box_mask
+        # Exclude well-cells from the reservoir grid
+        res_mask = well_mask == False
+        res_mask *= box_mask
+        return res_mask, well_mask
+
+    # #--------------------------------------------------------------------------------
+    # def extract_grid(self, varname, data, mask):                                           # Plotter
+    # #--------------------------------------------------------------------------------
+    #     grid = self.grid.extract_cells(mask[*self.grid_box].flatten())
+    #     grid[varname] = data[mask].flatten()
+    #     grid.set_active_scalars(varname)
+    #     return grid
+
+    #--------------------------------------------------------------------------------
+    def add_wells(self, tube_opacity=0.75):                                  # Plotter
+    #--------------------------------------------------------------------------------
+        #self.only_active = only_active
+        inp = IX_input(self.root)
+        wname, wtype = zip(*inp.wells())
+        wpos = inp.wellpos(*wname)
+        if self.only_active:
+            wells_inside = [n for n,cells in enumerate(wpos) if any_cell_in_box(cells, self.ijk)]
+            wname, wtype, wpos = zip(*((wname[n], wtype[n], wpos[n]) for n in wells_inside))
+        wellpos = list(flatten(wpos))
+        # Create tubes and add to plotter
+        for name, typ, pos in zip(wname, wtype, wpos):
+            tube_grid = self.add_well_tube(name, typ, pos)
+            act = self.plotter.add_mesh(tube_grid, opacity=tube_opacity)
+            #act.mapper.dataset = act.mapper.dataset.flip_z()
+            #act.mapper.dataset = act.mapper.dataset.flip_y()
+            self.tubes[(name, typ)] = act
+        return wellpos
+
+
+    #--------------------------------------------------------------------------------
+    def active_wells_iter(self):
+    #--------------------------------------------------------------------------------
+        # Get active wells
+        rft = RFT_file(self.root)
+        if self.only_active:
+            #self.active_wells = islice(self.rft.active_wells(), self.start, self.stop, self.step)
+            active_wells = rft.active_wells()
+        else:
+            inp = IX_input(self.root)
+            all_wells = inp.wellnames()
+            active_wells = repeat(all_wells)
+        return active_wells
+
+
+    #--------------------------------------------------------------------------------
+    def add_well_tube(self, name, typ, pos, fontsize=12, arrow_scale=400, sphere_radius=45, 
+                      tube_height=700, tube_radius=35):                                # Plotter
+    #--------------------------------------------------------------------------------
+        #print(name, typ, pos)
+        cell_centers = npmean(list(self.egrid.cell_corners(pos)), axis=1)*nparray(self.scale)
+        tgrid = PolyData()
+        tip = cell_centers[0].copy()
+        tip[2] = self.grid.bounds[-1] + tube_height
+        self.labels.append(Label(name, position=tip + (0, 0, 0.5*arrow_scale), size=fontsize))
+        dir = -1 if 'INJ' in typ else 1
+        tgrid += Arrow(tip - (0, 0, 0.5*arrow_scale*dir), (0, 0, dir), scale=arrow_scale)
+        tip[2] -= 0.6*arrow_scale
+        for center in cell_centers:
+            tgrid += Sphere(center=center, radius=sphere_radius)
+            A = center - tip
+            length = npnorm(A)
+            # Center of cylinder is the midpoint between the center two cells
+            tgrid += Cylinder(center=npmean((tip, center), axis=0), direction=A/length, radius=tube_radius, height=length)
+            # tip is the start of the new tube (or end of the current tube)            
+            tip = center
+        return tgrid
+
+    #--------------------------------------------------------------------------------
+    def add_grid_from_mask(self, mask, varname, scalar, limit, opacity=None):                                  # Plotter
+    #--------------------------------------------------------------------------------
+        grid = self.grid.extract_cells(mask[*self.grid_box].flatten())
+        grid[varname] = scalar[mask].flatten()
+        grid.set_active_scalars(varname)
+        act = self.plotter.add_mesh(grid, scalars=varname, lighting=False, show_edges=True, cmap='jet', clim=limit, 
+                                    opacity=opacity, culling='back')
+        #act.mapper.dataset = act.mapper.dataset.flip_z()
+        #act.mapper.dataset = act.mapper.dataset.flip_y()
+        self.grid_mask.append((grid, mask))
+
+    #--------------------------------------------------------------------------------
+    def plot(self, ijk, varname, startdate=None, start=None, stop=None, step=1, limit=None):                                  # Plotter
+    #--------------------------------------------------------------------------------
+        """
+        startdate : (year, month, day)
+        """
+        #self.var = var
+        self.ijk = ijk
+        unrst = UNRST_file(self.root)
+        if startdate:
+            start = unrst.section(date=startdate)
+        celldata = unrst.cellarray(varname, start=start, stop=stop, step=step)
+        active_wells = islice(self.active_wells_iter(), start, stop, step)
+        # Get grid-data for the first plot
+        data = next(celldata)
+        res_mask, well_mask = self.make_grid_and_masks()
+        scalar = getattr(data, varname)
+        self.add_grid_from_mask(res_mask, varname, scalar, limit, opacity=self.res_grid_opacity)
+        if self.wells:
+            # Add grid of well cells
+            self.add_grid_from_mask(well_mask, varname, scalar, limit, opacity=self.well_grid_opacity)
+            # Get well-data for the first plot
+            time, act_wells = next(active_wells)
+            self.update_tubes(act_wells)
+            # Add labels
+            for label in self.labels:
+                self.plotter.add_actor(label)
+        # Plot features
+        self.plotter.view_yz()
+        self.plotter.show_axes()
+        self.update_datestring(data.date)
+
+        def plot():
+            for data, (time, act_wells) in zip(celldata, active_wells):
+                if self.wells:
+                    self.update_tubes(act_wells)
+                self.update_scalar(varname, getattr(data, varname))
+                self.update_datestring(data.date)
+                sleep(0.25)
+
+        thread = Thread(target=plot)
+        thread.start()
+
+    #--------------------------------------------------------------------------------
+    def update_tubes(self, active_wells):                                  # Plotter
+    #--------------------------------------------------------------------------------
+        color = {'WATER_INJECTOR':'blue', 'GAS_INJECTOR':'green', 'PRODUCER':'red'}
+        for (name,typ), tube in self.tubes.items():
+            if name in active_wells:
+                tube.prop.color = color[typ]
+            else:
+                tube.prop.color = 'white'
+
+    #--------------------------------------------------------------------------------
+    def update_scalar(self, varname, scalar):                                  # Plotter
+    #--------------------------------------------------------------------------------
+        for grid, mask in self.grid_mask:
+            grid[varname] = scalar[mask].flatten()
+
+    #--------------------------------------------------------------------------------
+    def update_datestring(self, date, size=10):                                  # Plotter
+    #--------------------------------------------------------------------------------
+        if self.datestring:
+            self.datestring.SetVisibility(False)
+        self.datestring = self.plotter.add_text(str(date).split()[0], font_size=size)

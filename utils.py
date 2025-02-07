@@ -33,6 +33,19 @@ from molmass import Formula
 #    + : 1 or more rep.
 #    * : 0 or more rep.
 
+
+#--------------------------------------------------------------------------------
+def any_cell_in_box(cells, box):
+#--------------------------------------------------------------------------------
+    """
+    Return True if any of the cells given by ((i1, j1, k1), (i2, j2, k2)) is inside 
+    the box given by ((i_min, i_max), (j_min, j_max), (k_min, k_max))
+    """
+    for cell in cells:
+        if all(box[n][0] <= cell[n] < box[n][1] for n in range(3)):
+            return True
+    return False
+
 #--------------------------------------------------------------------------------
 def get_terminal_environment(var, file='~/.bashrc'):
 #--------------------------------------------------------------------------------
