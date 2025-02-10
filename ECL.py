@@ -3936,19 +3936,24 @@ class Plotter():                                                            # Pl
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, root, wells=True, only_active=True, scale=(1, -1, -5)):    # Plotter
+    def __init__(self, root, wells=True, only_active=True, scale=(1, -1, -5), edges=True,
+                 size=None, culling=None, title=None):    # Plotter
     #--------------------------------------------------------------------------------
         self.root = root
         self.egrid = EGRID_file(root)
+        self.show_edges = edges
+        self.culling = culling
         #self.var = None #var
         #self.limit = limit
-        self.plotter = BackgroundPlotter()
+        self.plotter = BackgroundPlotter(window_size=size, allow_quit_keypress=True, title=title, multi_samples=4,
+                                         line_smoothing=True, point_smoothing=True)
         self.wells = wells
         self.only_active = only_active
         self.scale = scale
         self.ijk = None
         #self.dim = None
         #self.limit = None
+        self.dim = None
         self.tube_opacity = None
         self.tube_size = None
         self.tube_height = None
@@ -3994,23 +3999,24 @@ class Plotter():                                                            # Pl
         self.arrow_scale = arrow_scale
 
     #--------------------------------------------------------------------------------
-    def set_grid_values(self, well_opacity=0.75, res_opacity=1):
+    def set_grid_values(self, well_opacity=0.75, res_opacity=1):            # Plotter
     #--------------------------------------------------------------------------------
         self.well_grid_opacity = well_opacity
         self.res_grid_opacity = res_opacity
 
     #--------------------------------------------------------------------------------
-    def make_grid_and_masks(self):                                                     # Plotter
+    def make_grid_and_masks(self, ijk=None):                                # Plotter
     #--------------------------------------------------------------------------------
-        dim = self.egrid.nijk()
+        self.dim = self.egrid.nijk()
+        self.ijk = ijk or [(0,d) for d in self.dim]
         self.grid_box = [slice(*dir) for dir in self.ijk]
         # Mask out the box defined by the ijk-tuple 
-        box_mask = zeros(dim, dtype=bool)
+        box_mask = zeros(self.dim, dtype=bool)
         box_mask[*self.grid_box] = True
         # Create grid
         self.grid = self.egrid.grid(*self.ijk, self.scale)
         # Create well and reservoir masks
-        well_mask = zeros(dim, dtype=bool)
+        well_mask = zeros(self.dim, dtype=bool)
         if self.wells:
             wellpos = self.add_wells()
             well_mask[*zip(*wellpos)] = True
@@ -4019,14 +4025,6 @@ class Plotter():                                                            # Pl
         res_mask = well_mask == False
         res_mask *= box_mask
         return res_mask, well_mask
-
-    # #--------------------------------------------------------------------------------
-    # def extract_grid(self, varname, data, mask):                                           # Plotter
-    # #--------------------------------------------------------------------------------
-    #     grid = self.grid.extract_cells(mask[*self.grid_box].flatten())
-    #     grid[varname] = data[mask].flatten()
-    #     grid.set_active_scalars(varname)
-    #     return grid
 
     #--------------------------------------------------------------------------------
     def add_wells(self, tube_opacity=0.75):                                  # Plotter
@@ -4055,7 +4053,6 @@ class Plotter():                                                            # Pl
         # Get active wells
         rft = RFT_file(self.root)
         if self.only_active:
-            #self.active_wells = islice(self.rft.active_wells(), self.start, self.stop, self.step)
             active_wells = rft.active_wells()
         else:
             inp = IX_input(self.root)
@@ -4088,25 +4085,26 @@ class Plotter():                                                            # Pl
         return tgrid
 
     #--------------------------------------------------------------------------------
-    def add_grid_from_mask(self, mask, varname, scalar, limit, opacity=None):                                  # Plotter
+    def add_grid_from_mask(self, mask, varname, scalar, limit, opacity):                                  # Plotter
     #--------------------------------------------------------------------------------
         grid = self.grid.extract_cells(mask[*self.grid_box].flatten())
         grid[varname] = scalar[mask].flatten()
+        #grid['opacity'] = opacity[mask].flatten()
         grid.set_active_scalars(varname)
-        act = self.plotter.add_mesh(grid, scalars=varname, lighting=False, show_edges=True, cmap='jet', clim=limit, 
-                                    opacity=opacity, culling='back')
+        act = self.plotter.add_mesh(grid, scalars=varname, lighting=False, show_edges=self.show_edges, 
+                                    cmap='jet', clim=limit, opacity=opacity, culling=self.culling)
         #act.mapper.dataset = act.mapper.dataset.flip_z()
         #act.mapper.dataset = act.mapper.dataset.flip_y()
         self.grid_mask.append((grid, mask))
 
     #--------------------------------------------------------------------------------
-    def plot(self, ijk, varname, startdate=None, start=None, stop=None, step=1, limit=None):                                  # Plotter
+    def plot(self, varname, ijk=None, startdate=None, start=None, stop=None, step=1, limit=None):                                  # Plotter
     #--------------------------------------------------------------------------------
         """
         startdate : (year, month, day)
         """
         #self.var = var
-        self.ijk = ijk
+        #self.ijk = ijk or [(0,d) for d in self.dim]
         unrst = UNRST_file(self.root)
         if startdate:
             start = unrst.section(date=startdate)
@@ -4114,8 +4112,9 @@ class Plotter():                                                            # Pl
         active_wells = islice(self.active_wells_iter(), start, stop, step)
         # Get grid-data for the first plot
         data = next(celldata)
-        res_mask, well_mask = self.make_grid_and_masks()
+        res_mask, well_mask = self.make_grid_and_masks(ijk)
         scalar = getattr(data, varname)
+        #opacity = ones(scalar.shape)
         self.add_grid_from_mask(res_mask, varname, scalar, limit, opacity=self.res_grid_opacity)
         if self.wells:
             # Add grid of well cells
@@ -4127,7 +4126,8 @@ class Plotter():                                                            # Pl
             for label in self.labels:
                 self.plotter.add_actor(label)
         # Plot features
-        self.plotter.view_yz()
+        #self.plotter.view_yz()
+        self.plotter.view_xy()
         self.plotter.show_axes()
         self.update_datestring(data.date)
 
@@ -4135,12 +4135,26 @@ class Plotter():                                                            # Pl
             for data, (time, act_wells) in zip(celldata, active_wells):
                 if self.wells:
                     self.update_tubes(act_wells)
-                self.update_scalar(varname, getattr(data, varname))
+                scalar = getattr(data, varname)
+                self.update_scalar(varname, scalar)
+                if limit is None:
+                    self.update_range(scalar)
                 self.update_datestring(data.date)
                 sleep(0.25)
 
         thread = Thread(target=plot)
         thread.start()
+
+    #--------------------------------------------------------------------------------
+    def update_range(self, scalar):                                  # Plotter
+    #--------------------------------------------------------------------------------
+        #print([(i, grid) for i,(grid,_) in enumerate(self.grid_mask)])
+        min_max = ((scalar[mask].min(), scalar[mask].max()) for _,mask in self.grid_mask)
+        _min, _max = zip(*min_max)
+        if self.plotter.mapper:
+            self.plotter.mapper.scalar_range = (min(_min), max(_max))
+        #self.plotter.update_scalar_bar_range((min(_min), max(_max)))
+        
 
     #--------------------------------------------------------------------------------
     def update_tubes(self, active_wells):                                  # Plotter
