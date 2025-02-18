@@ -18,16 +18,17 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, mean as npmean, sum as npsum, zeros, ones, hstack
-from numpy.linalg import norm as npnorm
+from numpy import (fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, roll, stack, sum as npsum,
+                   zeros, ones, atleast_1d, argsort, squeeze, zeros_like, abs as npabs)
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
 
-from .utils import (any_cell_in_box, batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, expand_pattern, flatten,
+from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, expand_pattern, flatten,
                     index_limits, last_line, match_in_wildlist, nth, pad, slice_range, tail_file, head_file,
                     flat_list, flatten_all, grouper, list2text, pairwise, remove_chars,
-                    list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take)
+                    list2str, float_or_str, matches, split_by_words, string_split, split_in_lines, take,
+                    missing_elements)
 from .runner import Process
 
 
@@ -46,6 +47,33 @@ ECL2IX_LOG = 'ecl2ix.log'
 #
 #
 #
+
+#------------------------------------------------------------------------------------
+def check_flowvolumes(root, phase='WAT'):
+#------------------------------------------------------------------------------------
+    dt_accuracy = 1e-6
+    rft = RFT_file(root)
+    unrst = UNRST_file(root)
+    phlow = phase.lower()
+    Volumes = namedtuple('Volumes', 'days dt dQdt dV diff')
+    for bflow, wflow in zip(unrst.block_res_flows(phase), rft.well_res_flows()):
+        if any(abs(wf.days - bflow.days) > dt_accuracy for wf in wflow):
+            raise ValueError('The timesteps of the UNRST- and RFT-file dont match: '
+                             f'{bflow.days}, {[wf.days for wf in wflow]}')
+        #print('unrst:', bflow.days, 'rft:', [wf.days for wf in wflow])
+        Qin = bflow.Qin
+        # Add inflow from injectors
+        for flow in wflow:
+            Qw = getattr(flow, f'{phlow}rate')
+            if any(q < 0 for q in Qw):
+                # Well penetrates in z-dir (2)
+                Qin[*flow.pos, 2] += npabs(Qw)
+        dQdt = (Qin - bflow.Qout) * bflow.dt
+        dQdt = npsum(dQdt, axis=-1)
+        diff = zeros_like(dQdt)
+        mask = dQdt > 1e-9
+        diff[mask] = 100*(bflow.dVol[mask]-dQdt[mask])/dQdt[mask]
+        yield Volumes(bflow.days, bflow.dt, dQdt, bflow.dVol, diff)
 
 
 #====================================================================================
@@ -2195,17 +2223,20 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
     def units(self):                                                     # UNRST_file
     #--------------------------------------------------------------------------------
-        ihead = next(self.blockdata('INTEHEAD'), None)
-        if ihead:
-            return {1:'metric', 2:'field', 3:'lab', 4:'pvt-m'}[ihead[2]]
+        if self._units is None:
+            ihead = next(self.blockdata('INTEHEAD'), None)
+            if ihead:
+                self._units = {1:'metric', 2:'field', 3:'lab', 4:'pvt-m'}[ihead[2]]
+        return self._units
 
     #--------------------------------------------------------------------------------
     def days(self, **kwargs):                                            # UNRST_file
     #--------------------------------------------------------------------------------
         # Read units only once
-        self._units = self._units or self.units()
+        #self._units = self._units or self.units()
         convert = 1
-        if self._units == 'lab':
+        # if self._units == 'lab':
+        if self.units() == 'lab':
             # DOUBHEAD[0] is given in hours in lab units
             convert = 1/24
         return (next(flatten(dh))*convert for dh in self.blockdata('DOUBHEAD', singleton=True, **kwargs))
@@ -2283,7 +2314,48 @@ class UNRST_file(unfmt_file):                                            # UNRST
             if callable(log):
                 log(f'Wrote {xfile}')
             if stop and i == stop:
-                return    
+                return
+            
+    #--------------------------------------------------------------------------------
+    def block_res_flows(self, phase):                           # UNRST_file
+    #--------------------------------------------------------------------------------
+        Flow = namedtuple('Flow', 'days dt Qin Qout vol dVol')
+        keys = (f'FLR{phase}I+', f'FLR{phase}J+', f'FLR{phase}K+', f'S{phase}', 'RPORV')
+        get_Qi_Qj_Qk = attrgetter(f'FLR{phase}I', f'FLR{phase}J', f'FLR{phase}K')
+        get_sat_pvol = attrgetter(f'S{phase}', 'RPORV')
+        celldata = self.cellarray(*keys)
+        init = next(celldata)
+        days = init.days
+        sat, porvol = get_sat_pvol(init)
+        old_vol = sat * porvol
+        #days = next(self.days())
+        #dvol = zeros(self.dim())
+        labunits = self.units() == 'lab'
+        #for data in self.cellarray(*keys):
+        for data in celldata:
+            Q = stack(get_Qi_Qj_Qk(data), axis=-1)
+            sat, porvol = get_sat_pvol(data)
+            vol = sat * porvol
+            dt = data.days - days
+            if labunits:
+                # Convert from days to hours
+                dt *= 24
+            #if data.days > days:
+            dvol = vol - old_vol
+            Q_in = zeros_like(Q)
+            for axis in range(3):
+                # Shift positive values one step in positive direction along given axis 
+                pos_roll = roll(Q[..., axis], shift=1, axis=axis)
+                # Shift negative values one step in negative direction along given axis 
+                neg_roll = roll(Q[..., axis], shift=-1, axis=axis)
+                pos_mask = pos_roll > 0
+                neg_mask = neg_roll < 0
+                Q_in[..., axis][pos_mask] += pos_roll[pos_mask]
+                Q_in[..., axis][neg_mask] += npabs(neg_roll[neg_mask])
+            yield Flow(data.days, dt, Q_in, Q, vol, dvol)
+            days = data.days
+            old_vol = vol
+
 
 # #====================================================================================
 # class X_files:                                                              # X_files
@@ -2452,7 +2524,51 @@ class RFT_file(unfmt_file):                                                # RFT
                 wells = []
             wells.append(well)
             current_time = time
+            
+    #--------------------------------------------------------------------------------
+    def rate_from_tubs(self, tub, wellrate, connxt):                       # RFT_file
+    #--------------------------------------------------------------------------------
+        connxt = atleast_1d(connxt)
+        tub = atleast_1d(tub)
+        injector = wellrate < 0
+        idx = list(argsort(connxt))
+        miss = missing_elements(connxt) or [len(connxt)]
+        is_neigh = ones(len(idx) + len(miss), dtype=np_bool)
+        for m in miss:
+            idx.insert(m, (m if m<len(connxt) else 0) if injector else m-1)
+            is_neigh[m] = 0
+        #is_neigh[list(miss)] = 0
+        if injector:
+            # Injector
+            diff = zeros(len(tub))
+            for i in range(len(tub)):
+                if is_neigh[i+1]:
+                    diff[idx[i+1]] = tub[i] - tub[idx[i+1]]
+            diff[idx[0]] = wellrate - tub[idx[0]]
+        else:
+            # Producer
+            diff = tub - is_neigh[1:]*tub[idx[1:]]
+        return squeeze(diff)
 
+    #--------------------------------------------------------------------------------
+    def well_res_flows(self, zerobase=True):                       # RFT_file
+    #--------------------------------------------------------------------------------
+        Resrate = namedtuple('Resrate', 'days well pos oilrate watrate gasrate')
+        keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT', 'CONOTUBL', 'CONWTUBL', 'CONGTUBL')
+        rates = []
+        current_time = next(self.read('time'))
+        for time, i, j, k, wellplt, welletc, connxt, *contubl in self.blockdata(*keys, singleton=True):
+            if time[0] > current_time:
+                yield rates
+                current_time = time[0]
+                rates = []
+            wellplt = nparray(wellplt)
+            phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
+            resrate = (self.rate_from_tubs(tubl, phase_rates[i], connxt) for i, tubl in enumerate(contubl))
+            pos = [i, j, k]
+            if zerobase:
+                pos = [[x-1 for x in p] for p in pos]
+            rates.append(Resrate(time[0], welletc[1], pos, *resrate))
 
 #====================================================================================
 class UNSMRY_file(unfmt_file):
@@ -2477,6 +2593,14 @@ class UNSMRY_file(unfmt_file):
         self.spec = SMSPEC_file(file)
         self.start = None
         self._plots = None
+
+    #--------------------------------------------------------------------------------
+    def params(self, *keys):
+    #--------------------------------------------------------------------------------
+        keypos = {key:i for i, key in enumerate(next(self.spec.blockdata('KEYWORDS')))}
+        ind = [keypos[key] for key in keys]
+        for param in self.blockdata('PARAMS'):
+            yield [param[i] for i in ind]
 
     #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False, 
@@ -2801,7 +2925,7 @@ class PRTX_file(text_file):                                                # PRT
         time = 0
         if (line:=self.last_line()) and (index:=self.var_index()):
             time = line.split(',')[index['Simulation Time']]
-            time = float(time) if time[0] != 'S' else 0 
+            time = float(time) if time[0] != 'S' else 0
         return time
 
 #====================================================================================
@@ -3924,7 +4048,8 @@ class IX_input:                                                            # IX_
     def write_unified_UNRST(self):                                         # IX_input
     #--------------------------------------------------------------------------------
         unified = self.UNRST_settings().get('Unified')
-        if unified and unified[0] in ('TRUE', 'True', 'true'):
+        # Default is True if not set
+        if not unified or unified[0] in ('TRUE', 'True', 'true'):
             return True
         return False
 
