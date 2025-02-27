@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 
 from contextlib import contextmanager
+from curses.ascii import RS
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
+from hmac import new
 from itertools import chain, product, repeat, accumulate, groupby, zip_longest, islice
 from math import hypot, prod
-from operator import attrgetter, itemgetter, sub as subtract
+from operator import attrgetter, itemgetter, neg, sub as subtract
 from pathlib import Path
 from platform import system
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
@@ -19,7 +21,7 @@ from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
 from numpy import (fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, roll, stack, sum as npsum,
-                   zeros, ones, atleast_1d, argsort, squeeze, zeros_like, abs as npabs)
+                   zeros, ones, atleast_1d, argsort, newaxis, zeros_like, abs as npabs, any as npany)
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
@@ -49,14 +51,14 @@ ECL2IX_LOG = 'ecl2ix.log'
 #
 
 #------------------------------------------------------------------------------------
-def check_flowvolumes(root, phase='WAT'):
+def check_flowvol(root, phase='WAT', resrate=True):
 #------------------------------------------------------------------------------------
     dt_accuracy = 1e-6
     rft = RFT_file(root)
     unrst = UNRST_file(root)
     phlow = phase.lower()
-    Volumes = namedtuple('Volumes', 'days dt dQdt dV diff')
-    for bflow, wflow in zip(unrst.block_res_flows(phase), rft.well_res_flows()):
+    Volumes = namedtuple('Volumes', 'time dt dQdt dV diff')
+    for (bflow, pvt), wflow in zip(unrst.block_flows(phase, resrate), rft.well_flows()):
         if any(abs(wf.days - bflow.days) > dt_accuracy for wf in wflow):
             raise ValueError('The timesteps of the UNRST- and RFT-file dont match: '
                              f'{bflow.days}, {[wf.days for wf in wflow]}')
@@ -68,10 +70,11 @@ def check_flowvolumes(root, phase='WAT'):
             if any(q < 0 for q in Qw):
                 # Well penetrates in z-dir (2)
                 Qin[*flow.pos, 2] += npabs(Qw)
+        #print('dQ:', (Qin - bflow.Qout)[...,0].squeeze(), ', dt:', bflow.dt)
         dQdt = (Qin - bflow.Qout) * bflow.dt
         dQdt = npsum(dQdt, axis=-1)
         diff = zeros_like(dQdt)
-        mask = dQdt > 1e-9
+        mask = npabs(dQdt) > 1e-9
         diff[mask] = 100*(bflow.dVol[mask]-dQdt[mask])/dQdt[mask]
         yield Volumes(bflow.days, bflow.dt, dQdt, bflow.dVol, diff)
 
@@ -1304,6 +1307,27 @@ class unfmt_file(File):                                                  # unfmt
         return [bl.key() for bl in nth(self.section_blocks(), n)]
 
     #--------------------------------------------------------------------------------
+    def check_missing_keys(self, *keys, raise_error=True):               # unfmt_file
+    #--------------------------------------------------------------------------------
+        """
+        Check for missing keys in the section keys of the unrst attribute.
+
+        Args:
+            *keys: Variable length argument list of keys to check.
+            raise_error (bool): If True, raises a ValueError if any keys are missing. Default is True.
+
+        Returns:
+            list: A list of missing keys.
+
+        Raises:
+            ValueError: If any keys are missing and raise_error is True.
+        """
+        missing = set(keys) - set(self.section_keys())
+        if missing and raise_error:
+            raise ValueError(f'Missing keywords in {self}: {list(missing)}')
+        return list(missing)
+
+    #--------------------------------------------------------------------------------
     def find_keys(self, *keys, sec=0):                                   # unfmt_file
     #--------------------------------------------------------------------------------
         """
@@ -2020,7 +2044,19 @@ class INIT_file(unfmt_file):                                              # INIT
                         'hour'      : ('INTEHEAD', 206),
                         'minute'    : ('INTEHEAD', 207),
                         'second'    : ('INTEHEAD', 410),
-}
+                        }
+        self._dim = None
+
+    #--------------------------------------------------------------------------------
+    def dim(self):                                                       # INIT_file
+    #--------------------------------------------------------------------------------
+        self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
+        return self._dim
+    
+    #--------------------------------------------------------------------------------
+    def reshape_dim(self, *data):                                         # INIT_file
+    #--------------------------------------------------------------------------------
+        return [nparray(d).reshape(self.dim(), order='F') for d in data]
 
     #--------------------------------------------------------------------------------
     def simulator(self):                                                  # INIT_file
@@ -2089,6 +2125,14 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return self._dim
     
     #--------------------------------------------------------------------------------
+    def reshape_dim(self, *data): #, flip=True):                         # UNRST_file
+    #--------------------------------------------------------------------------------
+        return [nparray(d).reshape(self.dim(), order='F') for d in data]
+        # if flip:
+        #     return [npflip(a, axis=-1) for a in arr]
+        # return arr
+
+    #--------------------------------------------------------------------------------
     def _check_for_missing_keys(self, *in_keys, keys=None):              # UNRST_file
     #--------------------------------------------------------------------------------
         keys = keys or self.find_keys(*in_keys)
@@ -2145,14 +2189,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
         keys = self.find_keys(*in_keys)
         if warn_missing:
             self._check_for_missing_keys(*in_keys, keys=keys)
-        # if warn_missing:
-        #     if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
-        #         raise RuntimeError(f'The following keywords are missing in {self}: {missing}')
-        # names = [remove_chars('+-', str(k).lower()) for k in keys]
         names = [remove_chars('+-', k) for k in keys]
         celltuple = namedtuple('cellarray', ['days', 'date'] + names)
         dim = self.dim()
-        # dds = zip(self.days(resolution=time_res), self.dates(), self.section_blocks())
         dds = zip(self.days(), self.dates(), self.section_blocks())
         for day, date, section in islice(dds, start, stop, step):
             blockdata = {k:None for k in keys}
@@ -2317,44 +2356,105 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 return
             
     #--------------------------------------------------------------------------------
-    def block_res_flows(self, phase):                           # UNRST_file
+    def block_inflow(self, flow):                           # UNRST_file
+    #--------------------------------------------------------------------------------
+        flow_in = zeros_like(flow)
+        for axis in range(3):
+            # Shift positive values one step in positive direction along given axis 
+            pos_roll = roll(flow[..., axis], shift=1, axis=axis)
+            # Shift negative values one step in negative direction along given axis 
+            neg_roll = roll(flow[..., axis], shift=-1, axis=axis)
+            pos_mask = pos_roll > 0
+            neg_mask = neg_roll < 0
+            flow_in[..., axis][pos_mask] += pos_roll[pos_mask]
+            flow_in[..., axis][neg_mask] += npabs(neg_roll[neg_mask])
+        return flow_in
+
+
+    #--------------------------------------------------------------------------------
+    def block_flows(self, phase, resrate=True):                           # UNRST_file
     #--------------------------------------------------------------------------------
         Flow = namedtuple('Flow', 'days dt Qin Qout vol dVol')
-        keys = (f'FLR{phase}I+', f'FLR{phase}J+', f'FLR{phase}K+', f'S{phase}', 'RPORV')
-        get_Qi_Qj_Qk = attrgetter(f'FLR{phase}I', f'FLR{phase}J', f'FLR{phase}K')
-        get_sat_pvol = attrgetter(f'S{phase}', 'RPORV')
-        celldata = self.cellarray(*keys)
-        init = next(celldata)
-        days = init.days
-        sat, porvol = get_sat_pvol(init)
-        old_vol = sat * porvol
-        #days = next(self.days())
-        #dvol = zeros(self.dim())
+        phase = phase.upper()
         labunits = self.units() == 'lab'
-        #for data in self.cellarray(*keys):
-        for data in celldata:
-            Q = stack(get_Qi_Qj_Qk(data), axis=-1)
-            sat, porvol = get_sat_pvol(data)
+        if resrate:
+            rates = self.resrate(phase)
+        else:
+            rates = self.resrate_from_surfrate(phase)
+        sat_pvol = self.blockdata('S'+phase, 'RPORV')
+        # Initial values
+        sat, porvol = self.reshape_dim(*next(sat_pvol))
+        old_vol = sat * porvol
+        old_days, *_ = next(rates)
+        for data, (days, rate, pvt) in zip(sat_pvol, rates):
+            sat, porvol = self.reshape_dim(*data)
             vol = sat * porvol
-            dt = data.days - days
+            dt = days - old_days
             if labunits:
                 # Convert from days to hours
                 dt *= 24
-            #if data.days > days:
             dvol = vol - old_vol
-            Q_in = zeros_like(Q)
-            for axis in range(3):
-                # Shift positive values one step in positive direction along given axis 
-                pos_roll = roll(Q[..., axis], shift=1, axis=axis)
-                # Shift negative values one step in negative direction along given axis 
-                neg_roll = roll(Q[..., axis], shift=-1, axis=axis)
-                pos_mask = pos_roll > 0
-                neg_mask = neg_roll < 0
-                Q_in[..., axis][pos_mask] += pos_roll[pos_mask]
-                Q_in[..., axis][neg_mask] += npabs(neg_roll[neg_mask])
-            yield Flow(data.days, dt, Q_in, Q, vol, dvol)
-            days = data.days
-            old_vol = vol
+            rate_in = self.block_inflow(rate)
+            yield Flow(days, dt, rate_in, rate, vol, dvol), pvt
+            old_days, old_vol = days, vol
+
+
+    #--------------------------------------------------------------------------------
+    def resrate(self, phase):                                            # UNRST_file
+    #--------------------------------------------------------------------------------
+        phase = phase.upper()
+        for dhead, *flow in self.blockdata('DOUBHEAD', *[f'FLR{phase}{ijk}+' for ijk in 'IJK']):
+            time = dhead[0]
+            yield time, stack(self.reshape_dim(*flow), axis=-1)
+
+    #--------------------------------------------------------------------------------
+    def resrate_from_surfrate(self, phase):                              # UNRST_file
+    #--------------------------------------------------------------------------------
+        phase = phase.lower()
+        oil = ('FLOOILI+', 'FLOOILJ+', 'FLOOILK+')
+        wat = ('FLOWATI+', 'FLOWATJ+', 'FLOWATK+')
+        gas = ('FLOGASI+', 'FLOGASJ+', 'FLOGASK+')
+        oil_or_gas = phase in ('oil', 'gas')
+        if oil_or_gas:
+            flow_keys = (*oil, *gas) 
+            pvt_keys = ('RS', 'RV', 'BO', 'BG')
+        else: # water
+            flow_keys = wat
+            pvt_keys = ('BW',)
+        PVT = namedtuple('PVT', *pvt_keys)
+        for dhead, *file_data in self.blockdata('DOUBHEAD', *flow_keys, *pvt_keys):
+            if oil_or_gas:
+                # Unpack data from file into numpy arrays
+                OI, OJ, OK,  GI, GJ, GK,  RS, RV, BO, BG = [nparray(d) for d in file_data]
+                # Create 3D arrays for oil- and gas-flows
+                OIL = stack((OI, OJ, OK), axis=-1)
+                GAS = stack((GI, GJ, GK), axis=-1)
+                # Add new axis to 1D arrays for broadcast
+                pvt = PVT(*[arr[:, newaxis] for arr in (RS, RV, BO, BG)])
+                denom = 1 - pvt.RS * pvt.RV
+                if npany(denom == 0):
+                    raise ValueError("Denominator is zero, which will cause a division by zero error.")
+                if phase == 'oil':
+                    resrate = pvt.BO * (         OIL - pvt.RV*GAS ) / denom
+                else: # gas
+                    resrate = pvt.BG * ( -pvt.RS*OIL +        GAS ) / denom   # ( 1 - RS*RV )
+            else: # water
+                # Unpack data from file into numpy arrays
+                WI, WJ, WK,  BW = [nparray(d) for d in file_data]
+                # Create 3D array for water-flows
+                WAT = stack((WI, WJ, WK), axis=-1)
+                # Add new axis to 1D array for broadcast
+                pvt = PVT(BW[:, newaxis])
+                resrate = pvt.BW * WAT
+
+            # From IORSim code
+            # rate.oil   = Bo * (     STC_rate.oil - Rv*STC_rate.gas )/( 1.0 - Rs*Rv );
+            # rate.gas   = Bg * ( -Rs*STC_rate.oil +    STC_rate.gas )/( 1.0 - Rs*Rv );
+            # rate.water = Bw *       STC_rate.water;
+            
+            time = dhead[0]
+            rate = resrate.reshape((*self.dim(), 3), order='F')
+            yield (time, rate, pvt)
 
 
 # #====================================================================================
@@ -2548,23 +2648,45 @@ class RFT_file(unfmt_file):                                                # RFT
         else:
             # Producer
             diff = tub - is_neigh[1:]*tub[idx[1:]]
-        return squeeze(diff)
+        return diff
+        #return squeeze(diff)
+
 
     #--------------------------------------------------------------------------------
-    def well_res_flows(self, zerobase=True):                       # RFT_file
+    def rate_from_surf(self, oil, wat, gas, pos, pvt):                       # RFT_file
+    #--------------------------------------------------------------------------------
+        phase = phase.lower()
+        pvt = pvt._asdict()
+        RS, RV, BO, BG, BW = [pvt[key][*pos, :] for key in ('RS', 'RV', 'BO', 'BG', 'BW')]
+        denom = (1 - pvt.RS * pvt.RV)
+        resoil = BO * (     oil - RV * gas) / denom
+        resgas = BG * ( -RS*oil +      gas) / denom 
+        reswat = BW * wat
+        return resoil, reswat, resgas
+
+
+    #--------------------------------------------------------------------------------
+    def well_flows(self, zerobase=True, resrate=True):                       # RFT_file
     #--------------------------------------------------------------------------------
         Resrate = namedtuple('Resrate', 'days well pos oilrate watrate gasrate')
-        keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT', 'CONOTUBL', 'CONWTUBL', 'CONGTUBL')
+        keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
+        if resrate:
+            rate_keys = ('CONOTUBL', 'CONWTUBL', 'CONGTUBL')
+        else:
+            rate_keys = ('CONORAT', 'CONWRAT', 'CONGRAT')
         rates = []
         current_time = next(self.read('time'))
-        for time, i, j, k, wellplt, welletc, connxt, *contubl in self.blockdata(*keys, singleton=True):
+        for time, i, j, k, wellplt, welletc, connxt, *conrates in self.blockdata(*keys, *rate_keys, singleton=True):
             if time[0] > current_time:
                 yield rates
                 current_time = time[0]
                 rates = []
-            wellplt = nparray(wellplt)
-            phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
-            resrate = (self.rate_from_tubs(tubl, phase_rates[i], connxt) for i, tubl in enumerate(contubl))
+            if resrate:
+                wellplt = nparray(wellplt)
+                phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
+                resrate = (self.rate_from_tubs(tubl, phase_rates[i], connxt) for i, tubl in enumerate(conrates))
+            else:
+                resrate = conrates
             pos = [i, j, k]
             if zerobase:
                 pos = [[x-1 for x in p] for p in pos]
@@ -2595,12 +2717,35 @@ class UNSMRY_file(unfmt_file):
         self._plots = None
 
     #--------------------------------------------------------------------------------
-    def params(self, *keys):
+    def params(self, *keys):                                            # UNSMRY_file
     #--------------------------------------------------------------------------------
         keypos = {key:i for i, key in enumerate(next(self.spec.blockdata('KEYWORDS')))}
         ind = [keypos[key] for key in keys]
         for param in self.blockdata('PARAMS'):
             yield [param[i] for i in ind]
+
+    #--------------------------------------------------------------------------------
+    def steptype(self):                                          # UNSMRY_file
+    #--------------------------------------------------------------------------------
+        codes = {
+            1: ('Init', 'The initial time step for a simulation run'),
+            2: ('TTE' , 'Time step selected on time truncation error criteria'),
+            3: ('MDF' , 'The maximum decrease factor between time steps'),
+            4: ('MIF' , 'The maximum increase factor between time steps'),
+            5: ('Min' , 'The minimum allowed time step'),
+            6: ('Max' , 'The maximum allowed time step'),
+            7: ('Rep' , 'Time step required to synchronize with a report date'),
+            8: ('HRep', 'Time step required to get half way to a report date'),
+            9: ('Chop', 'Time step chopped due to previous convergence problems'),
+            16: ('SCT', 'Time step selected on solution change criteria'),
+            31: ('CFL', 'Time step selected to maintain CFL stability'),
+            32: ('Mn' , 'The time step specified was selected but was limited by minimum time step'),
+            37: ('Mx' , 'The time step specified was selected but was limited by maximum time step'),
+            35: ('SEQ', 'Time step determined by the convergence of the sequential fully implicit solver'),
+            0:  ('FM' , 'Time step selected by Field Management')
+        }
+        for stype in self.params('STEPTYPE'):
+            yield codes[stype[0]]
 
     #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False, 
@@ -2808,7 +2953,7 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         return super().__getattr__(item)
 
     #--------------------------------------------------------------------------------
-    def missing_keys(self):                                             # SMSPEC_file
+    def check_missing_keys(self):                                             # SMSPEC_file
     #--------------------------------------------------------------------------------
         return [a for a in self._inkeys if not a in self.keys]
 
@@ -4052,4 +4197,317 @@ class IX_input:                                                            # IX_
         if not unified or unified[0] in ('TRUE', 'True', 'true'):
             return True
         return False
+
+
+#====================================================================================
+class Rates():                                                             # Rates
+#====================================================================================
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, root):                                           # Rates
+    #--------------------------------------------------------------------------------
+        self.unrst = UNRST_file(root)
+        self.rft = RFT_file(root)
+        self.dt_accuracy = 1e-5
+
+    #--------------------------------------------------------------------------------
+    def volume_error(self, phase='wat', reservoir=False, tube=False):       # Rates
+    #--------------------------------------------------------------------------------
+        phase = phase.lower()
+        Volumes = namedtuple('Volumes', 'time dt dQdt dV error')
+        for flow, volume in zip(self.flows(phase, reservoir, tube), self.volumes(phase)):
+            if abs(flow.time - volume.time) > self.dt_accuracy:
+                raise ValueError(f'Difference in flow ({flow.time}) and volume ({volume.time}) timesteps!')
+            dQdt = (flow.rate_in - flow.rate_out) * flow.dt
+            dQdt = npsum(dQdt, axis=-1)
+            error = zeros_like(dQdt)
+            mask = npabs(volume.diff) > 1e-11
+            #error = 100 * (1 - dQdt/volume.diff)
+            error[mask] = dQdt[mask] - volume.diff[mask]
+            yield Volumes(flow.time, flow.dt, dQdt, volume.diff, error)
+
+    #--------------------------------------------------------------------------------
+    def flows(self, phase, reservoir=True, tube=True):                        # Rates
+    #--------------------------------------------------------------------------------
+        #Flow = namedtuple('flow', 'time dt rate_in rate_out')
+        Flow = namedtuple('flow', 'time dt rate_in rate_out rate_change')
+        block_flow = self.block_flow(phase, reservoir)
+        well_flow = self.well_flow(reservoir=reservoir, tube=tube)
+        # Initial time
+        time = next(block_flow).time
+        # Loop over block flows and well injection flows
+        for block, wells in zip(block_flow, well_flow):
+            rates_in = {ph:self._block_inflow(rate) for ph,rate in block.rates.items()}
+            rates_out = {ph:npabs(rate) for ph,rate in block.rates.items()}
+            # rates_out, rates_in = self.block_inout_flow(block.rates)
+            dQ = {ph:npsum(fin-fout, axis=-1) for (ph,fout),fin in zip(rates_out.items(), rates_in.values())}
+            #print(wells)
+            # Loop over active wells
+            for well in wells:
+                if abs(well.time - block.time) > self.dt_accuracy:
+                    raise ValueError(f'Difference in block ({block.time}) and well ({well.time}) timesteps!')
+                for ph, dq in dQ.items():
+                    print(ph, dq[*well.pos], 'well:', well.rate[ph])
+                    dq[*well.pos] -= well.rate[ph]
+                # Loop over well phase rates
+                # for wphase, wrate in well.rate.items():
+                #     if wphase == phase:
+                #         if wrate[0] < 0:
+                #             pass
+                #             # Injector
+                #             #rates_in[wphase][*well.pos, 2] -= wrate # or np.abs()
+                #             # rates_in[wphase][*well.pos, 2] = npabs(wrate)
+                #         else:
+                #             print(wphase, wrate, well.pos)
+                #             # Producer
+                #             #rates_out[wphase][*well.pos, 2] += wrate
+            # ### TODO: Add flow from NNC
+            # Take absolute value of rates, the sign indicates direction
+            #rates_out = {ph:npabs(rate) for ph,rate in block.rates.items()}
+            #rates = (rates_in[phase], rates_out[phase])
+            rate_change = dQ[phase]
+            if block.pvt:
+                # Convert from surface rates to reservoir rates
+                # rates = self._resrate_from_surfrate(block.pvt, phase, rates_in, rates_out)
+                rate_change, = self._resrate_from_surfrate(block.pvt, phase, dQ)
+            #yield Flow(block.time, block.time-time, *rates)
+            yield Flow(block.time, block.time-time, rates_in[phase], rates_out[phase], rate_change)
+            time = block.time
+
+
+    #--------------------------------------------------------------------------------
+    def volumes(self, phase):                                                 # Rates
+    #--------------------------------------------------------------------------------
+        Volume = namedtuple('volume', 'time phase pore dphase dpore')
+        phase = phase.upper()
+        blockdata = self.unrst.blockdata('DOUBHEAD', 0, 'S'+phase, 'RPORV')
+        # Initial values
+        time, *data = next(blockdata)
+        old_sat, old_porvol = self.unrst.reshape_dim(*data)
+        for time, *data in blockdata:
+            sat, porvol = self.unrst.reshape_dim(*data)
+            vol = sat * porvol
+            old_vol = old_sat * old_porvol
+            #            time phase  pore       dphase         dpore
+            yield Volume(time, vol, porvol, vol - old_vol, porvol - old_porvol)
+            old_sat, old_porvol = sat, porvol
+
+    #--------------------------------------------------------------------------------
+    def block_flow(self, phase, reservoir=True):                           # Rates
+    #--------------------------------------------------------------------------------
+        Blockflow = namedtuple('blockflow', 'time rates pvt')
+        phases, flow_keys, pvt_keys = self.flow_pvt_keys(phase, reservoir)
+        #print(flow_keys, pvt_keys)
+        for time, *data in self.unrst.blockdata('DOUBHEAD', 0, *flow_keys, *pvt_keys):
+            #print(time)
+            # Split data into rates and PVT data
+            data = batched(self.unrst.reshape_dim(*data), 3)
+            # First part of data is rates
+            rates = {ph:stack(next(data), axis=-1) for ph in phases}
+            # Rest of data is PVT data (flatten grabs rest)
+            # pvt = {k:d[..., newaxis] for k, d in zip(pvt_keys, flatten(data))}
+            pvt = {k:d for k, d in zip(pvt_keys, flatten(data))}
+            yield Blockflow(time, rates, pvt)
+
+    # #--------------------------------------------------------------------------------
+    # def block_inout_flow(self, rates:dict):
+    # #--------------------------------------------------------------------------------
+    #     rates_out, rates_in = {}, {}
+    #     for ph,rate in rates.items():
+    #         pos_mask, neg_mask = rate > 0, rate < 0
+    #         # Positive rates are outflow
+    #         ro = zeros_like(rate)
+    #         ro[pos_mask] = rate[pos_mask]
+    #         # Negative rates are inflow
+    #         ri = zeros_like(rate)
+    #         ri[neg_mask] = -rate[neg_mask]
+    #         ro_roll = zeros_like(ro)
+    #         ri_roll = zeros_like(ri)
+    #         for axis in range(3):
+    #             # Outflow is inflow for next block in positive direction
+    #             rro = roll(ro[..., axis], 1, axis=axis)
+    #             ind = 3 * [slice(None)]
+    #             # Remove periodic boundary end elements
+    #             ind[axis] = 0
+    #             rro[*ind] = 0
+    #             ro_roll[..., axis] = rro
+    #             # Inflow is outflow for previous block in negative direction
+    #             rri = roll(ri[..., axis], -1, axis=axis)
+    #             ind[axis] = -1
+    #             rri[*ind] = 0
+    #             ri_roll[..., axis] = rri            
+    #         rates_out[ph] = ro + ri_roll
+    #         rates_in[ph] = ri + ro_roll
+    #     return rates_out, rates_in
+
+    #--------------------------------------------------------------------------------
+    def flow_pvt_keys(self, phase, reservoir):                               # Rates
+    #--------------------------------------------------------------------------------
+        # Return flow- and PVT-keys for UNRST-file depending on phase and reservoir/surface-rate
+        phases = [phase.lower()]
+        RO = 'R'
+        pvt_keys = ()
+        if not reservoir:
+            RO = 'O'
+            # Read PVT data to convert surface- to reservoir-rates
+            if phases[0] in ('oil', 'gas'):
+                phases = ('oil', 'gas')
+                pvt_keys = ('RS', 'RV', 'BO', 'BG')
+            else:
+                pvt_keys = ('BW',)
+        PHS = [phs.upper() for phs in phases]
+        flow_keys = [f'FL{RO}{a}{b}+' for a,b in product(PHS,'IJK')]
+        self.unrst.check_missing_keys(*flow_keys, *pvt_keys)
+        return phases, flow_keys, pvt_keys
+
+    # #--------------------------------------------------------------------------------
+    # def well_inflow(self, **kwargs):                                           # Rates
+    # #--------------------------------------------------------------------------------
+    #     Inflow = namedtuple('Inflow', 'time well phase pos rate')
+    #     inflow = []
+    #     for wells in self.well_flow(**kwargs):
+    #         for well in wells:
+    #             phase_inj = (ph for ph,rate in well.rate.items() if any(r<0 for r in rate))
+    #             if phase := next(phase_inj, None):
+    #                 inflow.append(Inflow(well.time, well.name, phase, well.pos, well.rate[phase]))
+    #         yield inflow
+    #         inflow = []
+
+    #--------------------------------------------------------------------------------
+    def well_flow(self, reservoir=True, tube=True, zerobase=True):       # Rates
+    #--------------------------------------------------------------------------------
+        Well = namedtuple('Well', 'time name pos rate')
+        keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
+        L = 'L' if reservoir else ''
+        TUBRAT = 'TUB' if tube else 'RAT'
+        if reservoir and not tube:
+            raise SystemError('ERROR Well reservoir rates without tubes (CONORATL) are not available')
+        rate_keys = [f'CON{owg}{TUBRAT}{L}' for owg in 'OWG']
+        #print(rate_keys)
+        #rates = {'in':[], 'out':[]}
+        rates = []
+        current_time = next(self.rft.read('time'))
+        for time, i, j, k, wellplt, welletc, connxt, *wellrat in self.rft.blockdata(*keys, *rate_keys, singleton=True):
+            time = time[0]
+            wellname = welletc[1]
+            if time > current_time:
+                yield rates
+                current_time = time
+                #rates = {'in':[], 'out':[]}
+                rates = []
+            if tube:
+                wellrat = self._wellrate_from_tubs(wellrat, wellplt, connxt)
+            wellrat = {ph:rat for ph,rat in zip(('oil', 'wat', 'gas'), wellrat)}
+            # Fix zero-based position indices
+            pos = [i, j, k]
+            if zerobase:
+                pos = [[x-1 for x in p] for p in pos]
+            #well = Well(time, wellname, pos, wellrat)
+            # if wellplt[5] < 0:
+            #     rates['in'].append(well)
+            # else:
+            #     rates['out'].append(well)
+            rates.append(Well(time, wellname, pos, wellrat))
+
+
+    #--------------------------------------------------------------------------------
+    def _block_inflow(self, flow):                                      # Rates
+    #--------------------------------------------------------------------------------
+        flow_in = zeros_like(flow)
+        # Define masks ([0, :, :], [-1, :, :]) for edge values
+        # def mask(axis, shift):
+        #     edge = 0 if shift > 0 else -1
+        #     mask_ = roll((edge, *repeat(slice(None), 2)), axis)
+        #     print(axis, shift, mask_)
+        #     return mask_
+        
+        mask = [(i, *repeat(slice(None), 2)) for i in (0,-1)]
+        # Roll in the opposite direction for the z-axis
+        #pos_shift = ( 1,  1,  1)
+        #neg_shift = (-1, -1, -1)
+        for axis in range(3):
+            #flow_out = flow[..., axis]
+            #if axis == 2:
+            #    flow_out = -flow_out
+            # Shift positive values one step in positive direction along given axis
+            pos_roll = roll(flow[..., axis], shift=1, axis=axis)
+            #pos_roll = roll(flow_out, shift=pos_shift[axis], axis=axis)
+            # Remove periodic boundary start elements rolled from last element
+            pos_roll[ *roll(mask[0], axis) ] = 0
+            # pos_roll[ *mask(axis, pos_shift[axis]) ] = 0
+            # Add only positive shifted values
+            pos_mask = pos_roll > 0
+            flow_in[..., axis][pos_mask] += pos_roll[pos_mask]
+
+            # Shift negative values one step in negative direction along given axis
+            neg_roll = roll(flow[..., axis], shift=-1, axis=axis)
+            #neg_roll = roll(flow_out, shift=neg_shift[axis], axis=axis)
+            # Remove periodic boundary end elements rolled from first element
+            neg_roll[ *roll(mask[1], axis) ] = 0
+            # neg_roll[ *mask(axis, neg_shift[axis]) ] = 0
+            # Add only absolute value of negative shifted values
+            neg_mask = neg_roll < 0
+            flow_in[..., axis][neg_mask] += npabs(neg_roll[neg_mask])
+        return flow_in
+
+
+    #--------------------------------------------------------------------------------
+    def _wellrate_from_tubs(self, tubflows, wellplt, connxt):                       # Rates
+    #--------------------------------------------------------------------------------
+        wellplt = nparray(wellplt)
+        phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
+        connxt = atleast_1d(connxt)
+        rates = []
+        for i, tub in enumerate(tubflows):
+            wellrate = phase_rates[i]
+            tub = atleast_1d(tub)
+            injector = wellrate < 0
+            idx = list(argsort(connxt))
+            miss = missing_elements(connxt) or [len(connxt)]
+            is_neigh = ones(len(idx) + len(miss), dtype=np_bool)
+            for m in miss:
+                idx.insert(m, (m if m<len(connxt) else 0) if injector else m-1)
+                is_neigh[m] = 0
+            #is_neigh[list(miss)] = 0
+            if injector:
+                # Injector
+                diff = zeros(len(tub))
+                for i in range(len(tub)):
+                    if is_neigh[i+1]:
+                        diff[idx[i+1]] = tub[i] - tub[idx[i+1]]
+                diff[idx[0]] = wellrate - tub[idx[0]]
+            else:
+                # Producer
+                diff = tub - is_neigh[1:]*tub[idx[1:]]
+            rates.append(diff)
+        return rates
+
+
+    #--------------------------------------------------------------------------------
+    def _resrate_from_surfrate(self, pvt, phase, *rates):             # Rates
+    #--------------------------------------------------------------------------------
+        # From IORSim code
+        # rate.oil   = Bo * (     STC_rate.oil - Rv*STC_rate.gas )/( 1.0 - Rs*Rv );
+        # rate.gas   = Bg * ( -Rs*STC_rate.oil +    STC_rate.gas )/( 1.0 - Rs*Rv );
+        # rate.water = Bw *       STC_rate.water;
+
+        #print('Converting surface rates to reservoir rates')
+        resrates = []
+        #print(phase, [(k,v[10,10,3]) for k,v in pvt.items()])
+        for rate in rates:
+            #print([(k,v[10,10,3]) for k,v in rate.items()])
+            if phase in ('oil', 'gas'):
+                denom = 1 - pvt['RS'] * pvt['RV']
+                if npany(denom == 0):
+                    raise ValueError("Denominator is zero, which will cause a division by zero error.")
+                if phase == 'oil':
+                    resrate = pvt['BO'] * (              rate['oil'] - pvt['RV'] * rate['gas']) / denom
+                else:
+                    resrate = pvt['BG'] * ( -pvt['RS'] * rate['oil'] +             rate['gas']) / denom
+            else:
+                    resrate = pvt['BW'] * rate['wat']
+            resrates.append(resrate)
+        return resrates
+
+
 
