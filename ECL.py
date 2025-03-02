@@ -4209,7 +4209,8 @@ class Flow():                                                             # Flow
         self.unrst = UNRST_file(root)
         self.rft = RFT_file(root)
         self.dim = self.unrst.dim()
-        self.dt_accuracy = 1e-5
+        self.dt_accuracy = 1e-4
+        self.pvt = {}
 
     #--------------------------------------------------------------------------------
     def volume_error(self, phase='wat', reservoir=False, tube=False):       # Flow
@@ -4230,58 +4231,27 @@ class Flow():                                                             # Flow
     #--------------------------------------------------------------------------------
     def flows(self, phase, reservoir=True, tube=True):                        # Flow
     #--------------------------------------------------------------------------------
-        #Flow = namedtuple('flow', 'time dt rate_in rate_out')
         Flow = namedtuple('flow', 'time dt rate_in rate_out rate_change')
-        block_flow = self.block_flow(phase, reservoir)
-        well_flow = self.well_flow(reservoir=reservoir, tube=tube)
+        block_flow = self.interblock(phase, reservoir)
+        well_flow = self.well(reservoir=reservoir, tube=tube)
         # Initial time
         time = next(block_flow).time
         # Loop over block flows and well injection flows
         for block, wells in zip(block_flow, well_flow):
             dt = block.time - time
-            #rates_in = {ph:self._block_inflow(rate) for ph,rate in block.rates.items()}
-            #rates_out = {ph:npabs(rate) for ph,rate in block.rates.items()}
-            #rates_out, rates_in = self.block_inout_flow(block.rates)
-            #dQ = {ph:npsum(fin-fout, axis=-1) for (ph,fout),fin in zip(rates_out.items(), rates_in.values())}
             dQ = {ph:npsum(fin-fout, axis=-1) for (ph,fout),fin in zip(block.rates_out.items(), block.rates_in.values())}
-            #print(rates_in[phase].shape, rates_out[phase].shape, dQ[phase].shape)
-            #print(wells)
             # Loop over active wells
             for well in wells:
-                # if abs(well.time - block.time) > self.dt_accuracy:
-                #     raise ValueError(f'Difference in block ({block.time}) and well ({well.time}) timesteps!')
+                if abs(well.time - block.time) > self.dt_accuracy:
+                    raise ValueError(f'Difference in block ({block.time}) and well ({well.time}) timesteps!')
                 for ph, dq in dQ.items():
-                    #print(ph)
-                    #print('well:', well.rate[ph], npsum(well.rate[ph]), 'pos:', well.pos)
-                    #print('dt*well:', dt*wrate, npsum(wrate), 'pos:', well.pos)
-                    #print('dQ:', dq[*well.pos])
-                    #print('out:', npsum(rates_out[ph][*well.pos], axis=-1))
-                    #print('in:', npsum(rates_in[ph][*well.pos], axis=-1))
                     dq[*well.pos] -= well.rate[ph]
-                    #print('B', ph, dq[*well.pos], 'pos', well.pos)
-                # Loop over well phase rates
-                # for wphase, wrate in well.rate.items():
-                #     if wphase == phase:
-                #         if wrate[0] < 0:
-                #             pass
-                #             # Injector
-                #             #rates_in[wphase][*well.pos, 2] -= wrate # or np.abs()
-                #             # rates_in[wphase][*well.pos, 2] = npabs(wrate)
-                #         else:
-                #             print(wphase, wrate, well.pos)
-                #             # Producer
-                #             #rates_out[wphase][*well.pos, 2] += wrate
-            # ### TODO: Add flow from NNC
-            # Take absolute value of rates, the sign indicates direction
-            #rates_out = {ph:npabs(rate) for ph,rate in block.rates.items()}
-            #rates = (rates_in[phase], rates_out[phase])
+            #### TODO: Add flow from NNC
             rate_change = dQ[phase]
-            if block.pvt:
+            #if block.pvt:
+            if self.pvt:
                 # Convert from surface rates to reservoir rates
-                # rates = self._resrate_from_surfrate(block.pvt, phase, rates_in, rates_out)
-                rate_change, = self._resrate_from_surfrate(block.pvt, phase, dQ)
-            #yield Flow(block.time, block.time-time, *rates)
-            #yield Flow(block.time, dt, rates_in[phase], rates_out[phase], rate_change)
+                rate_change, = self._resrate_from_surfrate(self.pvt, phase, dQ)
             yield Flow(block.time, dt, block.rates_in[phase], block.rates_out[phase], rate_change)
             time = block.time
 
@@ -4304,32 +4274,26 @@ class Flow():                                                             # Flow
             old_sat, old_porvol = sat, porvol
 
     #--------------------------------------------------------------------------------
-    def block_flow(self, phase, reservoir=True):                           # Flow
+    def interblock(self, phase, reservoir=True):                           # Flow
     #--------------------------------------------------------------------------------
-        Blockflow = namedtuple('blockflow', 'time rates_in rates_out pvt')
-        #Blockflow = namedtuple('blockflow', 'time rates pvt')
+        Blockflow = namedtuple('blockflow', 'time rates_in rates_out')# pvt')
         phases, flow_keys, pvt_keys = self.flow_pvt_keys(phase, reservoir)
-        #print(flow_keys, pvt_keys)
         for time, *data in self.unrst.blockdata('DOUBHEAD', 0, *flow_keys, *pvt_keys):
-            #print(time)
             # Split data into rates and PVT data
             data = batched(self.unrst.reshape_dim(*data), 3)
             # First part of data is rates
-            #rates = {ph:stack(next(data), axis=-1) for ph in phases}
+            rates = {ph:stack(next(data), axis=-1) for ph in phases}
+            # Rest of data is PVT data (flatten grabs rest)
+            self.pvt = {k:d for k, d in zip(pvt_keys, flatten(data))}
             rates_in, rates_out = {}, {}
-            for ph in phases:
-                # Take 3 next data elements and stack along last axis
-                rate = stack(next(data), axis=-1)
+            for ph, rate in rates.items(): #phases:
+                ## Take 3 next data elements and stack along last axis
+                #rate = stack(next(data), axis=-1)
                 rate_in = -rate * (rate < 0)
                 rate_out = rate * (rate > 0)
-                # rate_in += self.positive_roll(rate_out)
-                # rate_out += self.positive_roll(rate_in)
                 rates_in[ph] = rate_in + self.positive_roll(rate_out)
                 rates_out[ph] = rate_out + self.positive_roll(rate_in)
-            # Rest of data is PVT data (flatten grabs rest)
-            pvt = {k:d for k, d in zip(pvt_keys, flatten(data))}
-            #yield Blockflow(time, rates, pvt)
-            yield Blockflow(time, rates_in, rates_out, pvt)
+            yield Blockflow(time, rates_in, rates_out) #, pvt)
 
     #--------------------------------------------------------------------------------
     def positive_roll(self, src):                      # Flow
@@ -4346,19 +4310,6 @@ class Flow():                                                             # Flow
             roll_list.append(rolled)
         return stack(roll_list, axis=-1)
     
-    #--------------------------------------------------------------------------------
-    def block_inout_flow(self, flowrates:dict):                               # Flow
-    #--------------------------------------------------------------------------------
-        rates_out, rates_in = {}, {}
-        for ph,rate in flowrates.items():
-            # Positive rates are outflow
-            ro = rate * (rate > 0)
-            # Negative rates are inflow
-            ri = -rate * (rate < 0)
-            rates_out[ph] = ro + self.positive_roll(ri)
-            rates_in[ph] = ri + self.positive_roll(ro)
-        return rates_out, rates_in
-
     #--------------------------------------------------------------------------------
     def flow_pvt_keys(self, phase, reservoir):                               # Rates
     #--------------------------------------------------------------------------------
@@ -4379,21 +4330,9 @@ class Flow():                                                             # Flow
         self.unrst.check_missing_keys(*flow_keys, *pvt_keys)
         return phases, flow_keys, pvt_keys
 
-    # #--------------------------------------------------------------------------------
-    # def well_inflow(self, **kwargs):                                           # Rates
-    # #--------------------------------------------------------------------------------
-    #     Inflow = namedtuple('Inflow', 'time well phase pos rate')
-    #     inflow = []
-    #     for wells in self.well_flow(**kwargs):
-    #         for well in wells:
-    #             phase_inj = (ph for ph,rate in well.rate.items() if any(r<0 for r in rate))
-    #             if phase := next(phase_inj, None):
-    #                 inflow.append(Inflow(well.time, well.name, phase, well.pos, well.rate[phase]))
-    #         yield inflow
-    #         inflow = []
 
     #--------------------------------------------------------------------------------
-    def well_flow(self, reservoir=True, tube=True, zerobase=True):       # Rates
+    def well(self, reservoir=True, tube=True, zerobase=True):       # Rates
     #--------------------------------------------------------------------------------
         Well = namedtuple('Well', 'time name pos rate')
         keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
@@ -4402,64 +4341,23 @@ class Flow():                                                             # Flow
         if reservoir and not tube:
             raise SystemError('ERROR Well reservoir rates without tubes (CONORATL) are not available')
         rate_keys = [f'CON{owg}{TUBRAT}{L}' for owg in 'OWG']
-        #print(rate_keys)
-        #rates = {'in':[], 'out':[]}
         rates = []
         current_time = next(self.rft.read('time'))
         for time, i, j, k, wellplt, welletc, connxt, *wellrat in self.rft.blockdata(*keys, *rate_keys, singleton=True):
             time = time[0]
             wellname = welletc[1]
             if time > current_time:
-                #print('units:', welletc[7], welletc[9])
                 yield rates
                 current_time = time
-                #rates = {'in':[], 'out':[]}
                 rates = []
             if tube:
                 wellrat = self._wellrate_from_tubs(wellrat, wellplt, connxt)
             wellrat = {ph:nparray(rat) for ph,rat in zip(('oil', 'wat', 'gas'), wellrat)}
-            #wellrat = {ph:rat for ph,rat in zip(('oil', 'wat', 'gas'), wellrat)}
             # Fix zero-based position indices
             pos = [i, j, k]
             if zerobase:
                 pos = [[x-1 for x in p] for p in pos]
-            #well = Well(time, wellname, pos, wellrat)
-            # if wellplt[5] < 0:
-            #     rates['in'].append(well)
-            # else:
-            #     rates['out'].append(well)
             rates.append(Well(time, wellname, pos, wellrat))
-
-
-    # #--------------------------------------------------------------------------------
-    # def _block_inflow(self, flow):                                      # Rates
-    # #--------------------------------------------------------------------------------
-    #     flow_in = zeros_like(flow)
-    #     #mask = [(i, *repeat(slice(None), 2)) for i in (0,-1)]
-    #     for axis in range(3):
-    #         # Shift positive values one step in positive direction along given axis
-    #         pos_roll = roll(flow[..., axis], shift=1, axis=axis)
-    #         # Remove first elements due to periodic boundary rolling of last elements
-    #         ind = 3 * [slice(None)]
-    #         ind[axis] = 0
-    #         pos_roll[*ind] = 0
-    #         #pos_roll[ *roll(mask[0], axis) ] = 0
-    #         # pos_roll[ *mask(axis, pos_shift[axis]) ] = 0
-    #         # Add only positive shifted values
-    #         pos_mask = pos_roll > 0
-    #         flow_in[..., axis][pos_mask] += pos_roll[pos_mask]
-
-    #         # Shift negative values one step in negative direction along given axis
-    #         neg_roll = roll(flow[..., axis], shift=-1, axis=axis)
-    #         #neg_roll = roll(flow_out, shift=neg_shift[axis], axis=axis)
-    #         # Remove last elements due to periodic boundary rolling of first elements
-    #         ind[axis] = -1
-    #         neg_roll[*ind] = 0
-    #         #neg_roll[ *roll(mask[1], axis) ] = 0
-    #         # Add only absolute value of negative shifted values
-    #         neg_mask = neg_roll < 0
-    #         flow_in[..., axis][neg_mask] += npabs(neg_roll[neg_mask])
-    #     return flow_in
 
 
     #--------------------------------------------------------------------------------
