@@ -2,13 +2,11 @@
 # -*- coding: utf-8 -*-
 
 from contextlib import contextmanager
-from curses.ascii import RS
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
-from hmac import new
 from itertools import chain, product, repeat, accumulate, groupby, zip_longest, islice
 from math import hypot, prod
-from operator import attrgetter, itemgetter, neg, sub as subtract
+from operator import attrgetter, itemgetter, sub as subtract
 from pathlib import Path
 from platform import system
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
@@ -2625,72 +2623,103 @@ class RFT_file(unfmt_file):                                                # RFT
             wells.append(well)
             current_time = time
             
-    #--------------------------------------------------------------------------------
-    def rate_from_tubs(self, tub, wellrate, connxt):                       # RFT_file
-    #--------------------------------------------------------------------------------
-        connxt = atleast_1d(connxt)
-        tub = atleast_1d(tub)
-        injector = wellrate < 0
-        idx = list(argsort(connxt))
-        miss = missing_elements(connxt) or [len(connxt)]
-        is_neigh = ones(len(idx) + len(miss), dtype=np_bool)
-        for m in miss:
-            idx.insert(m, (m if m<len(connxt) else 0) if injector else m-1)
-            is_neigh[m] = 0
-        #is_neigh[list(miss)] = 0
-        if injector:
-            # Injector
-            diff = zeros(len(tub))
-            for i in range(len(tub)):
-                if is_neigh[i+1]:
-                    diff[idx[i+1]] = tub[i] - tub[idx[i+1]]
-            diff[idx[0]] = wellrate - tub[idx[0]]
-        else:
-            # Producer
-            diff = tub - is_neigh[1:]*tub[idx[1:]]
-        return diff
-        #return squeeze(diff)
+    # #--------------------------------------------------------------------------------
+    # def wellrate(self, reservoir=True, tube=True, zerobase=True): 
+    #              #convert_func=None):                                       # RFT_file
+    # #--------------------------------------------------------------------------------
+    #     Wellrate = namedtuple('Wellrate', 'time name pos rate')
+    #     keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
+    #     L = 'L' if reservoir else ''
+    #     TUB_RAT = 'TUB' if tube else 'RAT'
+    #     if reservoir and not tube:
+    #         raise SystemError('ERROR Well reservoir rates require tube=True (CON*RATL)')
+    #     rate_keys = [f'CON{owg}{TUB_RAT}{L}' for owg in 'OWG']
+    #     rates = []
+    #     current_time = next(self.read('time'))
+    #     for time, i, j, k, wellplt, welletc, connxt, *wellrat in self.blockdata(*keys, *rate_keys, singleton=True):
+    #         time = time[0]
+    #         wellname = welletc[1]
+    #         if time > current_time:
+    #             yield rates
+    #             current_time = time
+    #             rates = []
+    #         if tube:
+    #             wellrat = self._wellrate_from_tubs(wellrat, wellplt, connxt)
+    #         wellrat = {ph:nparray(rat) for ph,rat in zip(('oil', 'wat', 'gas'), wellrat)}
+    #         # Fix zero-based position indices
+    #         pos = [i, j, k]
+    #         if zerobase:
+    #             pos = [[x-1 for x in p] for p in pos]
+    #         # if convert_func:
+    #         #     wellrat = convert_func(wellrat, pos)
+    #         rates.append(Wellrate(time, wellname, pos, wellrat))
+
+    # #--------------------------------------------------------------------------------
+    # def rate_from_tubs(self, tub, wellrate, connxt):                       # RFT_file
+    # #--------------------------------------------------------------------------------
+    #     connxt = atleast_1d(connxt)
+    #     tub = atleast_1d(tub)
+    #     injector = wellrate < 0
+    #     idx = list(argsort(connxt))
+    #     miss = missing_elements(connxt) or [len(connxt)]
+    #     is_neigh = ones(len(idx) + len(miss), dtype=np_bool)
+    #     for m in miss:
+    #         idx.insert(m, (m if m<len(connxt) else 0) if injector else m-1)
+    #         is_neigh[m] = 0
+    #     #is_neigh[list(miss)] = 0
+    #     if injector:
+    #         # Injector
+    #         diff = zeros(len(tub))
+    #         for i in range(len(tub)):
+    #             if is_neigh[i+1]:
+    #                 diff[idx[i+1]] = tub[i] - tub[idx[i+1]]
+    #         diff[idx[0]] = wellrate - tub[idx[0]]
+    #     else:
+    #         # Producer
+    #         diff = tub - is_neigh[1:]*tub[idx[1:]]
+    #     return diff
+    #     #return squeeze(diff)
 
 
-    #--------------------------------------------------------------------------------
-    def rate_from_surf(self, oil, wat, gas, pos, pvt):                       # RFT_file
-    #--------------------------------------------------------------------------------
-        phase = phase.lower()
-        pvt = pvt._asdict()
-        RS, RV, BO, BG, BW = [pvt[key][*pos, :] for key in ('RS', 'RV', 'BO', 'BG', 'BW')]
-        denom = (1 - pvt.RS * pvt.RV)
-        resoil = BO * (     oil - RV * gas) / denom
-        resgas = BG * ( -RS*oil +      gas) / denom 
-        reswat = BW * wat
-        return resoil, reswat, resgas
+    # #--------------------------------------------------------------------------------
+    # def rate_from_surf(self, oil, wat, gas, pos, pvt):                       # RFT_file
+    # #--------------------------------------------------------------------------------
+    #     phase = phase.lower()
+    #     pvt = pvt._asdict()
+    #     RS, RV, BO, BG, BW = [pvt[key][*pos, :] for key in ('RS', 'RV', 'BO', 'BG', 'BW')]
+    #     denom = (1 - pvt.RS * pvt.RV)
+    #     resoil = BO * (     oil - RV * gas) / denom
+    #     resgas = BG * ( -RS*oil +      gas) / denom 
+    #     reswat = BW * wat
+    #     return resoil, reswat, resgas
 
 
-    #--------------------------------------------------------------------------------
-    def well_flows(self, zerobase=True, resrate=True):                       # RFT_file
-    #--------------------------------------------------------------------------------
-        Resrate = namedtuple('Resrate', 'days well pos oilrate watrate gasrate')
-        keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
-        if resrate:
-            rate_keys = ('CONOTUBL', 'CONWTUBL', 'CONGTUBL')
-        else:
-            rate_keys = ('CONORAT', 'CONWRAT', 'CONGRAT')
-        rates = []
-        current_time = next(self.read('time'))
-        for time, i, j, k, wellplt, welletc, connxt, *conrates in self.blockdata(*keys, *rate_keys, singleton=True):
-            if time[0] > current_time:
-                yield rates
-                current_time = time[0]
-                rates = []
-            if resrate:
-                wellplt = nparray(wellplt)
-                phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
-                resrate = (self.rate_from_tubs(tubl, phase_rates[i], connxt) for i, tubl in enumerate(conrates))
-            else:
-                resrate = conrates
-            pos = [i, j, k]
-            if zerobase:
-                pos = [[x-1 for x in p] for p in pos]
-            rates.append(Resrate(time[0], welletc[1], pos, *resrate))
+    # #--------------------------------------------------------------------------------
+    # def well_flows(self, zerobase=True, resrate=True):                       # RFT_file
+    # #--------------------------------------------------------------------------------
+    #     Resrate = namedtuple('Resrate', 'days well pos oilrate watrate gasrate')
+    #     keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
+    #     if resrate:
+    #         rate_keys = ('CONOTUBL', 'CONWTUBL', 'CONGTUBL')
+    #     else:
+    #         rate_keys = ('CONORAT', 'CONWRAT', 'CONGRAT')
+    #     rates = []
+    #     current_time = next(self.read('time'))
+    #     for time, i, j, k, wellplt, welletc, connxt, *conrates in self.blockdata(*keys, *rate_keys, singleton=True):
+    #         if time[0] > current_time:
+    #             yield rates
+    #             current_time = time[0]
+    #             rates = []
+    #         if resrate:
+    #             wellplt = nparray(wellplt)
+    #             phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
+    #             resrate = (self.rate_from_tubs(tubl, phase_rates[i], connxt) for i, tubl in enumerate(conrates))
+    #         else:
+    #             resrate = conrates
+    #         pos = [i, j, k]
+    #         if zerobase:
+    #             pos = [[x-1 for x in p] for p in pos]
+    #         rates.append(Resrate(time[0], welletc[1], pos, *resrate))
 
 #====================================================================================
 class UNSMRY_file(unfmt_file):
@@ -4200,17 +4229,36 @@ class IX_input:                                                            # IX_
 
 
 #====================================================================================
-class Flow():                                                             # Flow
+class Flow():                                                                  # Flow
 #====================================================================================
 
     #--------------------------------------------------------------------------------
-    def __init__(self, root):                                           # Flow
+    def __init__(self, root, phase:str, reservoir=False, tube=False):                                                  # Flow
     #--------------------------------------------------------------------------------
         self.unrst = UNRST_file(root)
         self.rft = RFT_file(root)
-        self.dim = self.unrst.dim()
+        self.convert = False
+        self.phases = (phase,)
+        RO = 'R'
+        if reservoir is False:
+            # Need to convert from surface rates to reservoir rates
+            self.convert = Convert(self.unrst, phase)
+            RO = 'O'
+            if phase != 'wat':
+                # Need both oil and gas rates to convert to reservoir rates
+                other, = set(('oil', 'gas')) - set(phase)
+                self.phases = (phase, other)
+        self.block_keys = [f'FL{RO}{p.upper()}{ijk}+' for p,ijk in product(self.phases, 'IJK')]
+        self.unrst.check_missing_keys(*self.block_keys)
+        #self.keys = [f'FL{RO}{phase.upper()}{ijk}+' for ijk in 'IJK']
+        self.tube = tube
+        #self.dim = self.unrst.dim()
         self.dt_accuracy = 1e-4
         self.pvt = {}
+        self.pvt_data = None # Needed for conversion from surface to reservoir rates
+        self.pvt_keys = None
+        self.resrate = None
+        self.current_time = None
 
     #--------------------------------------------------------------------------------
     def volume_error(self, phase='wat', reservoir=False, tube=False):       # Flow
@@ -4229,7 +4277,31 @@ class Flow():                                                             # Flow
             yield Volumes(flow.time, flow.dt, dQdt, volume.diff, error)
 
     #--------------------------------------------------------------------------------
-    def flows(self, phase, reservoir=True, tube=True):                        # Flow
+    def volume_change(self, phase, reservoir=False, tube=False):                 # Flow
+    #--------------------------------------------------------------------------------
+        block_flow = self.interblock_res()
+        # well_flow = self.rft.wellrate(reservoir=reservoir, tube=tube)
+        well_flow = self.well(reservoir=reservoir, tube=tube)
+        # Initial time
+        time = next(block_flow).time
+        # Loop over interblock flows and well flows
+        for block, wells in zip(block_flow, well_flow):
+            #print(npmin(block.rate_in), npmin(block.rate_out))
+            dQ = npsum(block.rate_in - block.rate_out, axis=-1)
+            # Loop over active wells
+            for well in wells:
+                self.check_time_sync(well.time, block.time)
+                #print(well.name, well.pos, well.rate)
+                #dQ[*well.pos] -= well.rate[phase]
+                dQ[tuple(well.pos)] -= self.convert.surf_to_res(well.rate, pos=well.pos) #[phase]
+            #### TODO: Add flow from NNC
+            dt = block.time - time
+            #print('dt', dt)
+            yield dt*dQ #, block.rate_in, block.rate_out
+            time = block.time
+
+    #--------------------------------------------------------------------------------
+    def flows(self, phase, reservoir=False, tube=False):                        # Flow
     #--------------------------------------------------------------------------------
         Flow = namedtuple('flow', 'time dt rate_in rate_out rate_change')
         block_flow = self.interblock(phase, reservoir)
@@ -4239,19 +4311,23 @@ class Flow():                                                             # Flow
         # Loop over block flows and well injection flows
         for block, wells in zip(block_flow, well_flow):
             dt = block.time - time
+            #print('flows:', npmin(block.rates_in['wat']), npmin(block.rates_out['wat']))
             dQ = {ph:npsum(fin-fout, axis=-1) for (ph,fout),fin in zip(block.rates_out.items(), block.rates_in.values())}
             # Loop over active wells
             for well in wells:
                 if abs(well.time - block.time) > self.dt_accuracy:
                     raise ValueError(f'Difference in block ({block.time}) and well ({well.time}) timesteps!')
                 for ph, dq in dQ.items():
-                    dq[*well.pos] -= well.rate[ph]
+                    #print('B', well.name, well.pos, well.rate)
+                    dq[tuple(well.pos)] -= well.rate[ph]
             #### TODO: Add flow from NNC
             rate_change = dQ[phase]
             #if block.pvt:
             if self.pvt:
                 # Convert from surface rates to reservoir rates
-                rate_change, = self._resrate_from_surfrate(self.pvt, phase, dQ)
+                #rate_change, = self._resrate_from_surfrate(self.pvt, phase, dQ)
+                #print(self.pvt['BW'].shape)
+                rate_change = self.convert.surf_to_res(dQ, pvt=self.pvt)#[phase]
             yield Flow(block.time, dt, block.rates_in[phase], block.rates_out[phase], rate_change)
             time = block.time
 
@@ -4279,6 +4355,7 @@ class Flow():                                                             # Flow
         Blockflow = namedtuple('blockflow', 'time rates_in rates_out')# pvt')
         phases, flow_keys, pvt_keys = self.flow_pvt_keys(phase, reservoir)
         for time, *data in self.unrst.blockdata('DOUBHEAD', 0, *flow_keys, *pvt_keys):
+            self.current_time = time
             # Split data into rates and PVT data
             data = batched(self.unrst.reshape_dim(*data), 3)
             # First part of data is rates
@@ -4291,12 +4368,44 @@ class Flow():                                                             # Flow
                 #rate = stack(next(data), axis=-1)
                 rate_in = -rate * (rate < 0)
                 rate_out = rate * (rate > 0)
-                rates_in[ph] = rate_in + self.positive_roll(rate_out)
-                rates_out[ph] = rate_out + self.positive_roll(rate_in)
+                rates_in[ph] = rate_in + self._positive_roll(rate_out)
+                rates_out[ph] = rate_out + self._positive_roll(rate_in)
             yield Blockflow(time, rates_in, rates_out) #, pvt)
 
     #--------------------------------------------------------------------------------
-    def positive_roll(self, src):                      # Flow
+    def interblock_res(self):                           # Flow
+    #--------------------------------------------------------------------------------
+        Blockflow = namedtuple('Blockflow', 'time rate_in rate_out')
+        print(self.block_keys)
+        phase = self.phases[0]
+        for seqnum, time, *data in self.unrst.blockdata('SEQNUM', 'DOUBHEAD', 0, *self.block_keys):
+            self.current_time = time
+            data = batched(self.unrst.reshape_dim(*data), 3)
+            #rates = {ph:stack(d, axis=-1) for ph, d in zip(self.phases, data)}
+            #rates = dict(zip(self.phases, batched(self.unrst.reshape_dim(*data), 3)))
+            rates = {ph:stack(next(data), axis=-1) for ph in self.phases}
+            #rate = stack(self.unrst.reshape_dim(*data), axis=-1)
+            #self.check_time_sync(time, self.convert.seqnum)
+            # rate_in = -rate * (rate < 0)
+            # rate_out = rate * (rate > 0)
+            # rate_in = rate_in + self._positive_roll(rate_out)
+            # rate_out = rate_out + self._positive_roll(rate_in)
+            rates_in, rates_out = {}, {}
+            for ph, rate in rates.items():
+                rate_in = -rate * (rate < 0)
+                rate_out = rate * (rate > 0)
+                rates_in[ph] = rate_in + self._positive_roll(rate_out)
+                rates_out[ph] = rate_out + self._positive_roll(rate_in)
+            if self.convert:
+                self.convert.read_pvt(seqnum)
+                rate_in, rate_out = [self.convert.surf_to_res(rt) for rt in (rates_in, rates_out)]
+            else:
+                rate_in, rate_out = rates_in[phase], rates_out[phase]
+            yield Blockflow(time, rate_in, rate_out)
+
+
+    #--------------------------------------------------------------------------------
+    def _positive_roll(self, src):                      # Flow
     #--------------------------------------------------------------------------------
         # Move src-values to positive neighbours of dst using np.roll along all axes
         # Remove periodic boundary end elements
@@ -4306,12 +4415,12 @@ class Flow():                                                             # Flow
             ind[axis] = 0
             rolled = roll(src[..., axis], 1, axis=axis)
             # Remove periodic boundary end elements
-            rolled[*ind] = 0
+            rolled[tuple(ind)] = 0
             roll_list.append(rolled)
         return stack(roll_list, axis=-1)
     
     #--------------------------------------------------------------------------------
-    def flow_pvt_keys(self, phase, reservoir):                               # Rates
+    def flow_pvt_keys(self, phase, reservoir):                               # Flow
     #--------------------------------------------------------------------------------
         # Return flow- and PVT-keys for UNRST-file depending on phase and reservoir/surface-rate
         phases = [phase.lower()]
@@ -4331,16 +4440,27 @@ class Flow():                                                             # Flow
         return phases, flow_keys, pvt_keys
 
 
+    # #--------------------------------------------------------------------------------
+    # def well_res(self, tube=False):       # Flow
+    # #--------------------------------------------------------------------------------
+    #     for wellrate in self.rft.wellrate(reservoir=(not self.convert), tube=tube):
+    #         for well in wellrate:
+    #             if self.convert:
+    #                 resrate = self.convert.well_rate(well.rate, well.pos)
+    #                 self.check_time_sync(well.time, self.convert.time)
+
+            
+
     #--------------------------------------------------------------------------------
-    def well(self, reservoir=True, tube=True, zerobase=True):       # Rates
+    def well(self, reservoir=True, tube=True, zerobase=True):       # Flow
     #--------------------------------------------------------------------------------
         Well = namedtuple('Well', 'time name pos rate')
         keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
         L = 'L' if reservoir else ''
-        TUBRAT = 'TUB' if tube else 'RAT'
+        TUB_RAT = 'TUB' if tube else 'RAT'
         if reservoir and not tube:
-            raise SystemError('ERROR Well reservoir rates without tubes (CONORATL) are not available')
-        rate_keys = [f'CON{owg}{TUBRAT}{L}' for owg in 'OWG']
+            raise SystemError('ERROR Well reservoir rates require tube=True (CON*RATL)')
+        rate_keys = [f'CON{owg}{TUB_RAT}{L}' for owg in 'OWG']
         rates = []
         current_time = next(self.rft.read('time'))
         for time, i, j, k, wellplt, welletc, connxt, *wellrat in self.rft.blockdata(*keys, *rate_keys, singleton=True):
@@ -4361,7 +4481,7 @@ class Flow():                                                             # Flow
 
 
     #--------------------------------------------------------------------------------
-    def _wellrate_from_tubs(self, tubflows, wellplt, connxt):                       # Rates
+    def _wellrate_from_tubs(self, tubflows, wellplt, connxt):                       # Flow
     #--------------------------------------------------------------------------------
         wellplt = nparray(wellplt)
         phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
@@ -4391,9 +4511,16 @@ class Flow():                                                             # Flow
             rates.append(diff)
         return rates
 
-
     #--------------------------------------------------------------------------------
-    def _resrate_from_surfrate(self, pvt, phase, *rates):             # Rates
+    def check_time_sync(self, time, ref_time=None):             # Flow
+    #--------------------------------------------------------------------------------
+        ref_time = ref_time or self.current_time
+        if abs(time - ref_time) > self.dt_accuracy:
+            raise ValueError(f'Time difference in Rates-class: {time} != {ref_time}')
+
+ 
+    #--------------------------------------------------------------------------------
+    def _resrate_from_surfrate(self, pvt, phase, *rates):             # Flow
     #--------------------------------------------------------------------------------
         # From IORSim code
         # rate.oil   = Bo * (     STC_rate.oil - Rv*STC_rate.gas )/( 1.0 - Rs*Rv );
@@ -4418,5 +4545,98 @@ class Flow():                                                             # Flow
             resrates.append(resrate)
         return resrates
 
+
+
+#================================================================================
+class Convert():                                          # Convert
+#================================================================================
+    #----------------------------------------------------------------------------
+    def __init__(self, unrst:UNRST_file, phase):                 # Convert
+    #----------------------------------------------------------------------------
+        #Resrate = namedtuple('Resrate', 'keys data rate_keys missing')
+        self.unrst = unrst
+        self.phase = phase
+        #self.missing = None
+        self.pvt = None
+        self.seqnum = None
+        self.keys = ('BW',)
+        # rate_keys = ()
+        # oil_gas = set(('oil', 'gas'))
+        # if phase in oil_gas:
+        if phase != 'wat':
+            self.keys = ('RS', 'RV', 'BO', 'BG')
+            # self.missing, = oil_gas - set([phase])
+            # rate_keys = [f'FLO{self.missing.upper()}{ijk}+' for ijk in 'IJK']
+        #print(self.pvt_keys)
+        #self.blockdata = self.unrst.blockdata('SEQNUM', *rate_keys, *self.pvt_keys)
+        self.blockdata = self.unrst.blockdata('SEQNUM', *self.keys)
+
+    # #----------------------------------------------------------------------------
+    # def cellarray(self, data):                                          # Convert
+    # #----------------------------------------------------------------------------
+    #     return self.unrst.reshape_dim(data)
+
+    #----------------------------------------------------------------------------
+    def read_pvt(self, seqnum):                                         # Convert
+    #----------------------------------------------------------------------------
+        self.seqnum, *data = next(self.blockdata)
+        self.pvt = dict(zip(self.keys, self.unrst.reshape_dim(*data)))
+        if seqnum != self.seqnum:
+            raise ValueError(f'SEQNUM mismatch in Convert: {seqnum} != {self.seqnum}')
+        return self.pvt
+
+    # #----------------------------------------------------------------------------
+    # def reservoir_rate(self, *rates):                                   # Convert
+    # #----------------------------------------------------------------------------
+    #     self.seqnum, *data = next(self.blockdata)
+    #     #print('SEQNUM', self.seqnum)
+    #     #iterdata = iter(data)
+    #     #rate = {self.phase:rate}
+    #     #if self.missing:
+    #     #    rate[self.missing] = stack(self.cellarray(take(3, iterdata)), axis=-1)
+    #     # self.pvt = {k:d[..., newaxis] for k,d in zip(self.pvt_keys, self.cellarray(list(iterdata)))}
+    #     # self.pvt = dict(zip(self.pvt_keys, self.cellarray(data)))
+    #     self.pvt = dict(zip(self.pvt_keys, self.unrst.reshape_dim(*data)))
+    #     resrates = []
+    #     for rate in rates:
+    #         resrates.append(self.surf_to_res(rate))
+    #         #resrates.append( self.surf_to_res(rate)[self.phase] )
+    #         #yield self.surf_to_res(rate)[self.phase]
+    #     return resrates
+
+    # #----------------------------------------------------------------------------
+    # def well_rate(self, rate, pos):                                     # Convert
+    # #----------------------------------------------------------------------------
+    #     return self.surf_to_res(rate, pos)
+
+    #----------------------------------------------------------------------------
+    def surf_to_res(self, rate:dict, pos=None, pvt=None):               # Convert
+    #----------------------------------------------------------------------------
+        # From IORSim code
+        # rate.oil   = Bo * (     STC_rate.oil - Rv*STC_rate.gas )/( 1.0 - Rs*Rv );
+        # rate.gas   = Bg * ( -Rs*STC_rate.oil +    STC_rate.gas )/( 1.0 - Rs*Rv );
+        # rate.water = Bw *       STC_rate.water;
+
+        pvt = pvt or self.pvt
+        #print('PVT', [(k,v.shape) for k,v in pvt.items()])
+        #if rate[self.phase].shape[-1] == 3:
+        if rate[self.phase].ndim > 3:
+            pvt = {k:v[..., None] for k,v in self.pvt.items()}
+        if pos:
+            # pvt = {k:v[*pos, [0,]*len(pos[0])] for k,v in self.pvt.items()}
+            pvt = {k:v[tuple(pos)] for k,v in self.pvt.items()}
+        if self.phase in ('oil', 'gas'):
+            denom = 1 - pvt['RS'] * pvt['RV']
+            if npany(denom == 0):
+                raise ValueError("Denominator is zero, which will cause a division by zero error.")
+            if self.phase == 'oil':
+                resrate = pvt['BO'] * (              rate['oil'] - pvt['RV'] * rate['gas']) / denom
+            else:
+                resrate = pvt['BG'] * ( -pvt['RS'] * rate['oil'] +             rate['gas']) / denom
+        else:
+                resrate = pvt['BW'] * rate['wat']
+        #print(rate[self.phase].shape, resrate.shape)
+        #return {self.phase:resrate}
+        return resrate
 
 
