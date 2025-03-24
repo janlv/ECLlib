@@ -1,7 +1,6 @@
 
 # -*- coding: utf-8 -*-
 
-from calendar import c
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
@@ -26,10 +25,10 @@ from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
 
-from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring, 
-                    expand_pattern, flatten, index_limits, last_line, match_in_wildlist, nth, 
-                    pad, slice_range, tail_file, head_file, flat_list, flatten_all, grouper, 
-                    list2text, pairwise, remove_chars, list2str, float_or_str, matches, 
+from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring,
+                    expand_pattern, flatten, index_limits, last_line, match_in_wildlist, nth,
+                    pad, slice_range, tail_file, head_file, flat_list, flatten_all, grouper,
+                    list2text, pairwise, remove_chars, list2str, float_or_str, matches,
                     split_by_words, string_split, split_in_lines, take, missing_elements)
 from .runner import Process
 
@@ -1108,7 +1107,7 @@ class unfmt_file(File):                                                  # unfmt
 
 
     #--------------------------------------------------------------------------------
-    def blockdata(self, *keylim, limits=None, strip=True,
+    def blockdata_old(self, *keylim, limits=None, strip=True,
                   tail=False, singleton=False, **kwargs):                # unfmt_file
     #--------------------------------------------------------------------------------
         """ 
@@ -1134,7 +1133,7 @@ class unfmt_file(File):                                                  # unfmt
                 dkeys = list(f'{key}_{l[0]}' for l in limit)
                 for i,dk in enumerate(dkeys):
                     data[dk] = values[i]
-            # Only None data is omitted, () data is allowed
+            # Only data:None is omitted, data:() is allowed
             if not any(val is None for val in data.values()):
             #if all(data.values()):
                 if singleton:
@@ -1144,6 +1143,43 @@ class unfmt_file(File):                                                  # unfmt
                     values = tuple(v if len(v)>1 else v[0] for v in data.values())
                     yield values if len(values)>1 else values[0]
                 data = {key:None for key in dictkeys}
+
+    #--------------------------------------------------------------------------------
+    def blockdata(self, *keylim, limits=None, strip=True,
+                  tail=False, singleton=False,
+                  start=0, stop=None, step=1, **kwargs):                # unfmt_file
+    #--------------------------------------------------------------------------------
+        """ 
+        Return data in the order of the given keys, not the reading order.
+        The keys-list may contain wildcards (*, ?, [seq], [!seq]) 
+        A key may be followed by zero, one, or two index values. 
+        Two indices are interpreted as a slice, zero indices are 
+        interpreted as the whole array.
+
+        Example: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
+        """
+        #print(keylim)
+        keys, limits, dictkeys = self.__prepare_limits(*keylim)
+        limits = dict(zip(keys, limits))
+        data = {key:None for key in dictkeys}
+        for blocks in self.section_blocks(tail, start, stop, step, **kwargs):
+            for block in blocks:
+                if key:=match_in_wildlist(block.key(), keys):
+                    limit = limits[key]
+                    values = block.data(strip=strip, limit=limit, unpack=False)
+                    dkeys = list(f'{key}_{l[0]}' for l in limit)
+                    for i,dk in enumerate(dkeys):
+                        data[dk] = values[i]
+                # Only data:None is omitted, data:() is allowed
+                if not any(val is None for val in data.values()):
+                #if all(data.values()):
+                    if singleton:
+                        yield tuple(data.values())
+                    else:
+                        # Unpack single values
+                        values = tuple(v if len(v)>1 else v[0] for v in data.values())
+                        yield values if len(values)>1 else values[0]
+                    data = {key:None for key in dictkeys}
 
     #--------------------------------------------------------------------------------
     def read(self, *varnames, **kwargs):                                # unfmt_file
@@ -1346,9 +1382,24 @@ class unfmt_file(File):                                                  # unfmt
                 step = b.data()[0]
             if any(key in b for key in keys):
                 yield (step, b)
+    #--------------------------------------------------------------------------------
+    def section_start_blocks(self, tail=False):                             # unfmt_file
+    #--------------------------------------------------------------------------------
+        # Generator that returns the block number of the start-block of each section, 
+        # and finally the total number of blocks. This is to enable use of 'pairwise' 
+        # to get start and end blocks of a section.
+        blocks = self.blocks
+        if tail:
+            blocks = self.tail_blocks
+        i = -1
+        for i, block in enumerate(blocks()):
+            if self.start in block:
+                yield i
+        yield i + 1
+
 
     #--------------------------------------------------------------------------------
-    def section_blocks(self, tail=False):                      # unfmt_file
+    def section_blocks(self, tail=False, start=0, stop=None, step=1):    # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Return blocks one section at a time
@@ -1357,14 +1408,23 @@ class unfmt_file(File):                                                  # unfmt
         blocks_func = self.blocks
         if tail:
             blocks_func = self.tail_blocks
-        step_gen = (i for i,b in enumerate(blocks_func()) if self.start in b)
-        # Need to add the total number of blocks to include the last section
-        step = pairwise(chain(step_gen, [self.count_blocks()]))
+        # Start block numeration
+        # start_blocks = (i for i,b in enumerate(blocks_func()) if self.start in b)
+        # # Need to add the total number of blocks to include the last section
+        # last_block = (self.count_blocks() for _ in [None])
+        # steps = pairwise(chain(start_blocks, last_block))
+        #steps = pairwise(chain(steps_gen, [self.count_blocks()]))
+        section_pos = islice(pairwise(self.section_start_blocks()), start, stop, step)
         blocks = blocks_func()
-        a, b = next(step)
-        while batch:=tuple(islice(blocks, b-a)):
+        #a, b = next(step)
+        prev = 0
+        a, b = next(section_pos)
+        #while batch:=tuple(islice(blocks, b-a)):
+        while batch := tuple(islice(blocks, a-prev, b-prev)):
             yield batch
-            a, b = next(step,(0,0))
+            prev = b
+            a, b = next(section_pos, (b, b))
+            #a, b = next(step,(0,0))
 
     #--------------------------------------------------------------------------------
     def section_data(self, start=(), end=(), rename=(), begin=0):        # unfmt_file
@@ -1413,7 +1473,9 @@ class unfmt_file(File):                                                  # unfmt
 
     #--------------------------------------------------------------------------------
     def section_data2(self, start=(), end=(), rename=(), begin=0):       # unfmt_file
-    #--------------------------------------------------------------------------------        
+    #--------------------------------------------------------------------------------
+        # Extract data from sections defined by start and end keywords. 
+        # Used to merge sections of unfmt-files
         with self.mmap() as filemap:
             for step, _slice in self.section_slices(start, end):
                 if step < begin:
@@ -1964,13 +2026,13 @@ class EGRID_file(unfmt_file):                                            # EGRID
     def coord_zcorn(self):                                           # EGRID_file
     #--------------------------------------------------------------------------------
         self._coord_zcorn = self._coord_zcorn or list(map(nparray, next(self.blockdata('COORD', 'ZCORN'))))
-        return self._coord_zcorn        
+        return self._coord_zcorn
 
     #--------------------------------------------------------------------------------
     def _indices(self, ijk):                                         # EGRID_file
     #--------------------------------------------------------------------------------
-        nijk = self.nijk()   
-        # Calculate indices for grid pillars in COORD 
+        nijk = self.nijk()
+        # Calculate indices for grid pillars in COORD
         pind = zeros(8, dtype=int)
         pind[0] = ijk[1]*(nijk[0]+1)*6 + ijk[0]*6
         pind[1] = pind[0] + 6
@@ -1991,7 +2053,7 @@ class EGRID_file(unfmt_file):                                            # EGRID
     def cell_corners(self, ijk_iter):                                     # EGRID_file
     #--------------------------------------------------------------------------------
         #nijk = self.nijk()
-        coord, zcorn = self.coord_zcorn() 
+        coord, zcorn = self.coord_zcorn()
         #coord, zcorn = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
         for ijk in ijk_iter:
             top, bot, zind = self._indices(ijk)
@@ -2025,6 +2087,13 @@ class EGRID_file(unfmt_file):                                            # EGRID
         cells = nparray(list(flatten((a, *b) for a,b in zip(repeat(8), batched(range(ncells*8), 8)))))
         cell_type = CellType.HEXAHEDRON*ones(ncells, dtype=int)
         return UnstructuredGrid(cells, cell_type, points.reshape(-1, 3))
+
+    #--------------------------------------------------------------------------------
+    def cells(self, **kwargs):                                            # EGRID_file
+    #--------------------------------------------------------------------------------
+        points = self.grid(**kwargs).cell_centers().points
+        dim = INIT_file(self.path).dim() + (3,)
+        return points.reshape(dim, order='C')
 
 
 #====================================================================================
@@ -3688,7 +3757,7 @@ class IXF_node:                                                            # IXF
         return {k:v for k,*v in self.rows()}
 
     #--------------------------------------------------------------------------------
-    def get(self, *items):                                                   # IXF_node
+    def get(self, *items):                                                 # IXF_node
     #--------------------------------------------------------------------------------
         #return self.as_dict().get(item)
         values = flatten(self.as_dict().get(item) or [None] for item in items)
@@ -3820,7 +3889,14 @@ class IX_input:                                                            # IX_
         return any(key in ixf for ixf in self.ixf_files)
 
     #--------------------------------------------------------------------------------
-    def ifind(self, astr:str):                                              # IX_input
+    def dim(self):                                                         # IX_input
+    #--------------------------------------------------------------------------------
+        if node := next(self.nodes('StructuredInfo'), None):
+            dim_node = node.as_dict()
+            return [int(dim_node[f'NumberCellsIn{ijk}'][0]) for ijk in 'IJK']
+
+    #--------------------------------------------------------------------------------
+    def ifind(self, astr:str):                                             # IX_input
     #--------------------------------------------------------------------------------
         enc_str = astr.encode()
         for file, data in self.afi.included_file_data():
@@ -3833,7 +3909,7 @@ class IX_input:                                                            # IX_
         return next(self.ifind(*args), None)
 
     #--------------------------------------------------------------------------------
-    def findall(self, *args):                                                 # IX_input
+    def findall(self, *args):                                              # IX_input
     #--------------------------------------------------------------------------------
         return tuple(self.ifind(*args))
 
@@ -4222,54 +4298,59 @@ class Flow():                                                                  #
     #--------------------------------------------------------------------------------
     def sat_rporv(self):                                 # Flow
     #--------------------------------------------------------------------------------
-        Sat_rporv= namedtuple('Sat_rporv', 'time dt rporv rporv_old sat sat_old')
+        Data = namedtuple('Data', 'time dt rporv rporv_old sat sat_old')
         blockdata = self.unrst.blockdata('DOUBHEAD', 0, 'S'+self.phases[0].upper(), 'RPORV')
         # Initial data
-        time, *data = next(blockdata, None)
+        time_old, *data = next(blockdata, None)
         sat_old, rporv_old = self.unrst.reshape_dim(*data)
         for time, *data in blockdata:
             sat, rporv = self.unrst.reshape_dim(*data)
-            yield Sat_rporv(time, rporv, rporv_old, sat, sat_old)
-            sat_old, rporv_old = sat, rporv
+            yield Data(time, time - time_old, rporv, rporv_old, sat, sat_old)
+            time_old, sat_old, rporv_old = time, sat, rporv
 
     #--------------------------------------------------------------------------------
     def tracer(self, force_vol_balance=False):                                 # Flow
     #--------------------------------------------------------------------------------
-        Tracer = namedtuple('Tracer', 'time dt conc prod_mass')
+        # m = c * Vp, m = mass, c = conc, Vp = vol_phase
+        # Explicit integration:
+        #   m^n+1 = c^n * Vp^n + dt * (Qin^n * Cin^n - Qout^n * C^n)
+        #   m^n+1 = c^n * (Vp^n - dt * Qout^n) + dt * Qin^n * Cin^n
+        # Volume balance:  
+        #   Vp^n+1 - Vp^n = dt * (Qin^n - Qout^n)
+        # Forced volume balance: 
+        #   Vp^n+1 - dt * Qin^n = Vp^n - dt * Qout^n
+        Tracer = namedtuple('Tracer', 'time dt conc prod_mass cfl')
         conc = zeros(self.unrst.dim())
+        conc[:] = 1
         rates = self.rates()
-        blockdata = self.unrst.blockdata('DOUBHEAD', 0, 'S'+self.phases[0].upper(), 'RPORV')
-        inj_conc = 1
-        # Initial data
-        time, *data = next(blockdata, None)
-        sat_old, rporv_old = self.unrst.reshape_dim(*data)
-        vol_phase_old = sat_old * rporv_old
-        # Loop over interblock flows and well flows
-        for rate, (time, *data) in zip(rates, blockdata):
-            sat, rporv = self.unrst.reshape_dim(*data)
-            vol_phase = sat * rporv
-            # m = c * Vp, m = mass, c = conc, Vp = vol_phase
-            # Explicit integration:
-            #   m^n+1 = c^n * Vp^n + dt * (Qin^n * Cin^n - Qout^n * C^n)
-            #   m^n+1 = c^n * (Vp^n - dt * Qout^n) + dt * Qin^n * Cin^n
-            # Volume balance:  
-            #   Vp^n+1 - Vp^n = dt * (Qin^n - Qout^n)
-            # Forced volume balance: 
-            #   Vp^n+1 - dt * Qin^n = Vp^n - dt * Qout^n
+        sat_rporv = self.sat_rporv()
+        inj_conc = 0
+        for rate, data in zip(rates, sat_rporv):
+            self.check_time_sync(rate.time, data.time)
+            vol_phase_old = data.sat_old * data.rporv_old
+            vol_phase = data.sat * data.rporv
             if force_vol_balance:
                 mass = conc * (vol_phase - rate.dt * npsum(rate.inflow, axis=-1))
             else:
                 mass = conc * (vol_phase_old - rate.dt * npsum(rate.outflow, axis=-1))
-            # inflow_pos is 'inflow from positive neighbour' (inflow, negative rate)
-            # inflow_neg is 'inflow from negative neighbour' (outflow, positive rate)
-            block_conc_inflow = rate.inflow_pos * self.roll_xyz(conc, -1) + rate.inflow_neg * self.roll_xyz(conc, 1)
+            # neg_inflow is inflow from right block, pos_inflow is inflow from left block
+            block_conc_inflow = rate.block.neg_inflow * self.roll_xyz(conc, -1) + rate.block.pos_inflow * self.roll_xyz(conc, 1)
+            # Inflow concentration from wells
             well_conc_inflow = inj_conc * (rate.inflow[..., 3] > 0)
             conc_inflow = concatenate((block_conc_inflow, well_conc_inflow[...,None]), axis=-1)
+            if rate.nnc:
+                nnc_conc_inflow = zeros(conc.shape)
+                # Inflow nnc2 -> nnc1
+                nnc_conc_inflow[self.nnc_ijk[0]] += rate.nnc.neg_inflow * conc[self.nnc_ijk[1]]
+                # Inflow nnc1 -> nnc2
+                nnc_conc_inflow[self.nnc_ijk[1]] += rate.nnc.pos_inflow * conc[self.nnc_ijk[0]]
+                conc_inflow = concatenate((conc_inflow, nnc_conc_inflow[..., None]), axis=-1)
             mass += rate.dt * npsum((rate.inflow * conc_inflow), axis=-1)
             prod_mass = rate.dt * rate.outflow[..., 3] * conc
-            mass -= prod_mass
+            #mass -= prod_mass
             conc = mass / vol_phase
-            yield Tracer(rate.time, rate.dt, conc, prod_mass)
+            cfl = rate.dt * npsum(rate.inflow, axis=-1) / vol_phase
+            yield Tracer(rate.time, rate.dt, conc, prod_mass, cfl)
             vol_phase_old = vol_phase
 
     # #--------------------------------------------------------------------------------
@@ -4328,48 +4409,48 @@ class Flow():                                                                  #
     #         vol_phase_old = vol_phase
 
 
-    #--------------------------------------------------------------------------------
-    def volume(self):                                                    # Flow
-    #--------------------------------------------------------------------------------
-        Volume = namedtuple('Volume', 'time dt dQ dV rate_in rate_out')
-        block_flow = self.interblock()
-        well_flow = self.wells()
-        nnc = None
-        if self.nnc_key:
-            nnc_flow = self.nnc_rates()
-            nnc = next(nnc_flow, None)
-        # Initial time
-        time = next(block_flow).time
-        # Loop over interblock flows and well flows
-        for block, wells in zip(block_flow, well_flow):
-            # rate_in = npsum(block.rate_in, axis=-1)
-            # rate_out = npsum(block.rate_out, axis=-1)
-            dQ = npsum(block.rate_in - block.rate_out, axis=-1)
-            # Loop over active wells
-            for well in wells:
-                self.check_time_sync(well.time, block.time)
-                dQ[tuple(well.pos)] -=  well.rate
-            # NNC flow
-            if nnc:
-                nnc = next(nnc_flow, None)
-                dQ_nnc = nnc.rate_in - nnc.rate_out
-                dQ[self.nnc_ijk[0]] += dQ_nnc
-                dQ[self.nnc_ijk[1]] -= dQ_nnc
-            dt = block.time - time
-            yield Volume(block.time, dt, dQ, dt*dQ, block.rate_in, block.rate_out)
-            time = block.time
+    # #--------------------------------------------------------------------------------
+    # def volume(self):                                                    # Flow
+    # #--------------------------------------------------------------------------------
+    #     Volume = namedtuple('Volume', 'time dt dQ dV rate_in rate_out')
+    #     block_flow = self.interblock()
+    #     well_flow = self.wells()
+    #     nnc = None
+    #     if self.nnc_key:
+    #         nnc_flow = self.nnc_rates()
+    #         nnc = next(nnc_flow, None)
+    #     # Initial time
+    #     time = next(block_flow).time
+    #     # Loop over interblock flows and well flows
+    #     for block, wells in zip(block_flow, well_flow):
+    #         # rate_in = npsum(block.rate_in, axis=-1)
+    #         # rate_out = npsum(block.rate_out, axis=-1)
+    #         dQ = npsum(block.rate_in - block.rate_out, axis=-1)
+    #         # Loop over active wells
+    #         for well in wells:
+    #             self.check_time_sync(well.time, block.time)
+    #             dQ[tuple(well.pos)] -=  well.rate
+    #         # NNC flow
+    #         if nnc:
+    #             nnc = next(nnc_flow, None)
+    #             dQ_nnc = nnc.rate_in - nnc.rate_out
+    #             dQ[self.nnc_ijk[0]] += dQ_nnc
+    #             dQ[self.nnc_ijk[1]] -= dQ_nnc
+    #         dt = block.time - time
+    #         yield Volume(block.time, dt, dQ, dt*dQ, block.rate_in, block.rate_out)
+    #         time = block.time
 
     #--------------------------------------------------------------------------------
     def rates(self):                                                    # Flow
     #--------------------------------------------------------------------------------
-        Rates = namedtuple('Rates', 'time dt inflow outflow inflow_pos inflow_neg')
+        Rates = namedtuple('Rates', 'time dt inflow outflow block nnc')
         block_flow = self.interblock()
         well_flow = self.wells()
         dim = self.unrst.dim()
         nnc = None
         if self.nnc_key:
-            nnc_flow = self.nnc_rates()
-            nnc = next(nnc_flow, None)
+            nnc_rates = self.nnc_rates()
+            nnc = next(nnc_rates, None)
         # Initial time
         time = next(block_flow).time
         # Loop over interblock flows and well flows
@@ -4380,58 +4461,82 @@ class Flow():                                                                  #
                 self.check_time_sync(well.time, block.time)
                 kind = 'in' if well.rate[0] < 0 else 'out'
                 well_rate[kind][well.pos] += npabs(well.rate)
-            # # NNC flow
-            # if nnc:
-            #     nnc = next(nnc_flow, None)
-            #     axis = (len(self.nnc_ijk[0])*[0],)
-            #     block.rate_in[self.nnc_ijk[0] + axis] = nnc.rate_in
-            #     block.rate_out[self.nnc_ijk[0] + axis] = nnc.rate_out
-            #     block.rate_in[self.nnc_ijk[1] + axis] = nnc.rate_out
-            #     block.rate_out[self.nnc_ijk[1] + axis] = nnc.rate_in
             dt = block.time - time
             rate_in = concatenate((block.rate_in, well_rate['in'][..., None]), axis=-1)
             rate_out = concatenate((block.rate_out, well_rate['out'][..., None]), axis=-1)
-            yield Rates(block.time, dt, rate_in, rate_out, block.inflow_pos, block.inflow_neg)
+            # NNC flow
+            if nnc:
+                nnc = next(nnc_rates, None)
+                rate_in = concatenate((rate_in, nnc.rate_in[..., None]), axis=-1)
+                rate_out = concatenate((rate_out, nnc.rate_out[..., None]), axis=-1)
+            yield Rates(block.time, dt, rate_in, rate_out, block, nnc)
             time = block.time
 
     #--------------------------------------------------------------------------------
     def data(self):                                                           # Flow
     #--------------------------------------------------------------------------------
-        Flowdata = namedtuple('Flowdata', 'time S V dt dS dV dVpor dQ dV_flow dS_flow rate_in rate_out') # rs')
-        blockdata = self.unrst.blockdata('DOUBHEAD', 0, 'S'+self.phases[0].upper(), 'RPORV') #, 'FLRWATI+', 'FLOWATI+')
-        # Initial data
-        time, *data = next(blockdata)
-        old_sat, old_rporv = self.unrst.reshape_dim(*data)
-        for volume, (time, *data) in zip(self.volume(), blockdata):
-            sat, rporv = self.unrst.reshape_dim(*data)
-            if abs(time - volume.time) > 1e-8:
-                raise ValueError(f'Difference in times: {time}, {volume.time}')
-            dsat = sat - old_sat
-            vol = sat * rporv
-            old_vol = old_sat * old_rporv
-            dvol = vol - old_vol
-            dvol_p = rporv - old_rporv
-            rate_in = npsum(volume.rate_in, axis=-1)
-            rate_out = npsum(volume.rate_out, axis=-1)
-            #lhs = old_vol - volume.dt * rate_out
-            #rhs = vol - volume.dt * rate_in
-            #dsat_flow = (old_vol + volume.dV) / rporv - old_sat
-            dsat_flow = volume.dV / rporv # - (1 - old_rporv/rporv) * old_sat
-            #           time     S     V      dt       dS    dV    dVp      dQ        dV_flow    dS_flow
-            yield Flowdata(time, sat, vol, volume.dt, dsat, dvol, dvol_p, volume.dQ, volume.dV, dsat_flow, rate_in, rate_out)
-            old_sat, old_rporv = sat, rporv
+        Flowdata = namedtuple('Flowdata', 'time dt rporv rporv_old sat sat_old rate_in rate_out')  # bw bw_old')
+        #bwdata = self.unrst.blockdata('DOUBHEAD', 0, 'BW')
+        #time, BW = next(bwdata)
+        #bw_old, = self.unrst.reshape_dim(BW)
+        #for rate, data, (time, BW) in zip(self.rates(), self.sat_rporv(), bwdata):
+        for rate, data in zip(self.rates(), self.sat_rporv()):
+            self.check_time_sync(rate.time, data.time) #, time)
+            #bw, = self.unrst.reshape_dim(BW)
+            rate_in = npsum(rate.inflow, axis=-1)
+            rate_out = npsum(rate.outflow, axis=-1)
+            yield Flowdata(data.time, data.dt, data.rporv, data.rporv_old,
+                           data.sat, data.sat_old, rate_in, rate_out) #, bw, bw_old)
+            #bw_old = bw
+
+    # #--------------------------------------------------------------------------------
+    # def data(self):                                                           # Flow
+    # #--------------------------------------------------------------------------------
+    #     Flowdata = namedtuple('Flowdata', 'time S V dt dS dV dVpor dQ dV_flow dS_flow rate_in rate_out') # rs')
+    #     blockdata = self.unrst.blockdata('DOUBHEAD', 0, 'S'+self.phases[0].upper(), 'RPORV') #, 'FLRWATI+', 'FLOWATI+')
+    #     # Initial data
+    #     time, *data = next(blockdata)
+    #     old_sat, old_rporv = self.unrst.reshape_dim(*data)
+    #     for volume, (time, *data) in zip(self.volume(), blockdata):
+    #         sat, rporv = self.unrst.reshape_dim(*data)
+    #         if abs(time - volume.time) > 1e-8:
+    #             raise ValueError(f'Difference in times: {time}, {volume.time}')
+    #         dsat = sat - old_sat
+    #         vol = sat * rporv
+    #         old_vol = old_sat * old_rporv
+    #         dvol = vol - old_vol
+    #         dvol_p = rporv - old_rporv
+    #         rate_in = npsum(volume.rate_in, axis=-1)
+    #         rate_out = npsum(volume.rate_out, axis=-1)
+    #         #lhs = old_vol - volume.dt * rate_out
+    #         #rhs = vol - volume.dt * rate_in
+    #         #dsat_flow = (old_vol + volume.dV) / rporv - old_sat
+    #         dsat_flow = volume.dV / rporv # - (1 - old_rporv/rporv) * old_sat
+    #         #           time     S     V      dt       dS    dV    dVp      dQ        dV_flow    dS_flow
+    #         yield Flowdata(time, sat, vol, volume.dt, dsat, dvol, dvol_p, volume.dQ, volume.dV, dsat_flow, rate_in, rate_out)
+    #         old_sat, old_rporv = sat, rporv
 
     #--------------------------------------------------------------------------------
     def nnc_rates(self):                                                  # Flow
     #--------------------------------------------------------------------------------
-        NNCflow = namedtuple('NNCflow', 'rate rate_in rate_out')
+        # neg_inflow is inflow from nnc2 -> nnc1
+        # pos_inflow is inflow from nnc1 -> nnc2
+        NNC = namedtuple('NNC', 'rate_in rate_out neg_inflow pos_inflow')
+        dim = self.unrst.dim()
         for seqnum, rate in self.unrst.blockdata('SEQNUM', self.nnc_key, singleton=True):
             if seqnum[0] != self.seqnum:
                 raise ValueError(f'SEQNUM mismatch for NNC-rates: {seqnum[0]}, {self.seqnum}')
             rate = nparray(rate)
-            rate_in = -rate * (rate < 0)
-            rate_out = rate * (rate >= 0)
-            yield NNCflow(rate, rate_in, rate_out)
+            inflow = rate < 0
+            outflow = rate >= 0
+            rate_in = -rate * inflow
+            rate_out = rate * outflow
+            nnc_in, nnc_out = zeros(dim), zeros(dim)
+            nnc_in[self.nnc_ijk[0]] = rate_in
+            nnc_out[self.nnc_ijk[0]] = rate_out
+            nnc_in[self.nnc_ijk[1]] = rate_out
+            nnc_out[self.nnc_ijk[1]] = rate_in
+            yield NNC(nnc_in, nnc_out, inflow, outflow)
 
     #--------------------------------------------------------------------------------
     def interblock(self):                                                      # Flow
@@ -4443,7 +4548,7 @@ class Flow():                                                                  #
     #--------------------------------------------------------------------------------
         # Read flow rates from UNRST-file
         # Convert surface rates to reservoir rates AFTER in/out splitting
-        Blockflow = namedtuple('Blockflow', 'time rate rate_in rate_out inflow_pos inflow_neg')
+        Blockflow = namedtuple('Blockflow', 'time rate_in rate_out neg_inflow pos_inflow')
         phase = self.phases[0]
         blockdata = self.unrst.blockdata('SEQNUM', 'DOUBHEAD', 0, *self.block_keys)
         for self.seqnum, self.time, *data in blockdata:
@@ -4461,7 +4566,7 @@ class Flow():                                                                  #
                 rate_in, rate_out = [self.convert.surf_to_res(rt, self.seqnum) for rt in (rates_in, rates_out)]
             else:
                 rate_in, rate_out = rates_in[phase], rates_out[phase]
-            yield Blockflow(self.time, rates[phase], rate_in, rate_out, inflow, outflow)
+            yield Blockflow(self.time, rate_in, rate_out, inflow, outflow)
 
 
     #--------------------------------------------------------------------------------
@@ -4469,7 +4574,7 @@ class Flow():                                                                  #
     #--------------------------------------------------------------------------------
         # Read flow rates from UNRST-file
         # Convert surface rates to reservoir rates BEFORE in/out splitting
-        Blockflow = namedtuple('Blockflow', 'time rate rate_in rate_out inflow_pos inflow_neg')
+        Blockflow = namedtuple('Blockflow', 'time rate rate_in rate_out neg_inflow pos_inflow')
         phase = self.phases[0]
         blockdata = self.unrst.blockdata('SEQNUM', 'DOUBHEAD', 0, *self.block_keys)
         for self.seqnum, self.time, *data in blockdata:
@@ -4540,6 +4645,7 @@ class Flow():                                                                  #
     #--------------------------------------------------------------------------------
     def _wellrate_from_tubing(self, tubflows, wellplt, connxt):                # Flow
     #--------------------------------------------------------------------------------
+        # Seems that this only works for reservoir rates, and the accuracy is not very good
         wellplt = nparray(wellplt)
         phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
         connxt = atleast_1d(connxt)

@@ -9,6 +9,7 @@ from math import prod
 from re import compile as re_compile
 from struct import pack, unpack
 from os import SEEK_CUR, SEEK_END
+from numpy import array, concatenate, full
 
 from IORlib.utils import batched_as_list, flatten, list_prec, take
 
@@ -16,6 +17,34 @@ Dtype = namedtuple('dtype', 'format size value')
 DTYPE = {0:Dtype('i', 4, 0), 1:Dtype('f', 4, 1), 2:Dtype('d', 8, 2)}
 format2type = {v.format:k for k,v in DTYPE.items()}
 
+
+#--------------------------------------------------------------------------------
+def gsg_data(file, expand=False, dim=None):
+#--------------------------------------------------------------------------------
+    # Read data from GSG-file with PROP data.
+    # If expand is True, the data is expanded to a full array.
+    GSG_data = namedtuple('GSG_data', 'kind num name key array')
+    with File(file) as gsg:
+        # Two ints preceeds the start of the data.
+        # The first int is 0 for a full array, and 1 if the values are grouped.
+        # An array [2, 2, 2, 2, 3, 3, 3] is grouped as [1, 4, 2, 3, 3].
+        # The second int is a counter of the data-values in the GSG-file
+        for var, name, start, end in gsg.data_positions():
+            if var != 'PROP':
+                continue
+            gsg.goto(start)
+            # The first two ints are the kind and the number of the data
+            kind, num = gsg.read_int(2)
+            key, keydata = gsg.read_keyword('4sqi', 16)
+            dtype = DTYPE[keydata[0][1]]
+            nbytes = end - gsg.current_pos()
+            size = nbytes//dtype.size
+            data = array(unpack(str(size) + dtype.format, gsg.read(nbytes)))
+            if kind == 1 and expand:
+                data = concatenate([full(count, value) for count, value in zip(data[1::2], data[2::2])])
+            if dim:
+                data = data.reshape(dim, order='F')
+            yield GSG_data(kind, num, name, key, data)
 
 #--------------------------------------------------------------------------------
 def change_resolution(dim, rundir):
@@ -50,7 +79,7 @@ class File:
     #--------------------------------------------------------------------------------
     def __init__(self, filepath, write=False):
     #--------------------------------------------------------------------------------
-        self.filepath = Path(filepath).with_suffix('.GSG')
+        self.filepath = Path(filepath) #.with_suffix('.GSG')
         self.file_obj = None
         self.mode = 'rb'
         if write:
@@ -97,6 +126,25 @@ class File:
     #--------------------------------------------------------------------------------
         if self.file_obj:
             self.file_obj.close()
+
+    #--------------------------------------------------------------------------------
+    def data_positions(self):
+    #--------------------------------------------------------------------------------
+        meta = self.read_meta()
+        nvar = meta['INDEX'][1]-1
+        self.goto(meta['CASE_PROPS'][1]+24)
+        try:
+            data = (self.read_keyword('4s2i8si', 24) for _ in range(nvar))
+            names, _ = zip(*data)
+        except ValueError:
+            # For AXES files, var-names is not formatted as for PROP files
+            names = nvar * ['']
+        var = [m[:4] if m[:4] == 'PROP' else m for m in meta][1:]
+        startpos = [pos[1] - 4 for pos in meta.values()][1:]
+        endpos = [s - len(v) for v,s in zip(var, startpos)]
+        # The last data ends one int (4 bytes) before the 'CASE_PROPS' keyword
+        endpos[-1] -= 4
+        return list(zip(var, names, startpos[:-1], endpos[1:]))
 
     #--------------------------------------------------------------------------------
     def blocks(self, file_format=None):
@@ -162,6 +210,7 @@ class File:
         self.skip(-(4+len(keyword)))
         return keyword
 
+
     #--------------------------------------------------------------------------------
     def read_data(self, *args):
     #--------------------------------------------------------------------------------
@@ -177,6 +226,7 @@ class File:
         if a == 1:
             len_data = 3
             fmt = f'2i{dtype.format}'
+        #print(fmt, dtype.size, len_data, dtype.size*len_data)
         data = list(unpack(fmt, self.read(dtype.size*len_data)))
         return (key, [head, data])
 
@@ -309,12 +359,19 @@ class File:
         """
         meta = {}
         if search:
-            key, pos = next(self.keyword_positions('INDEX'))
+            _, pos = next(self.keyword_positions('INDEX'))
             self.goto(pos-9)
-        key, data = self.read_keyword('2i', 8)
-        meta['INDEX'] = data[0]
-        for _ in range(meta['INDEX'][1]):
+        else:
+            # Last 8 bytes of the file is the position of the INDEX-key
+            self.end(-8)
+            index_pos, = self.read_uint()
+            self.goto(index_pos)
+        index, data = self.read_keyword('2i', 8)
+        meta[index] = data[0]
+        for i in range(meta['INDEX'][1]):
             key, data = self.read_keyword('iq', 12)
+            if key == 'PROP':
+                key = f'PROP_{i}'
             meta[key] = data[0]
         meta[key] += self.read_uint()
         return meta
