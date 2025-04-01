@@ -13,20 +13,20 @@ from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
 from time import sleep
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
 from numpy import (concatenate, fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, 
-                   roll as nproll, stack, sum as npsum, zeros, ones, atleast_1d, argsort, 
+                   roll as nproll, stack, sum as npsum, where, zeros, ones, atleast_1d, argsort, 
                    abs as npabs, any as npany, diff as npdiff)
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
 
-from .utils import (batched, batched_when, cumtrapz, date_range, decode, ensure_bytestring,
-                    expand_pattern, flatten, index_limits, last_line, match_in_wildlist, nth,
+from .utils import (any_cell_in_box, batched, batched_when, bounding_box, cumtrapz, date_range, decode, ensure_bytestring,
+                    expand_pattern, flatten, index_array, index_limits, last_line, match_in_wildlist, nth,
                     pad, slice_range, tail_file, head_file, flat_list, flatten_all, grouper,
                     list2text, pairwise, remove_chars, list2str, float_or_str, matches,
                     split_by_words, string_split, split_in_lines, take, missing_elements)
@@ -48,34 +48,6 @@ ECL2IX_LOG = 'ecl2ix.log'
 #
 #
 #
-
-# #------------------------------------------------------------------------------------
-# def check_flowvol(root, phase='WAT', resrate=True):
-# #------------------------------------------------------------------------------------
-#     dt_accuracy = 1e-6
-#     rft = RFT_file(root)
-#     unrst = UNRST_file(root)
-#     phlow = phase.lower()
-#     Volumes = namedtuple('Volumes', 'time dt dQdt dV diff')
-#     for (bflow, pvt), wflow in zip(unrst.block_flows(phase, resrate), rft.well_flows()):
-#         if any(abs(wf.days - bflow.days) > dt_accuracy for wf in wflow):
-#             raise ValueError('The timesteps of the UNRST- and RFT-file dont match: '
-#                              f'{bflow.days}, {[wf.days for wf in wflow]}')
-#         #print('unrst:', bflow.days, 'rft:', [wf.days for wf in wflow])
-#         Qin = bflow.Qin
-#         # Add inflow from injectors
-#         for flow in wflow:
-#             Qw = getattr(flow, f'{phlow}rate')
-#             if any(q < 0 for q in Qw):
-#                 # Well penetrates in z-dir (2)
-#                 Qin[*flow.pos, 2] += npabs(Qw)
-#         #print('dQ:', (Qin - bflow.Qout)[...,0].squeeze(), ', dt:', bflow.dt)
-#         dQdt = (Qin - bflow.Qout) * bflow.dt
-#         dQdt = npsum(dQdt, axis=-1)
-#         diff = zeros_like(dQdt)
-#         mask = npabs(dQdt) > 1e-9
-#         diff[mask] = 100*(bflow.dVol[mask]-dQdt[mask])/dQdt[mask]
-#         yield Volumes(bflow.days, bflow.dt, dQdt, bflow.dVol, diff)
 
 
 #====================================================================================
@@ -978,7 +950,7 @@ class unfmt_block:                                                     # unfmt_b
             # File object
             data = (self.read_file(sl) for sl in slices)
         nbytes = sum(sl.stop-sl.start for sl in slices)
-        length = nbytes//(1 if self.is_char() else self.dtype.size)
+        length = nbytes // (1 if self.is_char() else self.dtype.size)
         return unpack(ENDIAN+f'{length}{self.dtype.unpack}', b''.join(data))
 
     #--------------------------------------------------------------------------------
@@ -1170,16 +1142,15 @@ class unfmt_file(File):                                                  # unfmt
                     dkeys = list(f'{key}_{l[0]}' for l in limit)
                     for i,dk in enumerate(dkeys):
                         data[dk] = values[i]
-                # Only data:None is omitted, data:() is allowed
-                if not any(val is None for val in data.values()):
-                #if all(data.values()):
-                    if singleton:
-                        yield tuple(data.values())
-                    else:
-                        # Unpack single values
-                        values = tuple(v if len(v)>1 else v[0] for v in data.values())
-                        yield values if len(values)>1 else values[0]
-                    data = {key:None for key in dictkeys}
+            # Only data:None is omitted, data:() is allowed
+            if not any(val is None for val in data.values()):
+                if singleton:
+                    yield tuple(data.values())
+                else:
+                    # Unpack single values
+                    values = tuple(v if len(v)>1 else v[0] for v in data.values())
+                    yield values if len(values)>1 else values[0]
+                data = {key:None for key in dictkeys}
 
     #--------------------------------------------------------------------------------
     def read(self, *varnames, **kwargs):                                # unfmt_file
@@ -1383,23 +1354,25 @@ class unfmt_file(File):                                                  # unfmt
             if any(key in b for key in keys):
                 yield (step, b)
     #--------------------------------------------------------------------------------
-    def section_start_blocks(self, tail=False):                             # unfmt_file
+    def section_start_blocks(self, tail=False, **kwargs):                             # unfmt_file
     #--------------------------------------------------------------------------------
         # Generator that returns the block number of the start-block of each section, 
         # and finally the total number of blocks. This is to enable use of 'pairwise' 
         # to get start and end blocks of a section.
         blocks = self.blocks
+        start = self.start
         if tail:
             blocks = self.tail_blocks
+            start = self.end
         i = -1
-        for i, block in enumerate(blocks()):
-            if self.start in block:
+        for i, block in enumerate(blocks(**kwargs)):
+            if start in block:
                 yield i
         yield i + 1
 
 
     #--------------------------------------------------------------------------------
-    def section_blocks(self, tail=False, start=0, stop=None, step=1):    # unfmt_file
+    def section_blocks(self, tail=False, start=0, stop=None, step=1, **kwargs):    # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Return blocks one section at a time
@@ -1414,11 +1387,12 @@ class unfmt_file(File):                                                  # unfmt
         # last_block = (self.count_blocks() for _ in [None])
         # steps = pairwise(chain(start_blocks, last_block))
         #steps = pairwise(chain(steps_gen, [self.count_blocks()]))
-        section_pos = islice(pairwise(self.section_start_blocks()), start, stop, step)
-        blocks = blocks_func()
+        start_blocks = self.section_start_blocks(tail=tail, **kwargs)
+        section_pos = islice(pairwise(start_blocks), start, stop, step)
+        blocks = blocks_func(**kwargs)
         #a, b = next(step)
         prev = 0
-        a, b = next(section_pos)
+        a, b = next(section_pos, (0, 0))
         #while batch:=tuple(islice(blocks, b-a)):
         while batch := tuple(islice(blocks, a-prev, b-prev)):
             yield batch
@@ -2601,7 +2575,7 @@ class RFT_file(unfmt_file):                                                # RFT
     def wellbbox(self, *wellnames, zerobase=True):                          # RFT_file
     #--------------------------------------------------------------------------------
         wpos = self.wellpos(*wellnames, zerobase=zerobase)
-        bbox = {well:None for well in wellnames}       
+        bbox = {well:None for well in wellnames}
         for well, wp in zip(wellnames, wpos):
             bbox[well] = [(p[0], p[-1]) for p in map(sorted, zip(*wp))]
         return tuple(bbox.values())
@@ -2644,103 +2618,6 @@ class RFT_file(unfmt_file):                                                # RFT
             wells.append(well)
             current_time = time
             
-    # #--------------------------------------------------------------------------------
-    # def wellrate(self, reservoir=True, tube=True, zerobase=True): 
-    #              #convert_func=None):                                       # RFT_file
-    # #--------------------------------------------------------------------------------
-    #     Wellrate = namedtuple('Wellrate', 'time name pos rate')
-    #     keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
-    #     L = 'L' if reservoir else ''
-    #     TUB_RAT = 'TUB' if tube else 'RAT'
-    #     if reservoir and not tube:
-    #         raise SystemError('ERROR Well reservoir rates require tube=True (CON*RATL)')
-    #     rate_keys = [f'CON{owg}{TUB_RAT}{L}' for owg in 'OWG']
-    #     rates = []
-    #     current_time = next(self.read('time'))
-    #     for time, i, j, k, wellplt, welletc, connxt, *wellrat in self.blockdata(*keys, *rate_keys, singleton=True):
-    #         time = time[0]
-    #         wellname = welletc[1]
-    #         if time > current_time:
-    #             yield rates
-    #             current_time = time
-    #             rates = []
-    #         if tube:
-    #             wellrat = self._wellrate_from_tubs(wellrat, wellplt, connxt)
-    #         wellrat = {ph:nparray(rat) for ph,rat in zip(('oil', 'wat', 'gas'), wellrat)}
-    #         # Fix zero-based position indices
-    #         pos = [i, j, k]
-    #         if zerobase:
-    #             pos = [[x-1 for x in p] for p in pos]
-    #         # if convert_func:
-    #         #     wellrat = convert_func(wellrat, pos)
-    #         rates.append(Wellrate(time, wellname, pos, wellrat))
-
-    # #--------------------------------------------------------------------------------
-    # def rate_from_tubs(self, tub, wellrate, connxt):                       # RFT_file
-    # #--------------------------------------------------------------------------------
-    #     connxt = atleast_1d(connxt)
-    #     tub = atleast_1d(tub)
-    #     injector = wellrate < 0
-    #     idx = list(argsort(connxt))
-    #     miss = missing_elements(connxt) or [len(connxt)]
-    #     is_neigh = ones(len(idx) + len(miss), dtype=np_bool)
-    #     for m in miss:
-    #         idx.insert(m, (m if m<len(connxt) else 0) if injector else m-1)
-    #         is_neigh[m] = 0
-    #     #is_neigh[list(miss)] = 0
-    #     if injector:
-    #         # Injector
-    #         diff = zeros(len(tub))
-    #         for i in range(len(tub)):
-    #             if is_neigh[i+1]:
-    #                 diff[idx[i+1]] = tub[i] - tub[idx[i+1]]
-    #         diff[idx[0]] = wellrate - tub[idx[0]]
-    #     else:
-    #         # Producer
-    #         diff = tub - is_neigh[1:]*tub[idx[1:]]
-    #     return diff
-    #     #return squeeze(diff)
-
-
-    # #--------------------------------------------------------------------------------
-    # def rate_from_surf(self, oil, wat, gas, pos, pvt):                       # RFT_file
-    # #--------------------------------------------------------------------------------
-    #     phase = phase.lower()
-    #     pvt = pvt._asdict()
-    #     RS, RV, BO, BG, BW = [pvt[key][*pos, :] for key in ('RS', 'RV', 'BO', 'BG', 'BW')]
-    #     denom = (1 - pvt.RS * pvt.RV)
-    #     resoil = BO * (     oil - RV * gas) / denom
-    #     resgas = BG * ( -RS*oil +      gas) / denom 
-    #     reswat = BW * wat
-    #     return resoil, reswat, resgas
-
-
-    # #--------------------------------------------------------------------------------
-    # def well_flows(self, zerobase=True, resrate=True):                       # RFT_file
-    # #--------------------------------------------------------------------------------
-    #     Resrate = namedtuple('Resrate', 'days well pos oilrate watrate gasrate')
-    #     keys = ('TIME', 'CONIPOS', 'CONJPOS', 'CONKPOS', 'WELLPLT', 'WELLETC', 'CONNXT')
-    #     if resrate:
-    #         rate_keys = ('CONOTUBL', 'CONWTUBL', 'CONGTUBL')
-    #     else:
-    #         rate_keys = ('CONORAT', 'CONWRAT', 'CONGRAT')
-    #     rates = []
-    #     current_time = next(self.read('time'))
-    #     for time, i, j, k, wellplt, welletc, connxt, *conrates in self.blockdata(*keys, *rate_keys, singleton=True):
-    #         if time[0] > current_time:
-    #             yield rates
-    #             current_time = time[0]
-    #             rates = []
-    #         if resrate:
-    #             wellplt = nparray(wellplt)
-    #             phase_rates = wellplt[5]*(wellplt[:3]/sum(wellplt[:3]))
-    #             resrate = (self.rate_from_tubs(tubl, phase_rates[i], connxt) for i, tubl in enumerate(conrates))
-    #         else:
-    #             resrate = conrates
-    #         pos = [i, j, k]
-    #         if zerobase:
-    #             pos = [[x-1 for x in p] for p in pos]
-    #         rates.append(Resrate(time[0], welletc[1], pos, *resrate))
 
 #====================================================================================
 class UNSMRY_file(unfmt_file):
@@ -3577,7 +3454,8 @@ class AFI_file(File):                                                      # AFI
     #include_regex = rb'^[ \t]*\bINCLUDE\b\s*"*([\w.-]+)"*'
     # Return 'filename' and 'key1=val1 key2=val2' as groups from the following format:
     # INCLUDE "filename" {key1=val1, key2=val2}
-    include_regex = rb'\bINCLUDE\b\s*"*([^"]+)"*\s*\{([^}]+)\}'
+    #include_regex = rb'\bINCLUDE\b\s*"*([^"]+)"*\s*\{([^}]+)\}'
+    include_regex = rb'^\s*\bINCLUDE\b\s*\"*([^\"]+)'
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, check=False, **kwargs):                       # AFI_file
@@ -4118,6 +3996,24 @@ class IX_input:                                                            # IX_
         return (set((well.name, _type[0]) for well in self.nodes('Well') if (_type:=well.get('Type'))))
 
     #--------------------------------------------------------------------------------
+    def wells_by_type(self):                                               # IX_input
+    #--------------------------------------------------------------------------------
+        """
+        Categorizes wells by their type.
+
+        This method organizes wells into a dictionary where the keys are well types
+        and the values are lists of well names corresponding to each type.
+
+        Returns:
+            dict: A dictionary where the keys are well types (e.g., 'producer', 'injector')
+                and the values are lists of well names belonging to each type.
+        """
+        wells = defaultdict(list)
+        for wname, wtype in self.wells():
+            wells[wtype].append(wname)
+        return dict(wells)
+
+    #--------------------------------------------------------------------------------
     def wellpos(self, *wellnames):                                         # IX_input
     #--------------------------------------------------------------------------------
         well_list = list(wellnames)
@@ -4133,6 +4029,14 @@ class IX_input:                                                            # IX_
                 if not well_list:
                     break
         return tuple(wpos.values())
+
+    #--------------------------------------------------------------------------------
+    def wells_near_cells(self, *cells):                                         # IX_input
+    #--------------------------------------------------------------------------------
+        wells, kind = zip(*self.wells())
+        wellbbox = [bounding_box(wp) for wp in self.wellpos(*wells)]
+        return [(w, k, bb) for w, k, bb in zip(wells, kind, wellbbox) if any_cell_in_box(cells, bb)]
+
 
     #--------------------------------------------------------------------------------
     def summary_keys(self, matching=()):                                   # IX_input
@@ -4309,6 +4213,18 @@ class Flow():                                                                  #
             time_old, sat_old, rporv_old = time, sat, rporv
 
     #--------------------------------------------------------------------------------
+    def sort_blocks_by_flow(self, rate):                                 # Flow
+    #--------------------------------------------------------------------------------
+        # Create index-array for calculating neighbouring blocks
+        index = index_array(self.unrst.dim())
+        neg_inflow_neigh = where(rate.block.neg_inflow[..., None], self.roll_xyz(index, -1, as_scalar=True), -1)
+        pos_inflow_neigh = where(rate.block.pos_inflow[..., None], self.roll_xyz(index, 1, as_scalar=True), -1)
+        inflow_neigh = concatenate((neg_inflow_neigh, pos_inflow_neigh), axis=3)
+        in_degrees = npsum(inflow_neigh != -1, axis=3)[..., 0]
+        
+
+
+    #--------------------------------------------------------------------------------
     def tracer(self, force_vol_balance=False):                                 # Flow
     #--------------------------------------------------------------------------------
         # m = c * Vp, m = mass, c = conc, Vp = vol_phase
@@ -4321,10 +4237,10 @@ class Flow():                                                                  #
         #   Vp^n+1 - dt * Qin^n = Vp^n - dt * Qout^n
         Tracer = namedtuple('Tracer', 'time dt conc prod_mass cfl')
         conc = zeros(self.unrst.dim())
-        conc[:] = 1
+        #conc[:] = 1
         rates = self.rates()
         sat_rporv = self.sat_rporv()
-        inj_conc = 0
+        inj_conc = 1
         for rate, data in zip(rates, sat_rporv):
             self.check_time_sync(rate.time, data.time)
             vol_phase_old = data.sat_old * data.rporv_old
@@ -4443,6 +4359,26 @@ class Flow():                                                                  #
     #--------------------------------------------------------------------------------
     def rates(self):                                                    # Flow
     #--------------------------------------------------------------------------------
+        """
+        Calculate and yield flow rates over time, including interblock flows, well flows, 
+        and optionally NNC (non-neighboring connections) flows.
+
+        Yields:
+            Rates: A named tuple containing the following fields:
+                - time (float): The current simulation time.
+                - dt (float): The time step duration since the last yield.
+                - inflow (numpy.ndarray): Array of inflow rates, including interblock, well, 
+                and optionally NNC flows.
+                - outflow (numpy.ndarray): Array of outflow rates, including interblock, well, 
+                and optionally NNC flows.
+                - block: The current block flow data.
+                - nnc: The current NNC flow data, if applicable.
+
+        Notes:
+            - The method synchronizes well flow times with block flow times.
+            - Well rates are added as an additional (4th) dimension to the interblock flow rates.
+            - If NNC flows are present, they are added as another (5th) dimension to the flow rates.
+        """
         Rates = namedtuple('Rates', 'time dt inflow outflow block nnc')
         block_flow = self.interblock()
         well_flow = self.wells()
@@ -4462,10 +4398,12 @@ class Flow():                                                                  #
                 kind = 'in' if well.rate[0] < 0 else 'out'
                 well_rate[kind][well.pos] += npabs(well.rate)
             dt = block.time - time
+            # Well rates are added as the 4th dimension
             rate_in = concatenate((block.rate_in, well_rate['in'][..., None]), axis=-1)
             rate_out = concatenate((block.rate_out, well_rate['out'][..., None]), axis=-1)
             # NNC flow
             if nnc:
+                # NNC rates are added as the 5th dimension
                 nnc = next(nnc_rates, None)
                 rate_in = concatenate((rate_in, nnc.rate_in[..., None]), axis=-1)
                 rate_out = concatenate((rate_out, nnc.rate_out[..., None]), axis=-1)
@@ -4594,19 +4532,40 @@ class Flow():                                                                  #
 
 
     #--------------------------------------------------------------------------------
-    def roll_xyz(self, src, shift=1):                      # Flow
+    def roll_xyz(self, src, shift=1, as_scalar=False):                         # Flow
     #--------------------------------------------------------------------------------
-        # Move src-values to positive neighbours of dst using np.roll along all axes
-        # Remove periodic boundary end (0, -1) elements
+        """
+        Rolls the values of a source array along all axes and removes periodic 
+        boundary end elements.
+
+        Parameters:
+            src (numpy.ndarray): The source array to be rolled. Can be a scalar 
+                field or a vector field.
+            shift (int, optional): The number of positions by which elements are 
+                shifted. Positive values shift to the right, and negative values 
+                shift to the left. Default is 1.
+            as_scalar (bool, optional): If True, treats the input as a scalar 
+                field even if it has more than 3 dimensions. Default is False.
+
+        Returns:
+            numpy.ndarray: A new array with the rolled values along all axes. 
+            For vector fields, the result is stacked along the last axis.
+
+        Notes:
+            - For vector fields (when `src.ndim > 3` and `as_scalar` is False), 
+              each axis is rolled individually.
+            - Periodic boundary end elements (at index 0 or -1, depending on the 
+              shift direction) are set to 0 after rolling.
+        """
         end = 0 if shift > 0 else -1
         roll_list = []
         arr = src
         for axis in range(3):
             ind = 3 * [slice(None)]
             ind[axis] = end
-            if src.ndim > 3:
+            if src.ndim > 3 and not as_scalar:
+                # Vectorfield, roll axes individually
                 arr = src[..., axis]
-            #rolled = nproll(src[..., axis], shift, axis=axis)
             rolled = nproll(arr, shift, axis=axis)
             # Remove periodic boundary end elements
             rolled[tuple(ind)] = 0

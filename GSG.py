@@ -1,50 +1,112 @@
 
 # -*- coding: utf-8 -*-
 
-from collections import namedtuple
-from itertools import zip_longest
+from collections import defaultdict, namedtuple
+from itertools import repeat, zip_longest
 from pathlib import Path
 from functools import partial, wraps
 from math import prod
 from re import compile as re_compile
-from struct import pack, unpack
+from struct import pack, unpack, calcsize
 from os import SEEK_CUR, SEEK_END
 from numpy import array, concatenate, full
 
-from IORlib.utils import batched_as_list, flatten, list_prec, take
+from IORlib.utils import batched_as_list, flatten, list_prec, take, run_length_encode
 
 Dtype = namedtuple('dtype', 'format size value')
 DTYPE = {0:Dtype('i', 4, 0), 1:Dtype('f', 4, 1), 2:Dtype('d', 8, 2)}
 format2type = {v.format:k for k,v in DTYPE.items()}
 
+# PROP-data
+#    type: A single character that identify the data
+#           Possible values seen in GSG-files: p, g, r, ?
+#    name: The full variablename of the data
+#    alias: Short version of the full name
+PROP_data = namedtuple('PROP_data', 'type name alias array kind',
+                        defaults=('', '', '', array([]), 0))
 
 #--------------------------------------------------------------------------------
-def gsg_data(file, expand=False, dim=None):
+def read_prop_file(file, dim=None, raise_error=False):
 #--------------------------------------------------------------------------------
     # Read data from GSG-file with PROP data.
-    # If expand is True, the data is expanded to a full array.
-    GSG_data = namedtuple('GSG_data', 'kind num name key array')
     with File(file) as gsg:
         # Two ints preceeds the start of the data.
-        # The first int is 0 for a full array, and 1 if the values are grouped.
-        # An array [2, 2, 2, 2, 3, 3, 3] is grouped as [1, 4, 2, 3, 3].
-        # The second int is a counter of the data-values in the GSG-file
-        for var, name, start, end in gsg.data_positions():
+        # The first int is 0 for a full array, and 1 if the values are 
+        # grouped (run-lenght encoded). The second int is a counter of the 
+        # data-values in the GSG-file
+        for var, name_typ, start, end in gsg.data_positions():
             if var != 'PROP':
-                continue
+                if raise_error:
+                    raise ValueError(f'Expected PROP, got {var}')
+                return PROP_data()
+            name, typ = zip(*name_typ)
             gsg.goto(start)
             # The first two ints are the kind and the number of the data
-            kind, num = gsg.read_int(2)
-            key, keydata = gsg.read_keyword('4sqi', 16)
+            kind, _ = gsg.read_int(2)
+            # Read alias and (b'ca  ', datatype, arr.size)
+            alias, keydata = gsg.read_keyword('4sqi')
             dtype = DTYPE[keydata[0][1]]
             nbytes = end - gsg.current_pos()
             size = nbytes//dtype.size
-            data = array(unpack(str(size) + dtype.format, gsg.read(nbytes)))
-            if kind == 1 and expand:
+            #print(size, nbytes/dtype.size, (size-1)//2)
+            fmt = str(size) + dtype.format
+            if kind == 1:
+                if dtype.format == 'f':
+                    fmt = 'i' + ''.join(repeat('if', (size-1)//2))
+                data = gsg.read_unpack(fmt)
                 data = concatenate([full(count, value) for count, value in zip(data[1::2], data[2::2])])
+            else:
+                data = array(gsg.read_unpack(fmt))
             if dim:
                 data = data.reshape(dim, order='F')
-            yield GSG_data(kind, num, name, key, data)
+            yield PROP_data(type=typ, name=name, alias=alias, array=data, kind=kind )
+
+
+#--------------------------------------------------------------------------------
+def write_prop_file(file, *prop_data:PROP_data):
+#--------------------------------------------------------------------------------
+    with File(file, write=True) as gsg:
+        gsg.write_header('PetrelForIx', '2022.9.0')
+        kind_pos = []
+        for i, data in enumerate(prop_data):
+            kind_pos.append((data.kind, gsg.current_pos() + 12))
+            gsg.write_keyword('PROP', '2i', (data.kind, i+1))
+            arr = data.array
+            dataformat = format2type[arr.dtype.kind]
+            gsg.write_keyword(data.alias, '4sqi', (b'ca  ', dataformat, arr.size))
+            if arr.ndim > 1:
+               arr = arr.flatten(order='F')
+            if data.kind == 1:
+                # Write grouped data
+                rle_arr = [1] + run_length_encode(arr)
+                fmt = str(len(rle_arr)) + 'i'
+                if dataformat == 1:
+                    # float
+                    fmt = 'i' + ''.join(repeat('if', (len(rle_arr)-1)//2))
+                gsg.write_pack(fmt, rle_arr)
+            else:
+                # Write full array
+                gsg.write(arr.tobytes())
+        # Meta data
+        # CASE_PROPS
+        case_prop_pos = gsg.current_pos() + 18
+        gsg.write_keyword('CASE_PROPS', 'i4s2i', (0, b's   ', 0, len(prop_data)))
+        # Variable names
+        for i, data in enumerate(prop_data):
+            pre = ('8si', (b'ca  s   ', 1))
+            type_ = data.type.ljust(4, ' ').encode('utf-8')
+            gsg.write_keyword(data.name, '4s2i', (type_, 1, i+1), pre=pre)
+        # INDEX
+        index_pos = gsg.current_pos()
+        gsg.write_keyword('INDEX', '2i', (0, len(prop_data) + 1))
+        # PROP
+        for kind, pos in kind_pos:
+            gsg.write_keyword('PROP', 'iq', (kind, pos))
+        # CASE_PROPS
+        gsg.write_keyword('CASE_PROPS', 'iqq', (0, case_prop_pos, index_pos))
+
+
+
 
 #--------------------------------------------------------------------------------
 def change_resolution(dim, rundir):
@@ -132,19 +194,24 @@ class File:
     #--------------------------------------------------------------------------------
         meta = self.read_meta()
         nvar = meta['INDEX'][1]-1
-        self.goto(meta['CASE_PROPS'][1]+24)
+        self.goto(meta['CASE_PROPS'][1] - 18)
+        key, case_props = self.read_keyword('i4s2i') #, 28)
         try:
-            data = (self.read_keyword('4s2i8si', 24) for _ in range(nvar))
-            names, _ = zip(*data)
+            num = case_props[0][3]
+            kwdata = list(self.read_keyword('4s2i', pre='8si') for _ in range(num))
+            name_type = defaultdict(list)
+            for name, data in kwdata:
+                num, typ = data[1][2], data[1][0].strip().decode('utf-8')
+                name_type[num].append((name, typ))
+            name_type = list(name_type.values())
         except ValueError:
             # For AXES files, var-names is not formatted as for PROP files
-            names = nvar * ['']
+            name_type = nvar * [('', '')]
         var = [m[:4] if m[:4] == 'PROP' else m for m in meta][1:]
+        # Subtract 4 bytes (int) to align startpos just after the 'var' keyword (e.g 'PROP')
         startpos = [pos[1] - 4 for pos in meta.values()][1:]
-        endpos = [s - len(v) for v,s in zip(var, startpos)]
-        # The last data ends one int (4 bytes) before the 'CASE_PROPS' keyword
-        endpos[-1] -= 4
-        return list(zip(var, names, startpos[:-1], endpos[1:]))
+        endpos = [s - len(v) - 4 for v,s in zip(var, startpos)]
+        return list(zip(var, name_type, startpos[:-1], endpos[1:]))
 
     #--------------------------------------------------------------------------------
     def blocks(self, file_format=None):
@@ -174,6 +241,15 @@ class File:
                 # CASE_PROPS : [[0, b's   ', 0, 1, b'ca  s   ', 1]]
                 #                        nvar --^
 
+    #--------------------------------------------------------------------------------
+    def write_pack(self, fmt:str, data, **kwargs):
+    #--------------------------------------------------------------------------------
+        self.write(pack('<'+fmt, *data, **kwargs))
+
+    #--------------------------------------------------------------------------------
+    def read_unpack(self, fmt:str, *args, **kwargs):
+    #--------------------------------------------------------------------------------
+        return unpack('<'+fmt, self.read(calcsize('='+fmt), *args, **kwargs))
 
     #--------------------------------------------------------------------------------
     def read(self, *args, **kwargs):
@@ -181,9 +257,12 @@ class File:
         return self.file_obj.read(*args, **kwargs)
 
     #--------------------------------------------------------------------------------
-    def read_keyword(self, fmt:str, size:int):
+    def read_keyword(self, fmt:str, pre=None):
     #--------------------------------------------------------------------------------
-        key_size = unpack('<i', self.read(4))[0]
+        data = []
+        if pre:
+            data.append(self.read_unpack(pre))
+        key_size = self.read_unpack('i')[0]
         if key_size > 1000:
             self.skip(-4)
             raise ValueError(f'Wrong size of keyword ({key_size}) at {self.current_pos()}: {self.read(14)}')
@@ -192,8 +271,9 @@ class File:
         except UnicodeDecodeError as err:
             self.skip(-key_size)
             raise UnicodeDecodeError(f'Unable to read keyword of size {key_size}: {self.read(key_size)}') from err
-        data = unpack('<'+fmt, self.read(size))
-        return (key, [list(data)])
+        data.append(self.read_unpack(fmt))
+        #data = unpack('<'+fmt, self.read(calcsize(fmt)))
+        return (key, data)
 
     #--------------------------------------------------------------------------------
     def read_format(self):
@@ -202,11 +282,11 @@ class File:
         Read and return first keyword (PROP or AXES) to identify type of GSG-file 
         """
         try:
-            keyword, _ = self.read_keyword('', 0)
+            keyword, _ = self.read_keyword('')
         except (UnicodeDecodeError, ValueError):
             # Try to correct the file position and read again
             self.read_header()
-            keyword, _ = self.read_keyword('', 0)
+            keyword, _ = self.read_keyword('')
         self.skip(-(4+len(keyword)))
         return keyword
 
@@ -263,7 +343,8 @@ class File:
             for i in range(2):
                 fmt[i] += '8si'
                 size[i] += 12
-        return [self.read_keyword(fmt[i], size[i]) for i in range(nvar)]
+        return [self.read_keyword(fmt[i]) for i in range(nvar)]
+        #return [self.read_keyword(fmt[i], size[i]) for i in range(nvar)]
 
     #--------------------------------------------------------------------------------
     def write_varnames(self, *args):
@@ -346,8 +427,8 @@ class File:
     def read_header(self):
     #--------------------------------------------------------------------------------
         self.goto(28)
-        creator, _ = self.read_keyword('', 0)
-        version, _ = self.read_keyword('4i', 16)
+        creator, _ = self.read_keyword('')
+        version, _ = self.read_keyword('4i')
         return (creator, version)
 
     #--------------------------------------------------------------------------------
@@ -366,10 +447,14 @@ class File:
             self.end(-8)
             index_pos, = self.read_uint()
             self.goto(index_pos)
-        index, data = self.read_keyword('2i', 8)
+        #print(self.read(10))
+        #self.skip(-10)
+        index, data = self.read_keyword('2i')
+        #print(index, data)
         meta[index] = data[0]
         for i in range(meta['INDEX'][1]):
-            key, data = self.read_keyword('iq', 12)
+            key, data = self.read_keyword('iq')
+            #print(key, data)
             if key == 'PROP':
                 key = f'PROP_{i}'
             meta[key] = data[0]
@@ -426,13 +511,26 @@ class File:
         return self.write_fmt('q', *args, **kwargs)
 
     #--------------------------------------------------------------------------------
-    def write_keyword(self, keyword:str, fmt:str, data:tuple):
+    def write_keyword(self, keyword:str, fmt:str, data:tuple, pre=None):
     #--------------------------------------------------------------------------------
+        """
+        Writes a keyword and its associated data to a binary format.
+        Args:
+            keyword (str): The keyword to be written.
+            fmt (str): The format string specifying the binary structure of the data.
+            data (tuple): The data to be written, which can be a tuple or a 2D list.
+            pre (tuple, optional): Additional data to be written before the main data. Defaults to None.
+        Returns:
+            int: The number of bytes written to the binary stream.
+        """
+        
         # Reduce to single list if a 2D list is passed
         if isinstance(data[0], list):
             data = data[0]
-        #print(f"pack('<i{len(keyword)}s'+'{fmt}', {len(keyword)}, {keyword.encode()}, {list(flatten(data))})")
-        return self.write(pack(f'<i{len(keyword)}s'+fmt, len(keyword), keyword.encode(), *data))
+        if pre:
+            self.write_pack(*pre)
+        return self.write_pack(f'i{len(keyword)}s'+fmt, (len(keyword), keyword.encode(), *data))
+
 
     #--------------------------------------------------------------------------------
     def keyword_positions(self, *keywords):

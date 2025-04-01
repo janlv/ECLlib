@@ -18,7 +18,7 @@ from shutil import copy2, rmtree
 import stat
 from fnmatch import fnmatch
 from os import SEEK_END, SEEK_CUR
-from numpy import array, trapz, sum as npsum
+from numpy import arange, array, meshgrid, stack, trapz, sum as npsum, concatenate, diff as npdiff, where, append as npappend
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
 from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_close
@@ -35,6 +35,22 @@ from molmass import Formula
 
 
 #--------------------------------------------------------------------------------
+def index_array(shape):
+#--------------------------------------------------------------------------------
+    i, j, k = meshgrid(arange(shape[0]), arange(shape[1]), arange(shape[2]), indexing='ij')
+    return stack((i, j, k), axis=-1)
+
+#--------------------------------------------------------------------------------
+def run_length_encode(data):
+#--------------------------------------------------------------------------------
+    # Create a mask detecting changes in consecutive elements
+    mask = concatenate(([True], data[:-1] != data[1:]))
+    # Compute run lengths
+    counts = npdiff(where(npappend(mask, True))[0])
+    # Zip counts and unique values
+    return list(flatten(zip(counts, data[mask])))
+
+#--------------------------------------------------------------------------------
 def any_cell_in_box(cells, box):
 #--------------------------------------------------------------------------------
     """
@@ -45,6 +61,11 @@ def any_cell_in_box(cells, box):
         if all(box[n][0] <= cell[n] < box[n][1] for n in range(3)):
             return True
     return False
+
+#--------------------------------------------------------------------------------
+def bounding_box(pos):
+#--------------------------------------------------------------------------------
+    return [(p[0], p[-1]) for p in map(sorted, zip(*pos))]
 
 #--------------------------------------------------------------------------------
 def get_terminal_environment(var, file='~/.bashrc'):
