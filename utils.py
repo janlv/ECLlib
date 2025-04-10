@@ -18,7 +18,8 @@ from shutil import copy2, rmtree
 import stat
 from fnmatch import fnmatch
 from os import SEEK_END, SEEK_CUR
-from numpy import arange, array, meshgrid, stack, trapz, sum as npsum, concatenate, diff as npdiff, where, append as npappend
+from numpy import (arange, array, meshgrid, stack, trapz, sum as npsum, concatenate, 
+                   diff as npdiff, where, append as npappend, roll as nproll,)
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
 from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_close
@@ -32,6 +33,81 @@ from molmass import Formula
 #    ? : 0 or 1 repetitions
 #    + : 1 or more rep.
 #    * : 0 or more rep.
+
+#--------------------------------------------------------------------------------
+def neighbour_index(dim):
+#--------------------------------------------------------------------------------
+    """
+    Generate the indices of neighboring blocks in a 3D grid.
+
+    This function computes the indices of neighboring blocks in both positive 
+    and negative directions along each axis (i, j, k) for a 3D grid of given 
+    dimensions.
+
+    Args:
+        dim (tuple of int): The dimensions of the 3D grid as a tuple (nx, ny, nz), 
+                            where nx, ny, and nz are the sizes along the x, y, 
+                            and z axes, respectively.
+
+    Returns:
+        tuple:
+            - pos_neigh (numpy.ndarray): Indices of neighboring blocks in the 
+            positive direction along each axis. The shape of the array is 
+            (nx, ny, nz, 3, 3), where the (3, 3) array are the (i, j, k) indices 
+            of the positive neighbors along the x, y, and z axes.
+            - neg_neigh (numpy.ndarray): Indices of neighboring blocks in the 
+            negative direction along each axis. The shape of the array is 
+            (nx, ny, nz, 3, 3), where the last dimension corresponds to the 
+            negative neighbors along the x, y, and z axes.
+    """
+    ind = index_array(dim)
+    kwargs = {'as_scalar': True, 'wrapped': -1}
+    # Neighbour-indices of block (i,j,k) in 0) i+1, 1) j+1, 2) k+1 direction
+    pos_neigh = roll_xyz(ind, -1, **kwargs).swapaxes(-2, -1)
+    # Neighbour-indices of block (i,j,k) in 0) i-1, 1) j-1, 2) k-1 direction
+    neg_neigh = roll_xyz(ind, 1, **kwargs).swapaxes(-2, -1)
+    return pos_neigh, neg_neigh
+
+#--------------------------------------------------------------------------------
+def roll_xyz(src, shift=1, as_scalar=False, wrapped=0):
+#--------------------------------------------------------------------------------
+    """
+    Rolls the values of a source array along all axes and removes periodic 
+    boundary end elements.
+
+    Parameters:
+        src (numpy.ndarray): The source array to be rolled. Can be a scalar 
+            field or a vector field.
+        shift (int, optional): The number of positions by which elements are 
+            shifted. Positive values shift to the right, and negative values 
+            shift to the left. Default is 1.
+        as_scalar (bool, optional): If True, treats the input as a scalar 
+            field even if it has more than 3 dimensions. Default is False.
+
+    Returns:
+        numpy.ndarray: A new array with the rolled values along all axes. 
+        For vector fields, the result is stacked along the last axis.
+
+    Notes:
+        - For vector fields (when `src.ndim > 3` and `as_scalar` is False), 
+            each axis is rolled individually.
+        - Periodic boundary end elements (at index 0 or -1, depending on the 
+            shift direction) are set to 0 after rolling.
+    """
+    end = 0 if shift > 0 else -1
+    roll_list = []
+    arr = src
+    for axis in range(3):
+        ind = 3 * [slice(None)]
+        ind[axis] = end
+        if src.ndim > 3 and not as_scalar:
+            # Vectorfield, roll axes individually
+            arr = src[..., axis]
+        rolled = nproll(arr, shift, axis=axis)
+        # Remove periodic boundary end elements
+        rolled[tuple(ind)] = wrapped
+        roll_list.append(rolled)
+    return stack(roll_list, axis=-1)
 
 
 #--------------------------------------------------------------------------------

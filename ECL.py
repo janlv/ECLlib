@@ -13,23 +13,23 @@ from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
 from time import sleep
-from collections import defaultdict, namedtuple
+from collections import defaultdict, deque, namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import (concatenate, fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, 
-                   roll as nproll, stack, sum as npsum, where, zeros, ones, atleast_1d, argsort, 
+from numpy import (argwhere, concatenate, fromstring, int32, float32, float64, bool_ as np_bool, array as nparray, 
+                   stack, sum as npsum, where, zeros, ones, atleast_1d, argsort, 
                    abs as npabs, any as npany, diff as npdiff)
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
 
 from .utils import (any_cell_in_box, batched, batched_when, bounding_box, cumtrapz, date_range, decode, ensure_bytestring,
-                    expand_pattern, flatten, index_array, index_limits, last_line, match_in_wildlist, nth,
+                    expand_pattern, flatten, index_array, index_limits, last_line, match_in_wildlist, neighbour_index, nth,
                     pad, slice_range, tail_file, head_file, flat_list, flatten_all, grouper,
                     list2text, pairwise, remove_chars, list2str, float_or_str, matches,
-                    split_by_words, string_split, split_in_lines, take, missing_elements)
+                    split_by_words, string_split, split_in_lines, take, missing_elements, roll_xyz)
 from .runner import Process
 
 
@@ -4031,6 +4031,13 @@ class IX_input:                                                            # IX_
         return tuple(wpos.values())
 
     #--------------------------------------------------------------------------------
+    def injectors(self, *wellnames):                                         # IX_input
+    #--------------------------------------------------------------------------------
+        inj_names = self.wells_by_type()['WATER_INJECTOR']
+        pos, = self.wellpos(*inj_names)
+        return pos
+
+    #--------------------------------------------------------------------------------
     def wells_near_cells(self, *cells):                                         # IX_input
     #--------------------------------------------------------------------------------
         wells, kind = zip(*self.wells())
@@ -4198,6 +4205,8 @@ class Flow():                                                                  #
             self.nnc_key = f'FLR{self.phases[0].upper()}N+'
         self.seqnum = 0
         self.time = 0
+        self._neigh_index = None
+        self._index_array = None
 
     #--------------------------------------------------------------------------------
     def sat_rporv(self):                                 # Flow
@@ -4213,54 +4222,159 @@ class Flow():                                                                  #
             time_old, sat_old, rporv_old = time, sat, rporv
 
     #--------------------------------------------------------------------------------
-    def sort_blocks_by_flow(self, rate):                                 # Flow
+    def neighbour_index(self):                                                # Flow
     #--------------------------------------------------------------------------------
-        # Create index-array for calculating neighbouring blocks
-        index = index_array(self.unrst.dim())
-        neg_inflow_neigh = where(rate.block.neg_inflow[..., None], self.roll_xyz(index, -1, as_scalar=True), -1)
-        pos_inflow_neigh = where(rate.block.pos_inflow[..., None], self.roll_xyz(index, 1, as_scalar=True), -1)
-        inflow_neigh = concatenate((neg_inflow_neigh, pos_inflow_neigh), axis=3)
-        in_degrees = npsum(inflow_neigh != -1, axis=3)[..., 0]
-        
+        self._neigh_index = self._neigh_index or neighbour_index(self.unrst.dim())
+        return self._neigh_index
 
 
     #--------------------------------------------------------------------------------
-    def tracer(self, force_vol_balance=False):                                 # Flow
+    def neighbours_out(self, blockflow):                                 # Flow
+    #-------------------------------------------------------------------------------
+        """
+        Determines the neighboring blocks that receive flow from the current block.
+
+        Args:
+            blockflow (BlockFlow): An object containing inflow and outflow information 
+                                   for each block in the grid.
+
+        Returns:
+            numpy.ndarray: A concatenated array of indices representing:
+                           - Positive neighbors that receive flow from the current block.
+                           - Negative neighbors that receive flow from the current block.
+                           The array has shape (..., 2, N), where N is the number of neighbors.
+        Notes:
+            The array has shape (nx, ny, nz, 6, 3), and non-valid neighbors are set to -1. 
+        """
+        pos_neigh, neg_neigh = self.neighbour_index()
+        # Do negative neighbours get flow from block (i,j,k)?
+        outflow_to_neg_neigh = roll_xyz(blockflow.inflow)
+        # Indices of positive neighbours that get flow from block (i,j,k)
+        out_neigh1 = where(blockflow.outflow[..., None], pos_neigh, -1)
+        # Indices of negative neighbours that get flow from block (i,j,k)
+        out_neigh2 = where(outflow_to_neg_neigh[..., None], neg_neigh, -1)
+        return concatenate((out_neigh1, out_neigh2), axis=-2)
+
+    #--------------------------------------------------------------------------------
+    def neighbours_in(self, blockflow):                                 # Flow
+    #-------------------------------------------------------------------------------
+        """
+        Determines the neighboring blocks that send flow into the current block.
+
+        This method calculates the indices of both positive and negative neighbors
+        that contribute inflow to the current block based on the provided blockflow
+        data.
+
+        Args:
+            blockflow (BlockFlow): An object containing inflow and outflow information 
+                                   for each block in the grid.
+
+        Returns:
+            numpy.ndarray: A concatenated array of indices representing:
+                           - Positive neighbors that send flow into the current block.
+                           - Negative neighbors that send flow into the current block.
+        Notes:
+            The array has shape (nx, ny, nz, 6, 3), and non-valid neighbors are set to -1. 
+        """
+        pos_neigh, neg_neigh = self.neighbour_index()
+        # Do negative neighbours send flow into block (i,j,k)?
+        inflow_from_neg_neigh = roll_xyz(blockflow.outflow)
+        # Indices of positive neighbours that send flow into block (i,j,k)
+        in_neigh1 = where(blockflow.inflow[..., None], pos_neigh, -1)
+        # Indices of negative neighbours that send flow into block (i,j,k)
+        in_neigh2 = where(inflow_from_neg_neigh[..., None], neg_neigh, -1)
+        return concatenate((in_neigh1, in_neigh2), axis=-2)
+
+
+    #--------------------------------------------------------------------------------
+    def tracer_explicit2(self, force_vol_balance=False, init=0, inlet=1):      # Flow
     #--------------------------------------------------------------------------------
         # m = c * Vp, m = mass, c = conc, Vp = vol_phase
         # Explicit integration:
         #   m^n+1 = c^n * Vp^n + dt * (Qin^n * Cin^n - Qout^n * C^n)
-        #   m^n+1 = c^n * (Vp^n - dt * Qout^n) + dt * Qin^n * Cin^n
+        #   m^n+1 = c^n * (Vp^n - dt * Qout^n) + dt * Qin^n * Cin^n   (Eq.1)
         # Volume balance:  
         #   Vp^n+1 - Vp^n = dt * (Qin^n - Qout^n)
         # Forced volume balance: 
-        #   Vp^n+1 - dt * Qin^n = Vp^n - dt * Qout^n
+        #   Vp^n+1 - dt * Qin^n = Vp^n - dt * Qout^n                  (Eq.2)
+        # (Eq.2) in (Eq.1) yields
+        #   m^n+1 = c^n * (Vp^n+1 - dt * Qin^n) + dt * Qin^n * Cin^n  (Eq.3)
+
         Tracer = namedtuple('Tracer', 'time dt conc prod_mass cfl')
-        conc = zeros(self.unrst.dim())
-        #conc[:] = 1
-        rates = self.rates()
+        dim = self.unrst.dim()
+        conc = init * ones(dim)
+        rates = self.rates2()
         sat_rporv = self.sat_rporv()
-        inj_conc = 1
+        inj_conc = inlet * ones(dim)
         for rate, data in zip(rates, sat_rporv):
             self.check_time_sync(rate.time, data.time)
             vol_phase_old = data.sat_old * data.rporv_old
             vol_phase = data.sat * data.rporv
             if force_vol_balance:
+                # First part of (Eq.1) 
                 mass = conc * (vol_phase - rate.dt * npsum(rate.inflow, axis=-1))
             else:
+                # First part of (Eq.3)
                 mass = conc * (vol_phase_old - rate.dt * npsum(rate.outflow, axis=-1))
-            # neg_inflow is inflow from right block, pos_inflow is inflow from left block
-            block_conc_inflow = rate.block.neg_inflow * self.roll_xyz(conc, -1) + rate.block.pos_inflow * self.roll_xyz(conc, 1)
+            # Concentration for 3 positive (n+1), 3 negative (n-1) connections, and the injector
+            conc_inflow = concatenate((roll_xyz(conc, -1), roll_xyz(conc, 1), inj_conc[..., None]), axis=-1)
+            # Second part of (Eq.1) or (Eq.3)
+            mass += rate.dt * npsum((rate.inflow * conc_inflow), axis=-1)
+            if rate.nnc:
+                # inflow[0]: into nnc1 from nnc2
+                mass[self.nnc_ijk[0]] += rate.nnc.inflow[0] * conc[self.nnc_ijk[1]]
+                # inflow[1]: into nnc2 from nnc1
+                mass[self.nnc_ijk[1]] += rate.nnc.inflow[1] * conc[self.nnc_ijk[0]]
+            prod_mass = rate.dt * rate.outflow[..., 6] * conc
+            #mass -= prod_mass
+            conc = mass / vol_phase
+            cfl = rate.dt * npsum(rate.inflow, axis=-1) / vol_phase
+            yield Tracer(rate.time, rate.dt, conc, prod_mass, cfl)
+            vol_phase_old = vol_phase
+
+
+    #--------------------------------------------------------------------------------
+    def tracer_explicit(self, force_vol_balance=False, init=0, inlet=1):       # Flow
+    #--------------------------------------------------------------------------------
+        # m = c * Vp, m = mass, c = conc, Vp = vol_phase
+        # Explicit integration:
+        #   m^n+1 = c^n * Vp^n + dt * (Qin^n * Cin^n - Qout^n * C^n)
+        #   m^n+1 = c^n * (Vp^n - dt * Qout^n) + dt * Qin^n * Cin^n   (Eq.1)
+        # Volume balance:  
+        #   Vp^n+1 - Vp^n = dt * (Qin^n - Qout^n)
+        # Forced volume balance: 
+        #   Vp^n+1 - dt * Qin^n = Vp^n - dt * Qout^n                  (Eq.2)
+        # (Eq.2) in (Eq.1) yields
+        #   m^n+1 = c^n * (Vp^n+1 - dt * Qin^n) + dt * Qin^n * Cin^n  (Eq.3)
+
+        Tracer = namedtuple('Tracer', 'time dt conc prod_mass cfl')
+        conc = init * ones(self.unrst.dim())
+        rates = self.rates()
+        sat_rporv = self.sat_rporv()
+        inj_conc = inlet
+        for rate, data in zip(rates, sat_rporv):
+            self.check_time_sync(rate.time, data.time)
+            vol_phase_old = data.sat_old * data.rporv_old
+            vol_phase = data.sat * data.rporv
+            if force_vol_balance:
+                # From (Eq.1)
+                mass = conc * (vol_phase - rate.dt * npsum(rate.inflow, axis=-1))
+            else:
+                # From (Eq.3)
+                mass = conc * (vol_phase_old - rate.dt * npsum(rate.outflow, axis=-1))
+            # inflow from n+1 to n, outflow from n to n+1
+            block_conc_inflow = rate.block.inflow * roll_xyz(conc, -1) + rate.block.outflow * roll_xyz(conc, 1)
             # Inflow concentration from wells
             well_conc_inflow = inj_conc * (rate.inflow[..., 3] > 0)
             conc_inflow = concatenate((block_conc_inflow, well_conc_inflow[...,None]), axis=-1)
             if rate.nnc:
                 nnc_conc_inflow = zeros(conc.shape)
                 # Inflow nnc2 -> nnc1
-                nnc_conc_inflow[self.nnc_ijk[0]] += rate.nnc.neg_inflow * conc[self.nnc_ijk[1]]
+                nnc_conc_inflow[self.nnc_ijk[0]] += rate.nnc.inflow * conc[self.nnc_ijk[1]]
                 # Inflow nnc1 -> nnc2
-                nnc_conc_inflow[self.nnc_ijk[1]] += rate.nnc.pos_inflow * conc[self.nnc_ijk[0]]
+                nnc_conc_inflow[self.nnc_ijk[1]] += rate.nnc.outflow * conc[self.nnc_ijk[0]]
                 conc_inflow = concatenate((conc_inflow, nnc_conc_inflow[..., None]), axis=-1)
+            # Rest of (Eq.1) or (Eq.3)
             mass += rate.dt * npsum((rate.inflow * conc_inflow), axis=-1)
             prod_mass = rate.dt * rate.outflow[..., 3] * conc
             #mass -= prod_mass
@@ -4269,92 +4383,110 @@ class Flow():                                                                  #
             yield Tracer(rate.time, rate.dt, conc, prod_mass, cfl)
             vol_phase_old = vol_phase
 
-    # #--------------------------------------------------------------------------------
-    # def tracer(self, force_vol_balance=False):                                 # Flow
-    # #--------------------------------------------------------------------------------
-    #     Tracer = namedtuple('Tracer', 'time dt conc overflow prod_mass rhs lhs')
-    #     #mass = zeros(self.unrst.dim())
-    #     conc = zeros(self.unrst.dim())
-    #     block_flow = self.interblock()
-    #     well_flow = self.wells()
-    #     blockdata = self.unrst.blockdata('DOUBHEAD', 0, 'S'+self.phases[0].upper(), 'RPORV')
-    #     inj_conc = 1
-    #     # Initial data
-    #     time = next(block_flow).time
-    #     time2, *data = next(blockdata, None)
-    #     sat_old, rporv_old = self.unrst.reshape_dim(*data)
-    #     vol_phase_old = sat_old * rporv_old
-    #     # Loop over interblock flows and well flows
-    #     for block, wells, (time2, *data) in zip(block_flow, well_flow, blockdata):
-    #         sat, rporv = self.unrst.reshape_dim(*data)
-    #         vol_phase = sat * rporv
-    #         dt = block.time - time
-    #         sum_rate_in = npsum(block.rate_in, axis=-1)
-    #         # inflow_pos is 'inflow from positive neighbour' (inflow, negative rate)
-    #         # inflow_neg is 'inflow from negative neighbour' (outflow, positive rate)
-    #         conc_inflow = block.inflow_pos * self.roll_xyz(conc, -1) + block.inflow_neg * self.roll_xyz(conc, 1)
-    #         # m = c * Vp, m = mass, c = conc, Vp = vol_phase
-    #         # Explicit integration
-    #         # m^n+1 = c^n * Vp^n + dt * (Qin^n * Cin^n - Qout^n * C^n)
-    #         # m^n+1 = c^n * (Vp^n - dt * Qout^n) + dt * Qin^n * Cin^n
-    #         # Volume balance:  Vp^n+1 - Vp^n = dt * (Qin^n - Qout^n)
-    #         # Forced volume balance: Vp^n+1 - dt * Qin^n = Vp^n - dt * Qout^n
-    #         rhs = vol_phase - dt * npsum(block.rate_in, axis=-1)
-    #         lhs = vol_phase_old - dt * npsum(block.rate_out, axis=-1)
-    #         if force_vol_balance:
-    #             mass = conc * (vol_phase - dt * npsum(block.rate_in, axis=-1))
-    #         else:
-    #             mass = conc * (vol_phase_old - dt * npsum(block.rate_out, axis=-1))
-    #         mass += dt * npsum(block.rate_in * conc_inflow, axis=-1)
-    #         prod_mass = {}
-    #         for well in wells:
-    #             self.check_time_sync(well.time, block.time, time2)
-    #             if well.rate[0] < 0:
-    #                 # Injector with negative rate
-    #                 sum_rate_in[well.pos] -= well.rate
-    #                 mass[well.pos] -= dt * well.rate * inj_conc
-    #             if well.rate[0] > 0:
-    #                 # Producer with positive rate
-    #                 prod_mass[well.name] = dt * well.rate * conc[well.pos]
-    #                 mass[well.pos] -= prod_mass[well.name]
-    #         #conc += mass / vol_phase
-    #         conc = mass / vol_phase
-    #         overflow = dt * sum_rate_in / vol_phase
-    #         yield Tracer(block.time, dt, conc, overflow, prod_mass, rhs, lhs)
-    #         time = block.time
-    #         vol_phase_old = vol_phase
+
+    #--------------------------------------------------------------------------------
+    def sort_blocks_by_flow(self, rate, out_neigh, in_neigh):                                 # Flow
+    #--------------------------------------------------------------------------------
+        # Edges
+        #out_neigh = out_neigh or self.neighbours_out(rate.block)
+        # In-degrees
+        #in_neigh = in_neigh or self.neighbours_in(rate.block)
+        # Count in-degrees
+        in_degrees = npsum(where(in_neigh >= 0, 1, 0), axis=-2)[..., 0]
+        # Add injection wells
+        #in_degrees += rate.inflow[..., 3] > 0
+        # Start with blocks with no in-degrees (inlets)
+        queue = deque([tuple(ind) for ind in argwhere(in_degrees == 0)])
+        #queue = deque([inlet])
+        sorted_blocks = []
+        while queue:
+            pos = queue.popleft()
+            sorted_blocks.append(pos)
+            neighbors = (tuple(nb) for nb  in out_neigh[pos] if nb[0] >= 0)
+            for neighbor in neighbors:
+                in_degrees[neighbor] -= 1
+                if in_degrees[neighbor] == 0:
+                    queue.append(neighbor)
+        return sorted_blocks
 
 
-    # #--------------------------------------------------------------------------------
-    # def volume(self):                                                    # Flow
-    # #--------------------------------------------------------------------------------
-    #     Volume = namedtuple('Volume', 'time dt dQ dV rate_in rate_out')
-    #     block_flow = self.interblock()
-    #     well_flow = self.wells()
-    #     nnc = None
-    #     if self.nnc_key:
-    #         nnc_flow = self.nnc_rates()
-    #         nnc = next(nnc_flow, None)
-    #     # Initial time
-    #     time = next(block_flow).time
-    #     # Loop over interblock flows and well flows
-    #     for block, wells in zip(block_flow, well_flow):
-    #         # rate_in = npsum(block.rate_in, axis=-1)
-    #         # rate_out = npsum(block.rate_out, axis=-1)
-    #         dQ = npsum(block.rate_in - block.rate_out, axis=-1)
-    #         # Loop over active wells
-    #         for well in wells:
-    #             self.check_time_sync(well.time, block.time)
-    #             dQ[tuple(well.pos)] -=  well.rate
-    #         # NNC flow
-    #         if nnc:
-    #             nnc = next(nnc_flow, None)
-    #             dQ_nnc = nnc.rate_in - nnc.rate_out
-    #             dQ[self.nnc_ijk[0]] += dQ_nnc
-    #             dQ[self.nnc_ijk[1]] -= dQ_nnc
-    #         dt = block.time - time
-    #         yield Volume(block.time, dt, dQ, dt*dQ, block.rate_in, block.rate_out)
-    #         time = block.time
+    #--------------------------------------------------------------------------------
+    def tracer_implicit(self, force_vol_balance=False, init=0, inlet=1):                        # Flow
+    #--------------------------------------------------------------------------------
+        Tracer = namedtuple('Tracer', 'time dt conc prod_mass cfl')
+        injector_pos = IX_input(self.unrst.path).injectors()
+        dim = self.unrst.dim()
+        conc = init * ones(dim)
+        rates = self.rates()
+        sat_rporv = self.sat_rporv()
+        inj_conc = inlet * ones(dim)
+        for rate, data in zip(rates, sat_rporv):
+            self.check_time_sync(rate.time, data.time)
+            vol_phase_old = data.sat_old * data.rporv_old
+            vol_phase = data.sat * data.rporv
+            out_neigh = self.neighbours_out(rate.block)
+            in_neigh = self.neighbours_in(rate.block)
+            for bl in self.sort_blocks_by_flow(rate, out_neigh, in_neigh):
+                #inflow_conc = npsum(rate.inflow[bl] * , axis=-1)   
+                if force_vol_balance:
+                    # From (Eq.1)
+                    mass = conc * (vol_phase - rate.dt * npsum(rate.inflow, axis=-1))
+                else:
+                    # From (Eq.3)
+                    mass = conc * (vol_phase_old - rate.dt * npsum(rate.outflow, axis=-1))
+            # # inflow from n+1 to n, outflow from n to n+1
+            # block_conc_inflow = rate.block.inflow * roll_xyz(conc, -1) + rate.block.outflow * roll_xyz(conc, 1)
+            # # Inflow concentration from wells
+            # well_conc_inflow = inj_conc * (rate.inflow[..., 3] > 0)
+            # conc_inflow = concatenate((block_conc_inflow, well_conc_inflow[...,None]), axis=-1)
+            # if rate.nnc:
+            #     nnc_conc_inflow = zeros(conc.shape)
+            #     # Inflow nnc2 -> nnc1
+            #     nnc_conc_inflow[self.nnc_ijk[0]] += rate.nnc.inflow * conc[self.nnc_ijk[1]]
+            #     # Inflow nnc1 -> nnc2
+            #     nnc_conc_inflow[self.nnc_ijk[1]] += rate.nnc.outflow * conc[self.nnc_ijk[0]]
+            #     conc_inflow = concatenate((conc_inflow, nnc_conc_inflow[..., None]), axis=-1)
+            # # Rest of (Eq.1) or (Eq.3)
+            # mass += rate.dt * npsum((rate.inflow * conc_inflow), axis=-1)
+            # prod_mass = rate.dt * rate.outflow[..., 3] * conc
+            # #mass -= prod_mass
+            # conc = mass / vol_phase
+            # cfl = rate.dt * npsum(rate.inflow, axis=-1) / vol_phase
+            # yield Tracer(rate.time, rate.dt, conc, prod_mass, cfl)
+            # vol_phase_old = vol_phase
+
+
+    #--------------------------------------------------------------------------------
+    def rates2(self):                                                    # Flow
+    #--------------------------------------------------------------------------------
+        Rates = namedtuple('Rates', 'time dt inflow outflow nnc')
+        block_flow = self.interblock_after2()
+        well_flow = self.wells()
+        dim = self.unrst.dim()
+        nnc = None
+        if self.nnc_key:
+            nnc_rates = self.nnc_rates2()
+            nnc = next(nnc_rates, None)
+        # Initial time
+        time = next(block_flow).time
+        # Loop over interblock flows and well flows
+        for block, wells in zip(block_flow, well_flow):
+            # Loop over active wells
+            well_rate = {io:zeros(dim) for io in ('in', 'out')}
+            for well in wells:
+                self.check_time_sync(well.time, block.time)
+                kind = 'in' if well.rate[0] < 0 else 'out'
+                well_rate[kind][well.pos] += npabs(well.rate)
+            dt = block.time - time
+            # Well rates are added as connection 7
+            rate_in = concatenate((block.rate_in, well_rate['in'][..., None]), axis=-1)
+            rate_out = concatenate((block.rate_out, well_rate['out'][..., None]), axis=-1)
+            # NNC rates
+            if nnc:
+                nnc = next(nnc_rates, None)
+            yield Rates(block.time, dt, rate_in, rate_out, nnc)
+            time = block.time
+
 
     #--------------------------------------------------------------------------------
     def rates(self):                                                    # Flow
@@ -4455,11 +4587,30 @@ class Flow():                                                                  #
     #         old_sat, old_rporv = sat, rporv
 
     #--------------------------------------------------------------------------------
+    def nnc_rates2(self):                                                  # Flow
+    #--------------------------------------------------------------------------------
+        NNC = namedtuple('NNC', 'inflow outflow')
+        for seqnum, rate in self.unrst.blockdata('SEQNUM', self.nnc_key, singleton=True):
+            if seqnum[0] != self.seqnum:
+                raise ValueError(f'SEQNUM mismatch for NNC-rates: {seqnum[0]}, {self.seqnum}')
+            rate = nparray(rate)
+            rate_in = -rate * (rate < 0)
+            rate_out = rate * (rate >= 0)
+            # nnc_in[0]: into nnc1 (from nnc2)
+            # nnc_in[1]: into nnc2 (from nnc1)
+            nnc_in = stack((rate_in, rate_out))
+            # nnc_out[0]: from nnc1 (into nnc2)
+            # nnc_out[1]: from nnc2 (into nnc1)
+            nnc_out = stack((rate_out, rate_in))
+            yield NNC(nnc_in, nnc_out)
+
+
+    #--------------------------------------------------------------------------------
     def nnc_rates(self):                                                  # Flow
     #--------------------------------------------------------------------------------
         # neg_inflow is inflow from nnc2 -> nnc1
         # pos_inflow is inflow from nnc1 -> nnc2
-        NNC = namedtuple('NNC', 'rate_in rate_out neg_inflow pos_inflow')
+        NNC = namedtuple('NNC', 'rate_in rate_out inflow outflow')
         dim = self.unrst.dim()
         for seqnum, rate in self.unrst.blockdata('SEQNUM', self.nnc_key, singleton=True):
             if seqnum[0] != self.seqnum:
@@ -4471,8 +4622,8 @@ class Flow():                                                                  #
             rate_out = rate * outflow
             nnc_in, nnc_out = zeros(dim), zeros(dim)
             nnc_in[self.nnc_ijk[0]] = rate_in
-            nnc_out[self.nnc_ijk[0]] = rate_out
             nnc_in[self.nnc_ijk[1]] = rate_out
+            nnc_out[self.nnc_ijk[0]] = rate_out
             nnc_out[self.nnc_ijk[1]] = rate_in
             yield NNC(nnc_in, nnc_out, inflow, outflow)
 
@@ -4482,11 +4633,13 @@ class Flow():                                                                  #
         return self.interblock_after()
 
     #--------------------------------------------------------------------------------
-    def interblock_after(self):                                                # Flow
+    def interblock_after2(self):                                                # Flow
     #--------------------------------------------------------------------------------
         # Read flow rates from UNRST-file
         # Convert surface rates to reservoir rates AFTER in/out splitting
-        Blockflow = namedtuple('Blockflow', 'time rate_in rate_out neg_inflow pos_inflow')
+        # Flow is returned as an array of shape (nx, ny, nz, 6) with flow for
+        # each of the 6 connections to the block
+        Blockflow = namedtuple('Blockflow', 'time rate_in rate_out')
         phase = self.phases[0]
         blockdata = self.unrst.blockdata('SEQNUM', 'DOUBHEAD', 0, *self.block_keys)
         for self.seqnum, self.time, *data in blockdata:
@@ -4498,13 +4651,41 @@ class Flow():                                                                  #
                 outflow = rate >= 0
                 rate_in = -rate * inflow
                 rate_out = rate * outflow
-                rates_in[ph] = rate_in + self.roll_xyz(rate_out)
-                rates_out[ph] = rate_out + self.roll_xyz(rate_in)
+                rates_in[ph] = concatenate((rate_in, roll_xyz(rate_out)), axis=-1)
+                rates_out[ph] = concatenate((rate_out, roll_xyz(rate_in)), axis=-1)
             if not self.res_block:
                 rate_in, rate_out = [self.convert.surf_to_res(rt, self.seqnum) for rt in (rates_in, rates_out)]
             else:
                 rate_in, rate_out = rates_in[phase], rates_out[phase]
-            yield Blockflow(self.time, rate_in, rate_out, inflow, outflow)
+            yield Blockflow(self.time, rate_in, rate_out)
+
+
+    #--------------------------------------------------------------------------------
+    def interblock_after(self):                                                # Flow
+    #--------------------------------------------------------------------------------
+        # Read flow rates from UNRST-file
+        # Convert surface rates to reservoir rates AFTER in/out splitting
+        # A block is either an inflow or outflow block
+        # The blocks are split into inflow and outflow blocks depending on the sign of the rate
+        Blockflow = namedtuple('Blockflow', 'time rate rate_in rate_out inflow outflow')
+        phase = self.phases[0]
+        blockdata = self.unrst.blockdata('SEQNUM', 'DOUBHEAD', 0, *self.block_keys)
+        for self.seqnum, self.time, *data in blockdata:
+            data = batched(self.unrst.reshape_dim(*data), 3)
+            rates = {ph:stack(next(data), axis=-1) for ph in self.phases}
+            rates_in, rates_out = {}, {}
+            for ph, rate in rates.items():
+                inflow = rate < 0
+                outflow = rate >= 0
+                rate_in = -rate * inflow
+                rate_out = rate * outflow
+                rates_in[ph] = rate_in + roll_xyz(rate_out)
+                rates_out[ph] = rate_out + roll_xyz(rate_in)
+            if not self.res_block:
+                rate_in, rate_out = [self.convert.surf_to_res(rt, self.seqnum) for rt in (rates_in, rates_out)]
+            else:
+                rate_in, rate_out = rates_in[phase], rates_out[phase]
+            yield Blockflow(self.time, rates[phase], rate_in, rate_out, inflow, outflow)
 
 
     #--------------------------------------------------------------------------------
@@ -4512,7 +4693,7 @@ class Flow():                                                                  #
     #--------------------------------------------------------------------------------
         # Read flow rates from UNRST-file
         # Convert surface rates to reservoir rates BEFORE in/out splitting
-        Blockflow = namedtuple('Blockflow', 'time rate rate_in rate_out neg_inflow pos_inflow')
+        Blockflow = namedtuple('Blockflow', 'time rate rate_in rate_out inflow outflow')
         phase = self.phases[0]
         blockdata = self.unrst.blockdata('SEQNUM', 'DOUBHEAD', 0, *self.block_keys)
         for self.seqnum, self.time, *data in blockdata:
@@ -4526,52 +4707,10 @@ class Flow():                                                                  #
             outflow = rates >= 0
             rate_in = -rates * inflow
             rate_out = rates * outflow
-            rates_in = rate_in + self.roll_xyz(rate_out)
-            rates_out = rate_out + self.roll_xyz(rate_in)
+            rates_in = rate_in + roll_xyz(rate_out)
+            rates_out = rate_out + roll_xyz(rate_in)
             yield Blockflow(self.time, rates, rates_in, rates_out, inflow, outflow)
 
-
-    #--------------------------------------------------------------------------------
-    def roll_xyz(self, src, shift=1, as_scalar=False):                         # Flow
-    #--------------------------------------------------------------------------------
-        """
-        Rolls the values of a source array along all axes and removes periodic 
-        boundary end elements.
-
-        Parameters:
-            src (numpy.ndarray): The source array to be rolled. Can be a scalar 
-                field or a vector field.
-            shift (int, optional): The number of positions by which elements are 
-                shifted. Positive values shift to the right, and negative values 
-                shift to the left. Default is 1.
-            as_scalar (bool, optional): If True, treats the input as a scalar 
-                field even if it has more than 3 dimensions. Default is False.
-
-        Returns:
-            numpy.ndarray: A new array with the rolled values along all axes. 
-            For vector fields, the result is stacked along the last axis.
-
-        Notes:
-            - For vector fields (when `src.ndim > 3` and `as_scalar` is False), 
-              each axis is rolled individually.
-            - Periodic boundary end elements (at index 0 or -1, depending on the 
-              shift direction) are set to 0 after rolling.
-        """
-        end = 0 if shift > 0 else -1
-        roll_list = []
-        arr = src
-        for axis in range(3):
-            ind = 3 * [slice(None)]
-            ind[axis] = end
-            if src.ndim > 3 and not as_scalar:
-                # Vectorfield, roll axes individually
-                arr = src[..., axis]
-            rolled = nproll(arr, shift, axis=axis)
-            # Remove periodic boundary end elements
-            rolled[tuple(ind)] = 0
-            roll_list.append(rolled)
-        return stack(roll_list, axis=-1)
-    
 
     #--------------------------------------------------------------------------------
     def wells(self, zerobase=True):                                             # Flow
