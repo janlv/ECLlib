@@ -35,7 +35,7 @@ from molmass import Formula
 #    * : 0 or more rep.
 
 #--------------------------------------------------------------------------------
-def connection_index(dim):
+def neighbour_connections(dim):
 #--------------------------------------------------------------------------------
     """
     Generate the connection indices for the six block-faces in a 3D grid.
