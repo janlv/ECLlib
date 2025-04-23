@@ -35,10 +35,10 @@ from molmass import Formula
 #    * : 0 or more rep.
 
 #--------------------------------------------------------------------------------
-def neighbour_index(dim):
+def connection_index(dim):
 #--------------------------------------------------------------------------------
     """
-    Generate the indices of neighboring blocks in a 3D grid.
+    Generate the connection indices for the six block-faces in a 3D grid.
 
     This function computes the indices of neighboring blocks in both positive 
     and negative directions along each axis (i, j, k) for a 3D grid of given 
@@ -62,11 +62,11 @@ def neighbour_index(dim):
     """
     ind = index_array(dim)
     kwargs = {'as_scalar': True, 'wrapped': -1}
-    # Neighbour-indices of block (i,j,k) in 0) i+1, 1) j+1, 2) k+1 direction
-    pos_neigh = roll_xyz(ind, -1, **kwargs).swapaxes(-2, -1)
-    # Neighbour-indices of block (i,j,k) in 0) i-1, 1) j-1, 2) k-1 direction
-    neg_neigh = roll_xyz(ind, 1, **kwargs).swapaxes(-2, -1)
-    return pos_neigh, neg_neigh
+    # Connection-indices of block (i,j,k) in 0) i+1, 1) j+1, 2) k+1 direction
+    pos_conn = roll_xyz(ind, -1, **kwargs).swapaxes(-2, -1)
+    # Connection-indices of block (i,j,k) in 0) i-1, 1) j-1, 2) k-1 direction
+    neg_conn = roll_xyz(ind, 1, **kwargs).swapaxes(-2, -1)
+    return concatenate((pos_conn, neg_conn), axis=-2)
 
 #--------------------------------------------------------------------------------
 def roll_xyz(src, shift=1, as_scalar=False, wrapped=0):
