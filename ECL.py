@@ -19,7 +19,7 @@ from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
 from numpy import (fromstring, int32, float32, float64, bool_ as np_bool,
-                   array as nparray, stack, sum as npsum, zeros, ones)
+                   array as nparray, sum as npsum, zeros, ones)
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
@@ -2137,8 +2137,9 @@ class INIT_file(unfmt_file):                                              # INIT
         keys = ('NNC1', 'NNC2')
         self.check_missing_keys(*keys)
         nncs = next(self.blockdata(*keys, singleton=True), ((),()))
-        return stack([self.cell_ijk(*nnc) for nnc in nncs], axis=0)
-        #return zip(*(self.cell_ijk(*nnc) for nnc in nncs))
+        return [self.cell_ijk(*nnc).tolist() for nnc in nncs]
+        #return nparray([self.cell_ijk(*nnc) for nnc in nncs])
+        #return stack([self.cell_ijk(*nnc) for nnc in nncs], axis=0)
 
     #--------------------------------------------------------------------------------
     def simulator(self):                                                  # INIT_file
