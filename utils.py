@@ -18,8 +18,8 @@ from shutil import copy2, rmtree
 import stat
 from fnmatch import fnmatch
 from os import SEEK_END, SEEK_CUR
-from numpy import (arange, array, meshgrid, stack, trapezoid, sum as npsum, concatenate, 
-                   diff as npdiff, where, append as npappend, roll as nproll, ndarray)
+from numpy import (arange, array, int32, meshgrid, stack, trapezoid, sum as npsum, concatenate, 
+                   diff as npdiff, where, append as npappend, roll as nproll)
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
 from matplotlib.pyplot import figure as pl_figure, show as pl_show, close as pl_close
@@ -34,40 +34,41 @@ from molmass import Formula
 #    + : 1 or more rep.
 #    * : 0 or more rep.
 
-#--------------------------------------------------------------------------------
-def to_coords(flat, shape, as_list=False):
-#--------------------------------------------------------------------------------
-    """
-    Converts a 1D array of flat indices `flat` to (x, y, z) coordinates.
-    flat: array of shape (N,)
-    shape: tuple of grid dimensions (X, Y, Z)
-    Returns: list of tuples with coordinates of shape (N, 3)
-    """
 
-    if not isinstance(flat, ndarray):
-        flat = array(flat)
-    z = flat // (shape[0] * shape[1])
-    y = (flat // shape[0]) % shape[1]
-    x = flat % shape[0]
-    if as_list:
-        return list(zip(x.tolist(), y.tolist(), z.tolist()))
-    return stack((x, y, z), axis=1)
-    # Y, Z = shape[1], shape[2]
-    # x, rem = divmod(flat, Y * Z)
-    # y, z = divmod(rem, Z)
-    # return list(zip(x, y, z))
+# #--------------------------------------------------------------------------------
+# def to_coords(flat, shape, as_list=False):
+# #--------------------------------------------------------------------------------
+#     """
+#     Converts a 1D array of flat indices `flat` to (x, y, z) coordinates.
+#     flat: array of shape (N,)
+#     shape: tuple of grid dimensions (X, Y, Z)
+#     Returns: list of tuples with coordinates of shape (N, 3)
+#     """
 
-#--------------------------------------------------------------------------------
-def to_flat(coords, shape, as_list=False):
-#--------------------------------------------------------------------------------
-    """Convert 3D coordinates to flat index."""
-    if not isinstance(coords, ndarray):
-        coords = array(coords)
-    x, y, z = coords.T #moveaxis(coords, 0, 1)
-    flat = x + y * shape[0] + z * shape[0] * shape[1]
-    if as_list:
-        return flat.tolist()
-    return flat
+#     if not isinstance(flat, ndarray):
+#         flat = array(flat)
+#     z = flat // (shape[0] * shape[1])
+#     y = (flat // shape[0]) % shape[1]
+#     x = flat % shape[0]
+#     if as_list:
+#         return list(zip(x.tolist(), y.tolist(), z.tolist()))
+#     return stack((x, y, z), axis=1)
+#     # Y, Z = shape[1], shape[2]
+#     # x, rem = divmod(flat, Y * Z)
+#     # y, z = divmod(rem, Z)
+#     # return list(zip(x, y, z))
+
+# #--------------------------------------------------------------------------------
+# def to_flat(coords, shape, as_list=False):
+# #--------------------------------------------------------------------------------
+#     """Convert 3D coordinates to flat index."""
+#     if not isinstance(coords, ndarray):
+#         coords = array(coords)
+#     x, y, z = coords.T #moveaxis(coords, 0, 1)
+#     flat = x + y * shape[0] + z * shape[0] * shape[1]
+#     if as_list:
+#         return flat.tolist()
+#     return flat
 
 #--------------------------------------------------------------------------------
 def neighbour_connections(dim):
@@ -148,7 +149,9 @@ def roll_xyz(src, shift=1, as_scalar=False, wrapped=0):
 #--------------------------------------------------------------------------------
 def index_array(shape):
 #--------------------------------------------------------------------------------
-    i, j, k = meshgrid(arange(shape[0]), arange(shape[1]), arange(shape[2]), indexing='ij')
+    i, j, k = meshgrid(arange(shape[0], dtype=int32), 
+                       arange(shape[1], dtype=int32), 
+                       arange(shape[2], dtype=int32), indexing='ij')
     return stack((i, j, k), axis=-1)
 
 #--------------------------------------------------------------------------------

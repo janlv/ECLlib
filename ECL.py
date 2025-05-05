@@ -1129,7 +1129,7 @@ class unfmt_file(File):                                                  # unfmt
 
         Example: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
         """
-        #print(keylim)
+        #starttime = datetime.now()
         keys, limits, dictkeys = self.__prepare_limits(*keylim)
         limits = dict(zip(keys, limits))
         data = {key:None for key in dictkeys}
@@ -1144,10 +1144,12 @@ class unfmt_file(File):                                                  # unfmt
             # Only data:None is omitted, data:() is allowed
             if not any(val is None for val in data.values()):
                 if singleton:
+                    #print(f'Read {keys}: {datetime.now()-starttime}')
                     yield tuple(data.values())
                 else:
                     # Unpack single values
                     values = tuple(v if len(v)>1 else v[0] for v in data.values())
+                    #print(f'Read {keys}: {datetime.now()-starttime}')
                     yield values if len(values)>1 else values[0]
                 data = {key:None for key in dictkeys}
 
@@ -2105,7 +2107,8 @@ class INIT_file(unfmt_file):                                              # INIT
     def cell_ijk(self, *cellnum):                                         # INIT_file
     #--------------------------------------------------------------------------------
         """
-        Return ijk-indices of cells given a list of cell-numbers
+        Return ijk-indices of cells given a list of cell-numbers. 
+        The cell numbers (Eclipse/Intersect) are 1-based and the ijk-indices are 0-based.
         """
         if not cellnum:
             return nparray([])
