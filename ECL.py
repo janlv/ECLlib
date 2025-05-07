@@ -1382,24 +1382,15 @@ class unfmt_file(File):                                                  # unfmt
         blocks_func = self.blocks
         if tail:
             blocks_func = self.tail_blocks
-        # Start block numeration
-        # start_blocks = (i for i,b in enumerate(blocks_func()) if self.start in b)
-        # # Need to add the total number of blocks to include the last section
-        # last_block = (self.count_blocks() for _ in [None])
-        # steps = pairwise(chain(start_blocks, last_block))
-        #steps = pairwise(chain(steps_gen, [self.count_blocks()]))
         start_blocks = self.section_start_blocks(tail=tail, **kwargs)
         section_pos = islice(pairwise(start_blocks), start, stop, step)
         blocks = blocks_func(**kwargs)
-        #a, b = next(step)
         prev = 0
         a, b = next(section_pos, (0, 0))
-        #while batch:=tuple(islice(blocks, b-a)):
         while batch := tuple(islice(blocks, a-prev, b-prev)):
             yield batch
             prev = b
             a, b = next(section_pos, (b, b))
-            #a, b = next(step,(0,0))
 
     #--------------------------------------------------------------------------------
     def section_data(self, start=(), end=(), rename=(), begin=0):        # unfmt_file
