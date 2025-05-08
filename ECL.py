@@ -803,7 +803,8 @@ class unfmt_block:                                                     # unfmt_b
     #--------------------------------------------------------------------------------
     def from_data(cls, key:str, data, _dtype):                          # unfmt_block
     #--------------------------------------------------------------------------------
-        dtype = {'int':b'INTE', 'float':b'REAL', 'double':b'DOUB', 'bool':b'LOGI', 'char':b'CHAR'}[_dtype]
+        dtype = {'int':b'INTE', 'float':b'REAL', 'double':b'DOUB', 
+                 'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'}[_dtype]
         header = unfmt_header(ensure_bytestring(key.ljust(8)), len(data), dtype)
         return cls(header, data)
 
@@ -988,6 +989,7 @@ class unfmt_block:                                                     # unfmt_b
     def as_bytes(self):                                               # unfmt_block
     #--------------------------------------------------------------------------------
         return self.header.as_bytes() + b''.join(self._pack_data())
+
 
 #====================================================================================
 class unfmt_file(File):                                                  # unfmt_file
@@ -1316,6 +1318,16 @@ class unfmt_file(File):                                                  # unfmt
         return [bl.key() for bl in nth(self.section_blocks(), n)]
 
     #--------------------------------------------------------------------------------
+    def section_filepos(self):                                         # unfmt_file
+    #--------------------------------------------------------------------------------
+        """ 
+        Return file-positions at the start of sections
+        These positions can be used in blocks_matching(*keys, start=pos) to
+        get fast access to the blocks in the section.
+        """
+        return [bl.startpos for _,bl in self.blocks_matching(self.start)]
+
+    #--------------------------------------------------------------------------------
     def check_missing_keys(self, *keys, raise_error=True):               # unfmt_file
     #--------------------------------------------------------------------------------
         """
@@ -1346,14 +1358,17 @@ class unfmt_file(File):                                                  # unfmt
         return expand_pattern(keys, self.section_keys(sec))
 
     #--------------------------------------------------------------------------------
-    def blocks_matching(self, *keys):                                    # unfmt_file
+    def blocks_matching(self, *keys, **kwargs):                                    # unfmt_file
     #--------------------------------------------------------------------------------
         step = -1
-        for b in self.blocks():
+        keyset = set(keys)
+        for b in self.blocks(**kwargs):
             if self.start in b:
                 step = b.data()[0]
-            if any(key in b for key in keys):
+            #if any(key in b for key in keys):
+            if b.key() in keyset:
                 yield (step, b)
+
     #--------------------------------------------------------------------------------
     def section_start_blocks(self, tail=False, **kwargs):                             # unfmt_file
     #--------------------------------------------------------------------------------
@@ -1396,8 +1411,9 @@ class unfmt_file(File):                                                  # unfmt
     def section_data(self, start=(), end=(), rename=(), begin=0):        # unfmt_file
     #--------------------------------------------------------------------------------        
         # Example of start and end format: 
-        # start=('SEQNUM', 'startpos'), end=('ENDSOL', 'endpos') 
-        # Start by splitting args in keys=('SEQNUM', 'ENDSOL') and attrs=('startpos', 'endpos')
+        # start=('SEQNUM', 'startpos'), end=('ENDSOL', 'endpos')
+        # startpos and endpos are attributes of the unfmt_blocks 
+        # returned by blocks_matching()
         keys, attrs = zip(start, end)
         pairs = batched(self.blocks_matching(*keys), 2)
         with self.mmap() as filemap:
@@ -1405,17 +1421,18 @@ class unfmt_file(File):                                                  # unfmt
                 step, pair = zip(*step_pair)
                 if step[0] < begin:
                     continue
-                # Get 'endpos' or 'startpos' for the start/end blocks
+                # Get 'endpos' or 'startpos' attrs for the start/end blocks
                 _slice = slice(*(getattr(p,a) for p,a in zip(pair, attrs)))
                 data = filemap[_slice]
                 if rename and (names:=[rn for rn in rename if rn[0] in data]):
                     for old, new in names:
                         data = data.replace(old.ljust(8), new.ljust(8))
                 yield (step[0], data)
-                # yield (step[0], filemap[_slice])
+
 
     #--------------------------------------------------------------------------------
-    def section_slices(self, start=(), end=()):                          # unfmt_file
+    # def section_slices(self, start=(), end=()):                          # unfmt_file
+    def section_slices(self, start, end):                          # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Get the file-position slice defined by the 'start' and 'end' block-keywords. 
@@ -2442,7 +2459,6 @@ class UNRST_file(unfmt_file):                                            # UNRST
             if stop and i == stop:
                 return
             
-
 
 # #====================================================================================
 # class X_files:                                                              # X_files
