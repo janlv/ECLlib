@@ -1432,7 +1432,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #--------------------------------------------------------------------------------
     # def section_slices(self, start=(), end=()):                          # unfmt_file
-    def section_slices(self, start, end):                          # unfmt_file
+    def section_slices(self, start, end, **kwargs):                          # unfmt_file
     #--------------------------------------------------------------------------------
         """
         Get the file-position slice defined by the 'start' and 'end' block-keywords. 
@@ -1443,7 +1443,7 @@ class unfmt_file(File):                                                  # unfmt
         keys, attrs = zip(start, end)
         step = -1
         _matches = {k:None for k in keys}
-        for section in self.section_blocks():
+        for section in self.section_blocks(**kwargs):
             for block in section:
                 if self.start in block:
                     step = block.data()[0]
@@ -2247,18 +2247,18 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #         yield (cell % ni, (cell % nij) // ni, cell // nij)
 
     # #--------------------------------------------------------------------------------
-    # def cell_ijk(self, *cellnum):                                    # UNRST_file
+    #def cell_ijk(self, *cellnum):                                    # UNRST_file
     # #--------------------------------------------------------------------------------
     #     """
     #     Return ijk-indices of cells given a list of cell-numbers
     #     """
-    #     dim = self.dim()
-    #     ni, nij = dim[0], dim[0]*dim[1]
-    #     cellnum = nparray(cellnum) - 1
-    #     i = cellnum % ni
-    #     j = (cellnum % nij) // ni
-    #     k = cellnum // nij
-    #     return nparray([i, j, k]).T
+        # dim = self.dim()
+        # ni, nij = dim[0], dim[0]*dim[1]
+        # cellnum = nparray(cellnum) - 1
+        # i = cellnum % ni
+        # j = (cellnum % nij) // ni
+        # k = cellnum // nij
+        # return nparray([i, j, k]).T
 
 
     #--------------------------------------------------------------------------------

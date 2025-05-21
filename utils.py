@@ -18,7 +18,7 @@ from shutil import copy2, rmtree
 import stat
 from fnmatch import fnmatch
 from os import SEEK_END, SEEK_CUR
-from numpy import (arange, array, int32, meshgrid, stack, trapezoid, sum as npsum, concatenate, 
+from numpy import (arange, array, int32, meshgrid, stack, trapz, sum as npsum, concatenate, 
                    diff as npdiff, where, append as npappend, roll as nproll)
 from psutil import Process, NoSuchProcess, wait_procs
 #from operator import attrgetter
@@ -415,7 +415,8 @@ def cumtrapz(y, x, *args, **kwargs):
         pl.plot(x, cumtrapz(np.sin(x), x), 'ro')
         pl.plot(x, -np.cos(x) + 1, 'b-')
     """
-    return array([trapezoid(y[:i], x[:i], *args, **kwargs) for i in range(1, len(x)+1)])
+    #return array([trapezoid(y[:i], x[:i], *args, **kwargs) for i in range(1, len(x)+1)])
+    return array([trapz(y[:i], x[:i], *args, **kwargs) for i in range(1, len(x)+1)])
 
 #-----------------------------------------------------------------------
 def match_in_wildlist(string, wildlist):
