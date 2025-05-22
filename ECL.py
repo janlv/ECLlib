@@ -12,14 +12,14 @@ from platform import system
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
-from time import sleep
+from time import perf_counter, sleep
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import (fromstring, int32, float32, float64, bool_ as np_bool,
-                   array as nparray, sum as npsum, zeros, ones)
+from numpy import (atleast_1d, dtype as npdtype, frombuffer, fromstring, int32, float32, float64, bool_ as np_bool,
+                   array as nparray, ndarray, sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
@@ -940,6 +940,7 @@ class unfmt_block:                                                     # unfmt_b
     #--------------------------------------------------------------------------------
     def _read_data(self, limit):                                        # unfmt_block
     #--------------------------------------------------------------------------------
+        #start = perf_counter()
         #slices = tuple(flatten(self.header._data_slices(limit)))
         slices = tuple(self.header._data_slices(limit))
         #print(self.key(), slices)
@@ -949,13 +950,20 @@ class unfmt_block:                                                     # unfmt_b
         else:
             # File object
             data = (self.read_file(sl) for sl in slices)
-        nbytes = sum(sl.stop-sl.start for sl in slices)
-        length = nbytes // (1 if self.is_char() else self.dtype.size)
-        return unpack(ENDIAN+f'{length}{self.dtype.unpack}', b''.join(data))
+        #nbytes = sum(sl.stop-sl.start for sl in slices)
+        #length = nbytes // (1 if self.is_char() else self.dtype.size)
+        #ret = unpack(ENDIAN+f'{length}{self.dtype.unpack}', b''.join(data))
+        ret = frombuffer(b''.join(data), dtype=npdtype(self.dtype.nptype).newbyteorder(ENDIAN))
+        #print(self.key(), '_read_data:', perf_counter()-start)
+        return ret
+        #return unpack(ENDIAN+f'{length}{self.dtype.unpack}', b''.join(data))
+
+
 
     #--------------------------------------------------------------------------------
-    def data(self, *index, limit=((None,),), strip=False, unpack=True):  # unfmt_block
+    def data_old(self, *index, limit=((None,),), strip=False, unpack=True):  # unfmt_block
     #--------------------------------------------------------------------------------
+        #start = perf_counter()
         if self.header.length == 0:
             return () if unpack else ((),)
         if index:
@@ -968,12 +976,138 @@ class unfmt_block:                                                     # unfmt_b
                 values = (v.strip() for v in values)
         if index:
             pos = slice(*index) if len(index)>1 else index[0]
-            return tuple(values)[pos]
+            ret = tuple(values)[pos]
+            #print(self.key(), 'index data:', perf_counter()-start)        
+            return ret
+            # return tuple(values)[pos]
         #print('LIMIT[0]', limit[0])
         if None in limit[0]:
-            return tuple(values) if unpack else (tuple(values),)
+            ret = tuple(values) if unpack else (tuple(values),)
+            #print(self.key(), 'None_limit data:', perf_counter()-start)        
+            return ret
+            # return tuple(values) if unpack else (tuple(values),)
         ndata = (-subtract(*l) for l in limit)
-        return tuple(take(n, values) for n in ndata)
+        ret = tuple(take(n, values) for n in ndata)
+        #print(self.key(), 'data:', perf_counter()-start)
+        return ret
+        # return tuple(take(n, values) for n in ndata)
+
+    #--------------------------------------------------------------------------------
+    def data(self, *index, limit=((None,),), strip=False, unpack=True):
+    #--------------------------------------------------------------------------------
+        """
+        Returnerer NumPy-arrays. 
+        - unpack=True: gir direkte array / tuple-of-arrays / list-of-arrays 
+        - unpack=False: pakker det samme resultatet inn i én tuple
+        """
+        print(f'{index=}, {limit=}, {strip=}, {unpack=}')
+        # 1) Tom fil
+        if self.header.length == 0:
+            out = nparray([], dtype=self.header.dtype.numpy)
+            return out if unpack else (out,)
+
+        # 2) Hvis man bruker index direkte, overstyr limit
+        if index:
+            limit = [pad(index, 2, fill=index[0] + 1)]
+
+        # 3) Les alt som én flat NumPy-array
+        flat = self._read_data(limit)
+
+        # 4) Hvis tegn-felt: dekode, splitte og strippe
+        if self.header.is_char():
+            # a) Dekode byte-strenger til Python-streng
+            decoded = npchar.decode(flat, 'utf-8')
+            # b) Split i biter av fast bredde
+            pieces = [
+                part
+                for text in decoded
+                for part in string_split(text, self.header.dtype.size)
+            ]
+            values = nparray(pieces, dtype=object)
+            if strip:
+                values = npchar.strip(values)
+        else:
+            values = flat  # vanlig tall-array
+
+        # 5) Direkte indeks-tilfelle
+        if index:
+            pos = slice(*index) if len(index) > 1 else index[0]
+            sel = values[pos]
+            return sel # if unpack else (sel,)
+
+        # 6) “Hent alt” dersom None i limit[0]
+        if None in limit[0]:
+            out = values
+            return out if unpack else (out,)
+
+        # 7) Flere segmenter: split basert på limit
+        if len(limit) > 1:
+            # beregn hvor vi skal splitte
+            sizes = [stop - start for (start, stop) in limit]
+            split_pts = cumsum(sizes)[:-1]
+            segments = tuple(npsplit(values, split_pts))
+            print(limit, segments)
+            return segments #if unpack else (segments,)
+
+        # 8) Én enkelt del
+        out = values
+        return out #if unpack else (out,)
+
+    # #--------------------------------------------------------------------------------
+    # def data_v2(self, *index, limit=((None,),), strip=False):
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Returnerer alltid NumPy-arrays. 
+    #     - Hvis `index` er satt: returnerer én array (evt. én skalar-array).
+    #     - Hvis limit inneholder None: returnerer hele arrayen.
+    #     - Hvis flere segmenter i limit: returnerer liste av arrays.
+    #     """
+    #     # 1) Tom fil
+    #     if self.header.length == 0:
+    #         return nparray([], dtype=self.header.dtype.numpy)
+
+    #     # 2) Override limit ved direkte index
+    #     if index:
+    #         limit = [pad(index, 2, fill=index[0]+1)]
+
+    #     # 3) Les alt som én flat NumPy-array
+    #     flat = self._read_data(limit)
+
+    #     # 4) Tegn-felt: dekode, splitte og ev. strippe
+    #     if self.header.is_char():
+    #         # flat er dtype='S<size>'
+    #         # a) dekode til Python-strenger
+    #         decoded = npchar.decode(flat, 'utf-8')
+    #         # b) splitte hver streng i faste felt
+    #         pieces = [part
+    #                 for text in decoded
+    #                 for part in string_split(text, self.header.dtype.size)]
+    #         values = nparray(pieces, dtype=object)
+    #         if strip:
+    #             values = npchar.strip(values)
+    #     else:
+    #         values = flat
+
+    #     # 5) Hvis direkte index: enkel slicing
+    #     if index:
+    #         pos = slice(*index) if len(index) > 1 else index[0]
+    #         return values[pos]
+
+    #     # 6) “Hent alt” hvis None i limit
+    #     if None in limit[0]:
+    #         return values
+
+    #     # 7) Flere segmenter: split igjen basert på lengths
+    #     if len(limit) > 1:
+    #         sizes = [stop - start for (start, stop) in limit]
+    #         # indeksene hvor vi skal splitte
+    #         split_at = cumsum(sizes)[:-1]
+    #         segments = npsplit(values, split_at)
+    #         return segments
+
+    #     # 8) Én enkel del
+    #     return values
+
 
     #--------------------------------------------------------------------------------
     def _pack_data(self):                                               # unfmt_block
@@ -1144,16 +1278,86 @@ class unfmt_file(File):                                                  # unfmt
                     for i,dk in enumerate(dkeys):
                         data[dk] = values[i]
             # Only data:None is omitted, data:() is allowed
-            if not any(val is None for val in data.values()):
+            # 6) Når vi har alle keys, yield-resultat
+            if all(dk in data for dk in dictkeys):
+                out_vals = [data[dk] for dk in dictkeys]
                 if singleton:
-                    #print(f'Read {keys}: {datetime.now()-starttime}')
-                    yield tuple(data.values())
+                    result = tuple(out_vals)
                 else:
-                    # Unpack single values
-                    values = tuple(v if len(v)>1 else v[0] for v in data.values())
-                    #print(f'Read {keys}: {datetime.now()-starttime}')
-                    yield values if len(values)>1 else values[0]
-                data = {key:None for key in dictkeys}
+                    result = out_vals[0] if len(out_vals) == 1 else tuple(out_vals)
+                yield result
+                data.clear()
+
+            # if not any(val is None for val in data.values()):
+            #     if singleton:
+            #         #print(f'Read {keys}: {datetime.now()-starttime}')
+            #         yield tuple(data.values())
+            #     else:
+            #         # Unpack single values
+            #         values = tuple(v if len(v)>1 else v[0] for v in data.values())
+            #         #print(f'Read {keys}: {datetime.now()-starttime}')
+            #         yield values if len(values)>1 else values[0]
+            #     data = {key:None for key in dictkeys}
+
+    # #--------------------------------------------------------------------------------
+    # def blockdata_new(self, *keylim, limits=None, strip=True,
+    #             tail=False, singleton=False,
+    #             start=0, stop=None, step=1, **kwargs):
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Returnerer data i nøkkel-rekkefølge som NumPy-arrays.
+    #     - Hvis limits er gitt, brukes det direkte i stedet for det som __prepare_limits() gir.
+    #     - Hvis én data-nøkkel og singleton=False: returnerer direkte array.
+    #     - Ellers: returnerer tuple av arrays.
+    #     """
+    #     # 1) Klargjør keys + default-limits via __prepare_limits
+    #     keys, default_limits, dictkeys = self.__prepare_limits(*keylim)
+
+    #     # 2) Bruk eksplisitte limits om gitt, ellers default
+    #     if limits is not None:
+    #         # forvent at limits er en liste/tuple med samme lengde som keys
+    #         limits_list = list(limits)
+    #         if len(limits_list) != len(keys):
+    #             raise ValueError(
+    #                 f"Antall limits ({len(limits_list)}) må samsvare med antall keys ({len(keys)})"
+    #             )
+    #     else:
+    #         limits_list = default_limits
+
+    #     limits_dict = dict(zip(keys, limits_list))
+
+    #     data = {}
+    #     # 3) Iterér over blokkene
+    #     for blocks in self.section_blocks(tail, start, stop, step, **kwargs):
+    #         for block in blocks:
+    #             matched_key = match_in_wildlist(block.key(), keys)
+    #             if not matched_key:
+    #                 continue
+
+    #             # 4) Les med unpack=True -> array eller tuple av arrays
+    #             raw = block.data(strip=strip, limit=limits_dict[matched_key], unpack=True)
+                
+    #             # Sørg for at raw er en tuple/list av arrays
+    #             if not isinstance(raw, (tuple, list)):
+    #                 raw = (raw,)
+
+    #             # 5) Legg hver array inn i data-dict med nøkkel "{key}_{start}"
+    #             for limit, arr in zip(limits_dict[matched_key], raw):
+    #                 data[f'{matched_key}_{limit[0]}'] = arr
+
+    #         # 6) Når vi har alle keys, yield-resultat
+    #         if all(dk in data for dk in dictkeys):
+    #             out_vals = [data[dk] for dk in dictkeys]
+
+    #             if singleton:
+    #                 result = tuple(out_vals)
+    #             else:
+    #                 result = out_vals[0] if len(out_vals) == 1 else tuple(out_vals)
+
+    #             yield result
+
+    #             data.clear()
+
 
     #--------------------------------------------------------------------------------
     def read(self, *varnames, **kwargs):                                # unfmt_file
@@ -1169,7 +1373,9 @@ class unfmt_file(File):                                                  # unfmt
         var_pos = list(self.var_pos[var] for var in varnames)
         #keylim = flatten_all(zip(repeat(v[0]), group_indices(v[1:])) for v in var_pos)
         keylim = flatten_all(zip(repeat(v[0]), index_limits([-1 if i is None else i for i in v[1:]])) for v in var_pos)
+        keylim = list(keylim)
         nvar = [len(pos) for _,*pos in var_pos]
+        print(keylim, nvar)
         for values in self.blockdata(*keylim, **kwargs):
             if any(n>1 for n in nvar):
                 # Split values to match number of input variables
@@ -1177,6 +1383,61 @@ class unfmt_file(File):                                                  # unfmt
                 yield [take(n,values)[0] if n==1 else take(n,flatten(values)) for n in nvar]
             else:
                 yield values
+
+    # #--------------------------------------------------------------------------------
+    # def read_new(self, *varnames, **kwargs):                                # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Raskere versjon som returnerer rene NumPy-arrays.
+    #     Hver runde yielder én tuple med én array per varname
+    #     (eller kun én array hvis du kun ba om én variabel).
+    #     """
+    #     # 1) Sjekk at alle varnames finnes
+    #     missing = [v for v in varnames if v not in self.var_pos]
+    #     if missing:
+    #         raise SyntaxWarning(
+    #             f'Missing variable definitions for {type(self).__name__}: {missing}'
+    #         )
+
+    #     # 2) Bygg var_pos-lista og keylim for blockdata
+    #     var_pos = [self.var_pos[v] for v in varnames]
+    #     # var_pos-elementer = (key, idx1, idx2, …)
+    #     keylim = flatten_all(
+    #         zip(
+    #             repeat(v[0]),
+    #             index_limits([-1 if i is None else i for i in v[1:]])
+    #         )
+    #         for v in var_pos
+    #     )
+
+    #     # 3) For hver key, hvor mange segmenter (slice’er) får vi?
+    #     seg_counts = [len(v)-1 for v in var_pos]  # minus én for key-navnet
+
+    #     # 4) Hent blokker
+    #     for block_vals in self.blockdata(*keylim, **kwargs):
+    #         # Sørg for tuple av arrayer
+    #         if not isinstance(block_vals, (tuple, list)):
+    #             block_vals = (block_vals,)
+
+    #         # 5) Split ut i variabler
+    #         out = []
+    #         idx = 0
+    #         for count in seg_counts:
+    #             # hent neste 'count' arrayer
+    #             segs = block_vals[idx:idx+count]
+    #             idx += count
+    #             if count == 1:
+    #                 # bare ett segment → returner arr direkte
+    #                 out.append(segs[0])
+    #             else:
+    #                 # flere segmenter → concatenate
+    #                 out.append(np.concatenate(segs))
+            
+    #         # 6) Yield som singleton eller tuple
+    #         if len(out) == 1:
+    #             yield out[0]
+    #         else:
+    #             yield tuple(out)
 
 
     #--------------------------------------------------------------------------------
