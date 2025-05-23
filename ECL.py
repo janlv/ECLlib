@@ -18,8 +18,8 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import (atleast_1d, dtype as npdtype, frombuffer, fromstring, int32, float32, float64, bool_ as np_bool,
-                   array as nparray, ndarray, sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
+from numpy import (asarray, dtype as npdtype, frombuffer, fromstring, int32, float32, float64, bool_ as np_bool,
+                   array as nparray, sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
 from matplotlib.pyplot import figure as pl_figure
 from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
@@ -71,10 +71,10 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i',   4, 1000, int32),
          b'REAL' : Dtyp('REAL', 'f',   4, 1000, float32),
          b'DOUB' : Dtyp('DOUB', 'd',   8, 1000, float64),
          b'LOGI' : Dtyp('LOGI', 'i',   4, 1000, np_bool),
-         b'CHAR' : Dtyp('CHAR', 's',   8, 105 , str),
-         b'C008' : Dtyp('C008', 's',   8, 105 , str),
-         b'C009' : Dtyp('C009', 's',   9, 105 , str),
-         b'MESS' : Dtyp('MESS', ' ',   1, 1   , str)}
+         b'CHAR' : Dtyp('CHAR', 's',   8, 105 , 'S8'),
+         b'C008' : Dtyp('C008', 's',   8, 105 , 'S8'),
+         b'C009' : Dtyp('C009', 's',   9, 105 , 'S9'),
+         b'MESS' : Dtyp('MESS', ' ',   1, 1   , 'S1')}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
         
@@ -940,10 +940,8 @@ class unfmt_block:                                                     # unfmt_b
     #--------------------------------------------------------------------------------
     def _read_data(self, limit):                                        # unfmt_block
     #--------------------------------------------------------------------------------
-        #start = perf_counter()
         #slices = tuple(flatten(self.header._data_slices(limit)))
         slices = tuple(self.header._data_slices(limit))
-        #print(self.key(), slices)
         if self._data:
             # File is mmap'ed
             data = (self._data[sl] for sl in slices)
@@ -953,12 +951,11 @@ class unfmt_block:                                                     # unfmt_b
         #nbytes = sum(sl.stop-sl.start for sl in slices)
         #length = nbytes // (1 if self.is_char() else self.dtype.size)
         #ret = unpack(ENDIAN+f'{length}{self.dtype.unpack}', b''.join(data))
-        ret = frombuffer(b''.join(data), dtype=npdtype(self.dtype.nptype).newbyteorder(ENDIAN))
-        #print(self.key(), '_read_data:', perf_counter()-start)
-        return ret
+        dtype = npdtype(self.dtype.nptype).newbyteorder(ENDIAN)
+        return frombuffer(b''.join(data), dtype=dtype)
+        #print(self.key(), '_read_data:', limit, ret)
+        #return ret
         #return unpack(ENDIAN+f'{length}{self.dtype.unpack}', b''.join(data))
-
-
 
     #--------------------------------------------------------------------------------
     def data_old(self, *index, limit=((None,),), strip=False, unpack=True):  # unfmt_block
@@ -987,9 +984,10 @@ class unfmt_block:                                                     # unfmt_b
             return ret
             # return tuple(values) if unpack else (tuple(values),)
         ndata = (-subtract(*l) for l in limit)
-        ret = tuple(take(n, values) for n in ndata)
+        return tuple(take(n, values) for n in ndata)
+        #print(ret)
         #print(self.key(), 'data:', perf_counter()-start)
-        return ret
+        #return ret
         # return tuple(take(n, values) for n in ndata)
 
     #--------------------------------------------------------------------------------
@@ -1000,7 +998,7 @@ class unfmt_block:                                                     # unfmt_b
         - unpack=True: gir direkte array / tuple-of-arrays / list-of-arrays 
         - unpack=False: pakker det samme resultatet inn i én tuple
         """
-        print(f'{index=}, {limit=}, {strip=}, {unpack=}')
+        #print(f'{index=}, {limit=}, {strip=}, {unpack=}')
         # 1) Tom fil
         if self.header.length == 0:
             out = nparray([], dtype=self.header.dtype.numpy)
@@ -1023,7 +1021,7 @@ class unfmt_block:                                                     # unfmt_b
                 for text in decoded
                 for part in string_split(text, self.header.dtype.size)
             ]
-            values = nparray(pieces, dtype=object)
+            values = nparray(pieces)
             if strip:
                 values = npchar.strip(values)
         else:
@@ -1031,27 +1029,31 @@ class unfmt_block:                                                     # unfmt_b
 
         # 5) Direkte indeks-tilfelle
         if index:
+            #print('5')
             pos = slice(*index) if len(index) > 1 else index[0]
             sel = values[pos]
-            return sel # if unpack else (sel,)
+            return sel if unpack else (sel,)
 
         # 6) “Hent alt” dersom None i limit[0]
         if None in limit[0]:
+            #print('6')
             out = values
             return out if unpack else (out,)
 
         # 7) Flere segmenter: split basert på limit
         if len(limit) > 1:
+            #print('7')
             # beregn hvor vi skal splitte
             sizes = [stop - start for (start, stop) in limit]
             split_pts = cumsum(sizes)[:-1]
             segments = tuple(npsplit(values, split_pts))
-            print(limit, segments)
+            #print(limit, segments)
             return segments #if unpack else (segments,)
 
         # 8) Én enkelt del
+        #print('8')
         out = values
-        return out #if unpack else (out,)
+        return out if unpack else (out,)
 
     # #--------------------------------------------------------------------------------
     # def data_v2(self, *index, limit=((None,),), strip=False):
@@ -1274,30 +1276,21 @@ class unfmt_file(File):                                                  # unfmt
                 if key:=match_in_wildlist(block.key(), keys):
                     limit = limits[key]
                     values = block.data(strip=strip, limit=limit, unpack=False)
+                    #print('blockdata', values)
                     dkeys = list(f'{key}_{l[0]}' for l in limit)
                     for i,dk in enumerate(dkeys):
                         data[dk] = values[i]
             # Only data:None is omitted, data:() is allowed
-            # 6) Når vi har alle keys, yield-resultat
-            if all(dk in data for dk in dictkeys):
-                out_vals = [data[dk] for dk in dictkeys]
+            if not any(val is None for val in data.values()):
                 if singleton:
-                    result = tuple(out_vals)
+                    result = tuple(data.values())
                 else:
-                    result = out_vals[0] if len(out_vals) == 1 else tuple(out_vals)
+                    # Unpack single values, if they are
+                    #print('data.values()', data.values())
+                    result = tuple(v if v.size > 1 else v[0] for v in data.values())
                 yield result
-                data.clear()
+                data = {key:None for key in dictkeys}
 
-            # if not any(val is None for val in data.values()):
-            #     if singleton:
-            #         #print(f'Read {keys}: {datetime.now()-starttime}')
-            #         yield tuple(data.values())
-            #     else:
-            #         # Unpack single values
-            #         values = tuple(v if len(v)>1 else v[0] for v in data.values())
-            #         #print(f'Read {keys}: {datetime.now()-starttime}')
-            #         yield values if len(values)>1 else values[0]
-            #     data = {key:None for key in dictkeys}
 
     # #--------------------------------------------------------------------------------
     # def blockdata_new(self, *keylim, limits=None, strip=True,
@@ -1375,7 +1368,7 @@ class unfmt_file(File):                                                  # unfmt
         keylim = flatten_all(zip(repeat(v[0]), index_limits([-1 if i is None else i for i in v[1:]])) for v in var_pos)
         keylim = list(keylim)
         nvar = [len(pos) for _,*pos in var_pos]
-        print(keylim, nvar)
+        #print(keylim, nvar)
         for values in self.blockdata(*keylim, **kwargs):
             if any(n>1 for n in nvar):
                 # Split values to match number of input variables
@@ -2482,7 +2475,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
     def reshape_dim(self, *data): #, flip=True):                         # UNRST_file
     #--------------------------------------------------------------------------------
-        return [nparray(d).reshape(self.dim(), order='F') for d in data]
+        return [asarray(d).reshape(self.dim(), order='F') for d in data]
         # if flip:
         #     return [npflip(a, axis=-1) for a in arr]
         # return arr
