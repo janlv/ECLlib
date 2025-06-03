@@ -19,9 +19,9 @@ from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
 from numpy import (asarray, dtype as npdtype, frombuffer, fromstring, int32, float32, float64, bool_ as np_bool,
-                   array as nparray, sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
+                   array as nparray, ndarray, sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
 from matplotlib.pyplot import figure as pl_figure
-from pandas import DataFrame
+#from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
 
 from .utils import (any_cell_in_box, batched, batched_when, bounding_box, cumtrapz, date_range,
@@ -67,14 +67,23 @@ class Dtyp:
 
 
 #                        name  unpack size max  nptype
-DTYPE = {b'INTE' : Dtyp('INTE', 'i',   4, 1000, int32),
-         b'REAL' : Dtyp('REAL', 'f',   4, 1000, float32),
-         b'DOUB' : Dtyp('DOUB', 'd',   8, 1000, float64),
-         b'LOGI' : Dtyp('LOGI', 'i',   4, 1000, np_bool),
+# DTYPE = {b'INTE' : Dtyp('INTE', 'i',   4, 1000, int32),
+#          b'REAL' : Dtyp('REAL', 'f',   4, 1000, float32),
+#          b'DOUB' : Dtyp('DOUB', 'd',   8, 1000, float64),
+#          b'LOGI' : Dtyp('LOGI', 'i',   4, 1000, np_bool),
+#          b'CHAR' : Dtyp('CHAR', 's',   8, 105 , 'S8'),
+#          b'C008' : Dtyp('C008', 's',   8, 105 , 'S8'),
+#          b'C009' : Dtyp('C009', 's',   9, 105 , 'S9'),
+#          b'MESS' : Dtyp('MESS', 's',   1, 1   , 'S1')}
+
+DTYPE = {b'INTE' : Dtyp('INTE', 'i',   4, 1000, 'i4'),
+         b'REAL' : Dtyp('REAL', 'f',   4, 1000, 'f4'),
+         b'DOUB' : Dtyp('DOUB', 'd',   8, 1000, 'f8'),
+         b'LOGI' : Dtyp('LOGI', 'i',   4, 1000, 'b1'),
          b'CHAR' : Dtyp('CHAR', 's',   8, 105 , 'S8'),
          b'C008' : Dtyp('C008', 's',   8, 105 , 'S8'),
          b'C009' : Dtyp('C009', 's',   9, 105 , 'S9'),
-         b'MESS' : Dtyp('MESS', ' ',   1, 1   , 'S1')}
+         b'MESS' : Dtyp('MESS', 's',   1, 1   , 'S1')}
 
 DTYPE_LIST = [v.name for v in DTYPE.values()]
         
@@ -803,8 +812,11 @@ class unfmt_block:                                                     # unfmt_b
     #--------------------------------------------------------------------------------
     def from_data(cls, key:str, data, _dtype):                          # unfmt_block
     #--------------------------------------------------------------------------------
-        dtype = {'int':b'INTE', 'float':b'REAL', 'double':b'DOUB', 
+        dtype = {'int':b'INTE', 'float':b'REAL', 'double':b'DOUB',
                  'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'}[_dtype]
+        if isinstance(data, ndarray) and data.ndim > 1:
+            # Flatten multi-dimensional arrays
+            data = data.flatten(order='F')
         header = unfmt_header(ensure_bytestring(key.ljust(8)), len(data), dtype)
         return cls(header, data)
 
@@ -1001,7 +1013,7 @@ class unfmt_block:                                                     # unfmt_b
         #print(f'{index=}, {limit=}, {strip=}, {unpack=}')
         # 1) Tom fil
         if self.header.length == 0:
-            out = nparray([], dtype=self.header.dtype.numpy)
+            out = nparray([], dtype=self.header.dtype.nptype)
             return out if unpack else (out,)
 
         # 2) Hvis man bruker index direkte, overstyr limit
@@ -1055,61 +1067,6 @@ class unfmt_block:                                                     # unfmt_b
         out = values
         return out if unpack else (out,)
 
-    # #--------------------------------------------------------------------------------
-    # def data_v2(self, *index, limit=((None,),), strip=False):
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Returnerer alltid NumPy-arrays. 
-    #     - Hvis `index` er satt: returnerer én array (evt. én skalar-array).
-    #     - Hvis limit inneholder None: returnerer hele arrayen.
-    #     - Hvis flere segmenter i limit: returnerer liste av arrays.
-    #     """
-    #     # 1) Tom fil
-    #     if self.header.length == 0:
-    #         return nparray([], dtype=self.header.dtype.numpy)
-
-    #     # 2) Override limit ved direkte index
-    #     if index:
-    #         limit = [pad(index, 2, fill=index[0]+1)]
-
-    #     # 3) Les alt som én flat NumPy-array
-    #     flat = self._read_data(limit)
-
-    #     # 4) Tegn-felt: dekode, splitte og ev. strippe
-    #     if self.header.is_char():
-    #         # flat er dtype='S<size>'
-    #         # a) dekode til Python-strenger
-    #         decoded = npchar.decode(flat, 'utf-8')
-    #         # b) splitte hver streng i faste felt
-    #         pieces = [part
-    #                 for text in decoded
-    #                 for part in string_split(text, self.header.dtype.size)]
-    #         values = nparray(pieces, dtype=object)
-    #         if strip:
-    #             values = npchar.strip(values)
-    #     else:
-    #         values = flat
-
-    #     # 5) Hvis direkte index: enkel slicing
-    #     if index:
-    #         pos = slice(*index) if len(index) > 1 else index[0]
-    #         return values[pos]
-
-    #     # 6) “Hent alt” hvis None i limit
-    #     if None in limit[0]:
-    #         return values
-
-    #     # 7) Flere segmenter: split igjen basert på lengths
-    #     if len(limit) > 1:
-    #         sizes = [stop - start for (start, stop) in limit]
-    #         # indeksene hvor vi skal splitte
-    #         split_at = cumsum(sizes)[:-1]
-    #         segments = npsplit(values, split_at)
-    #         return segments
-
-    #     # 8) Én enkel del
-    #     return values
-
 
     #--------------------------------------------------------------------------------
     def _pack_data(self):                                               # unfmt_block
@@ -1119,12 +1076,36 @@ class unfmt_block:                                                     # unfmt_b
         for a,b in slice_range(0, len(self._data), dtype.max):
             length = b - a
             size = length * dtype.size
+            #print(dtype.unpack, size, self._data.dtype)
             yield pack(ENDIAN + f'i{length}{dtype.unpack}i', size, *self._data[a:b], size)
         
+
+    #--------------------------------------------------------------------------------
+    def _pack_data_fast(self):                                          # unfmt_block
+    #--------------------------------------------------------------------------------
+        # 4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i|...|4i| 1000 data |4i|
+        dtype = self.header.dtype
+        #np_dt  = npdtype(f'{ENDIAN}{dtype.unpack}{dtype.size}')
+        np_dt  = npdtype(f'{ENDIAN}{dtype.nptype}')
+        
+        for a, b in slice_range(0, len(self._data), dtype.max):
+            length = b - a
+            size   = length * dtype.size
+
+            # Bulk-konverter dataene
+            arr = asarray(self._data[a:b], dtype=np_dt)
+
+            # Pakk size én gang
+            payload = pack(ENDIAN + 'i', size)
+
+            # Sett sammen header + data + footer
+            yield payload + arr.tobytes() + payload
+
+
     #--------------------------------------------------------------------------------
     def as_bytes(self):                                               # unfmt_block
     #--------------------------------------------------------------------------------
-        return self.header.as_bytes() + b''.join(self._pack_data())
+        return self.header.as_bytes() + b''.join(self._pack_data_fast())
 
 
 #====================================================================================
@@ -1285,71 +1266,11 @@ class unfmt_file(File):                                                  # unfmt
                 if singleton:
                     result = tuple(data.values())
                 else:
-                    # Unpack single values, if they are
-                    #print('data.values()', data.values())
-                    result = tuple(v if v.size > 1 else v[0] for v in data.values())
+                    # Unpack single values
+                    values = tuple(v if v.size > 1 else v[0] for v in data.values())
+                    result = values if len(values) > 1 else values[0]
                 yield result
                 data = {key:None for key in dictkeys}
-
-
-    # #--------------------------------------------------------------------------------
-    # def blockdata_new(self, *keylim, limits=None, strip=True,
-    #             tail=False, singleton=False,
-    #             start=0, stop=None, step=1, **kwargs):
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Returnerer data i nøkkel-rekkefølge som NumPy-arrays.
-    #     - Hvis limits er gitt, brukes det direkte i stedet for det som __prepare_limits() gir.
-    #     - Hvis én data-nøkkel og singleton=False: returnerer direkte array.
-    #     - Ellers: returnerer tuple av arrays.
-    #     """
-    #     # 1) Klargjør keys + default-limits via __prepare_limits
-    #     keys, default_limits, dictkeys = self.__prepare_limits(*keylim)
-
-    #     # 2) Bruk eksplisitte limits om gitt, ellers default
-    #     if limits is not None:
-    #         # forvent at limits er en liste/tuple med samme lengde som keys
-    #         limits_list = list(limits)
-    #         if len(limits_list) != len(keys):
-    #             raise ValueError(
-    #                 f"Antall limits ({len(limits_list)}) må samsvare med antall keys ({len(keys)})"
-    #             )
-    #     else:
-    #         limits_list = default_limits
-
-    #     limits_dict = dict(zip(keys, limits_list))
-
-    #     data = {}
-    #     # 3) Iterér over blokkene
-    #     for blocks in self.section_blocks(tail, start, stop, step, **kwargs):
-    #         for block in blocks:
-    #             matched_key = match_in_wildlist(block.key(), keys)
-    #             if not matched_key:
-    #                 continue
-
-    #             # 4) Les med unpack=True -> array eller tuple av arrays
-    #             raw = block.data(strip=strip, limit=limits_dict[matched_key], unpack=True)
-                
-    #             # Sørg for at raw er en tuple/list av arrays
-    #             if not isinstance(raw, (tuple, list)):
-    #                 raw = (raw,)
-
-    #             # 5) Legg hver array inn i data-dict med nøkkel "{key}_{start}"
-    #             for limit, arr in zip(limits_dict[matched_key], raw):
-    #                 data[f'{matched_key}_{limit[0]}'] = arr
-
-    #         # 6) Når vi har alle keys, yield-resultat
-    #         if all(dk in data for dk in dictkeys):
-    #             out_vals = [data[dk] for dk in dictkeys]
-
-    #             if singleton:
-    #                 result = tuple(out_vals)
-    #             else:
-    #                 result = out_vals[0] if len(out_vals) == 1 else tuple(out_vals)
-
-    #             yield result
-
-    #             data.clear()
 
 
     #--------------------------------------------------------------------------------
@@ -2546,15 +2467,15 @@ class UNRST_file(unfmt_file):                                            # UNRST
         # for dd in zip(self.days(resolution=time_res), *data):
         #     yield celldata(*dd)
 
-    #--------------------------------------------------------------------------------
-    def celldata_as_dataframe(self, *args, **kwargs):        # UNRST_file
-    #--------------------------------------------------------------------------------
-        """
-        Write given keywords for the given cell-coordinate to a tab-separated file
-        """
-        # data = self.celldata(coord, *keywords, base=base, time_res=time_res)
-        data = self.celldata(*args, **kwargs)
-        return DataFrame(data._asdict())
+    # #--------------------------------------------------------------------------------
+    # def celldata_as_dataframe(self, *args, **kwargs):        # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Write given keywords for the given cell-coordinate to a tab-separated file
+    #     """
+    #     # data = self.celldata(coord, *keywords, base=base, time_res=time_res)
+    #     data = self.celldata(*args, **kwargs)
+    #     return DataFrame(data._asdict())
 
     #--------------------------------------------------------------------------------
     def cellarray(self, *in_keys, start=None, stop=None, step=1, warn_missing=True):   # UNRST_file                  
@@ -2637,9 +2558,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
     def units(self):                                                     # UNRST_file
     #--------------------------------------------------------------------------------
         if self._units is None:
-            ihead = next(self.blockdata('INTEHEAD'), None)
-            if ihead:
-                self._units = {1:'metric', 2:'field', 3:'lab', 4:'pvt-m'}[ihead[2]]
+            ihead2 = next(self.blockdata('INTEHEAD', 2), None)
+            if ihead2:
+                self._units = {1:'metric', 2:'field', 3:'lab', 4:'pvt-m'}[ihead2]
         return self._units
 
     #--------------------------------------------------------------------------------
