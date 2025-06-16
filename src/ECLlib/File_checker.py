@@ -1,6 +1,6 @@
 from numpy import asarray
-from Files import unfmt_file
-from utils import list2str
+from ECLlib.Files import unfmt_file
+from ECLlib.utils import list2str
 
 DEBUG = False
 
