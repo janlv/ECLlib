@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv*/
+env/
+venv/
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Test output
+htmlcov/
+.tox/
+.coverage
+.pytest_cache/
+
+# Jupyter
+*.ipynb_checkpoints/

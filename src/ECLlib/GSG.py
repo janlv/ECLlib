@@ -11,7 +11,7 @@ from struct import pack, unpack, calcsize
 from os import SEEK_CUR, SEEK_END
 from numpy import array, concatenate, full
 
-from IORlib.utils import batched_as_list, flatten, list_prec, take, run_length_encode
+from ECLlib.utils import batched_as_list, flatten, list_prec, take, run_length_encode
 
 Dtype = namedtuple('dtype', 'format size value')
 DTYPE = {0:Dtype('i', 4, 0), 1:Dtype('f', 4, 1), 2:Dtype('d', 8, 2)}
@@ -24,6 +24,28 @@ format2type = {v.format:k for k,v in DTYPE.items()}
 #    alias: Short version of the full name
 PROP_data = namedtuple('PROP_data', 'type name alias array kind',
                         defaults=('', '', '', array([]), 0))
+
+#--------------------------------------------------------------------------------
+def read_GSG(file, kind='prop', **kwargs):
+#--------------------------------------------------------------------------------
+    """
+    Read GSG-file with PROP data and return a generator of PROP_data.
+    If dim is given, the data is reshaped to that dimension.
+    If raise_error is True, a ValueError is raised if the file does not contain PROP data.
+    """
+    if kind.lower() != 'prop':
+        return read_prop_file(file, **kwargs)
+    raise NotImplementedError('Only PROP data is supported in this version of GSG.py')
+
+#--------------------------------------------------------------------------------
+def write_GSG(file, *data:PROP_data):
+#--------------------------------------------------------------------------------
+    if isinstance(data[0], PROP_data):
+        # Write PROP data
+        write_prop_file(file, *data)
+    else:
+        raise NotImplementedError('Only PROP data is supported in this version of GSG.py')
+
 
 #--------------------------------------------------------------------------------
 def read_prop_file(file, dim=None, raise_error=False):

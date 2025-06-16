@@ -24,12 +24,12 @@ from matplotlib.pyplot import figure as pl_figure
 #from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
 
-from .utils import (any_cell_in_box, batched, batched_when, bounding_box, cumtrapz, date_range,
+from ECLlib.utils import (any_cell_in_box, batched, batched_when, bounding_box, cumtrapz, date_range,
                     decode, ensure_bytestring, expand_pattern, flatten, index_limits, last_line,
                     match_in_wildlist, nth, pad, slice_range, tail_file, head_file, flat_list,
-                    flatten_all, grouper, list2text, pairwise, remove_chars, list2str, float_or_str,
+                    flatten_all, grouper, list2text, pairwise, remove_chars, float_or_str,
                     matches, split_by_words, string_split, split_in_lines, take)
-from .runner import Process
+from proclib import Process
 
 
 DEBUG = False
@@ -2377,7 +2377,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix=suffix, role=role)
         self.end = end or self.end
-        self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
+        #self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self._dim = None
         self._units = None
         #self._dates = None
@@ -2672,23 +2672,23 @@ class RFT_file(unfmt_file):                                                # RFT
     def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.RFT')
-        self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
+        #self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self.current_section = 0
 
-    #--------------------------------------------------------------------------------
-    def not_in_sync(self, time, prec=0.1):                                 # RFT_file
-    #--------------------------------------------------------------------------------
-        data = self.check.data()
-        if data and any(abs(nparray(data)-time) > prec):
-            return True
-        return False
+    # #--------------------------------------------------------------------------------
+    # def not_in_sync(self, time, prec=0.1):                                 # RFT_file
+    # #--------------------------------------------------------------------------------
+    #     data = self.check.data()
+    #     if data and any(abs(nparray(data)-time) > prec):
+    #         return True
+    #     return False
         
     #--------------------------------------------------------------------------------
     def end_time(self):                                                    # RFT_file
     #--------------------------------------------------------------------------------
         # Return data from last check if it exists
-        if data := self.check.data():
-            return data[-1]
+        # if data := self.check.data():
+        #     return data[-1]
         # Return time-value from tail of file
         return next(self.read('time', tail=True), None) or 0
         #return time
@@ -3184,125 +3184,6 @@ class PRTX_file(text_file):                                                # PRT
             time = line.split(',')[index['Simulation Time']]
             time = float(time) if time[0] != 'S' else 0
         return time
-
-#====================================================================================
-class check_blocks:                                                    # check_blocks
-#====================================================================================
-
-    #--------------------------------------------------------------------------------
-    def __init__(self, file, start=None, end=None, wait_func=None, warn_offset=True, timer=False):   # check_blocks
-    #--------------------------------------------------------------------------------
-        if isinstance(file, unfmt_file):
-            self._unfmt = file
-        else:
-            self._unfmt = unfmt_file(file)
-        self._keys = [start.ljust(8).encode(), [], end.ljust(8).encode(),  0]
-        self._data = None
-        self._wait_func = wait_func
-        self._warn_offset = warn_offset
-        self._timer = timer
-        if DEBUG:
-            print(f'Creating {self}')
-
-    #--------------------------------------------------------------------------------
-    def __repr__(self):                                                 # check_blocks
-    #--------------------------------------------------------------------------------
-        return f'<{type(self)}, file={self._unfmt}>'
-
-    #--------------------------------------------------------------------------------
-    def __del__(self):                                                 # check_blocks
-    #--------------------------------------------------------------------------------
-        if DEBUG:
-            print(f'Deleting {self}')
-
-    #--------------------------------------------------------------------------------
-    def data(self):                                                    # check_blocks
-    #--------------------------------------------------------------------------------
-        return self._data and self._data[1]
-
-    #--------------------------------------------------------------------------------
-    def info(self, data=None, count=False):                            # check_blocks
-    #--------------------------------------------------------------------------------
-        return f"  {self._data[0].decode()} : {list2str(data and data or self._data[1], count=count)}"
-        
-    #--------------------------------------------------------------------------------
-    def blocks_complete(self, nblocks=1, only_new=True):               # check_blocks
-    #--------------------------------------------------------------------------------
-        block = None
-        start, start_val, end, end_val = 0, 1, 2, 3
-        for block in self._unfmt.blocks(only_new=only_new):
-            if block.header._key == self._keys[start]:
-                if (data := block.data()):
-                    self._keys[start_val].append(data[0])
-                else:
-                    return False
-            if block.header._key == self._keys[end]:
-                self._keys[end_val] += 1
-                if self.steps_complete() and self._keys[end_val] == nblocks:
-                    # nblocks complete blocks read, reset counters and return True
-                    self._data = self._keys[:start_val+1]
-                    self._keys[start_val], self._keys[end_val] = [], 0
-                    return True
-        return False
-
-    #--------------------------------------------------------------------------------
-    def steps_complete(self):
-    #--------------------------------------------------------------------------------
-        # 1: start_list, 3: end_count
-        return len(self._keys[1]) == self._keys[3]
-
-
-    #--------------------------------------------------------------------------------
-    def warn_if_offset(self):
-    #--------------------------------------------------------------------------------
-        msg = ''
-        if (offset := self._unfmt.offset()):
-            msg = f'WARNING {self._unfmt} not at end after check, offset is {offset}'
-        return msg
-
-
-    #--------------------------------------------------------------------------------
-    def data_saved_maxmin(self, nblocks=1, niter=100, **kwargs):      # check_blocks
-    #--------------------------------------------------------------------------------
-        """
-            Loop for 'niter' iterations until 'nblocks' start/end-blocks are found or end-of-file reached.
-        """
-        if nblocks == 0:
-            return []
-        msg = []
-        data = []
-        n = nblocks
-        v = 2
-        while n > 0:
-            passed = self._wait_func( self.blocks_complete, nblocks=n, limit=niter, timer=self._timer, v=v, **kwargs )
-            #msg.append(f'start, end: {self._start, self._end}, at_end: {self.at_end()}, passed: {passed}')
-            if self._unfmt.at_end() and self.steps_complete():
-                ### blocks <= max_blocks
-                break
-            elif passed:
-                ### Not at end, but check passed: Read one more block!
-                n = 1
-                data.extend(self.data())
-                v = 4
-            else:
-                ### Not at end, not passed
-                n -= 1
-                msg.append(f'WARNING Trying to read n - 1 = {n} blocks')
-        data.extend(self.data())
-        msg.append(self.info(data=data, count=True))
-        if not data:
-            msg.append(f'WARNING No blocks read in {self._unfmt.path.name}')
-        return msg
-
-    #--------------------------------------------------------------------------------
-    def data_saved(self, nblocks=1, wait_func=None, **kwargs):         # check_blocks
-    #--------------------------------------------------------------------------------
-        msg = ''
-        wait_func = self._wait_func or wait_func
-        OK = wait_func( self.blocks_complete, nblocks=nblocks, log=self.info, timer=self._timer, **kwargs)
-        msg += not OK and f'WARNING Check of {self._unfmt.path.name} failed!' or ''
-        msg += self._warn_offset and self.warn_if_offset() or ''
-        return msg
 
 
 
