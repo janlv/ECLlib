@@ -1,3 +1,6 @@
+requirements-dev.txt
+develop.sh
+
 # Python
 __pycache__/
 *.py[cod]

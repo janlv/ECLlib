@@ -41,12 +41,13 @@ class File_checker:                                                    # File_ch
     #--------------------------------------------------------------------------------
     def data(self):                                                    # File_checker
     #--------------------------------------------------------------------------------
-        return self._data and self._data[1]
+        #return self._data and self._data[1]
+        return self._data[1] if self._data else None
 
     #--------------------------------------------------------------------------------
     def not_in_sync(self, time, prec=0.1):                             # File_checker
     #--------------------------------------------------------------------------------
-        data = self.check.data()
+        data = self.data()
         if data and any(abs(asarray(data)-time) > prec):
             return True
         return False

@@ -2372,8 +2372,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 'wells' : ('ZWEL'    , None)}  # No ZWEL in first section 
                                                 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, suffix='.UNRST', wait_func=None, end=None, role=None, 
-                 **kwargs):                                              # UNRST_file
+    # def __init__(self, file, suffix='.UNRST', wait_func=None, end=None, role=None, 
+    #              **kwargs):                                              # UNRST_file
+    def __init__(self, file, suffix='.UNRST', end=None, role=None):      # UNRST_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix=suffix, role=role)
         self.end = end or self.end
@@ -2669,7 +2670,8 @@ class RFT_file(unfmt_file):                                                # RFT
                 'K'        : ('CONKPOS', None)}
 
     #--------------------------------------------------------------------------------
-    def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
+    #def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
+    def __init__(self, file):                                              # RFT_file
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.RFT')
         #self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
