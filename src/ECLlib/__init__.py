@@ -1,5 +1,6 @@
 # src/ECLlib/__init__.py
-__version__ = "0.1.0"
+#__version__ = "0.1.0"
+from ._version import version as __version__
 
 from .Files import (File, DATA_file, EGRID_file, INIT_file, UNRST_file, RFT_file, UNSMRY_file, 
                     SMSPEC_file, text_file, MSG_file, PRT_file, PRTX_file, FUNRST_file, 

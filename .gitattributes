@@ -1,0 +1,16 @@
+# Ekskluder generert versjonsfil fra git archive
+src/ECLlib/_version.py export-ignore
+
+# Behold LF som linjeslutt for alle Python-filer (valgfritt, men vanlig)
+*.py text eol=lf
+
+# Sørg for at TOML- og konfigfiler får konsistent linjeslutt
+*.toml text eol=lf
+*.md   text eol=lf
+*.cfg  text eol=lf
+
+# Ekskluder vanlige editorfiler og testdata fra git archive (valgfritt)
+*.swp export-ignore
+*.bak export-ignore
+tests/* export-ignore
+examples/* export-ignore

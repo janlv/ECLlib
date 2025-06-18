@@ -1,32 +1,37 @@
-[build-system]
-requires = ["setuptools>=61.2.0", "wheel"]
-# The build backend is set to setuptools.build_meta, which is the default for setuptools.
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "ECLlib"
-version = "0.1.0"
 description = "A Python library for working with ECL (Eclipse) files."
 authors = [{ name = "Jan Ludvig Vinningland", email = "janludvig@gmail.com" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
 
-# Dependencies
 dependencies = [
     "numpy",
     "matplotlib",
     "pyvista"
 ]
 
+# Version obtained automatically from the git-tag using setuptools_scm.
+# setuptools_scm dynamically determines the version based on the latest Git tag
+# and commit history, ensuring accurate versioning for the project.
+dynamic = ["version"]
+
+[build-system]
+requires = ["setuptools>=61.2.0", "wheel", "setuptools_scm"]
+# The build backend is set to setuptools.build_meta, which is the default for setuptools.
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+# This section configures setuptools_scm to use the version from the git tag.
+write_to = "src/ECLlib/_version.py"
+#version_file = "src/ECLlib/__init__.py"
 
 [tool.setuptools]
 # This is the directory where your package source code is located.
-# It is set to "src" to follow the src layout convention.
-# This means that your package will be found in the "src/resplot" directory.
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 # This tells setuptools to find packages in the "src" directory.
-# It will look for packages in "src/resplot" and any subpackages.
+# It will find all packages under "src" that have an __init__.py file.
 where = ["src"]
