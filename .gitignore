@@ -1,5 +1,6 @@
 requirements-dev.txt
 develop.sh
+src/ECLlib/_version.py
 
 # Python
 __pycache__/
