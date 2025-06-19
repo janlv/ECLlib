@@ -3523,7 +3523,9 @@ class AFI_file(File):                                                      # AFI
     # Return 'filename' and 'key1=val1 key2=val2' as groups from the following format:
     # INCLUDE "filename" {key1=val1, key2=val2}
     #include_regex = rb'\bINCLUDE\b\s*"*([^"]+)"*\s*\{([^}]+)\}'
-    include_regex = rb'^\s*\bINCLUDE\b\s*\"*([^\"]+)'
+    #include_regex = rb'^\s*\bINCLUDE\b\s*\"*([^\"]+)'
+    # Process 'INCLUDE "filename" {metadata}' where metadata is optional
+    include_regex = rb'^\s*\bINCLUDE\b\s*"([^"]+)"(?:\s*\{([^}]*)\})?'
 
     #--------------------------------------------------------------------------------
     def __init__(self, file, check=False, **kwargs):                       # AFI_file
@@ -3772,6 +3774,7 @@ class IXF_file(File):                                                      # IXF
         if table:
             begin, end = b'\\[', b'\\]'
         else:
+            # Context node
             begin, end = rb'{', rb'}'
         self.data = self.data or self.binarydata()
         if nodes[0] == 'all':
@@ -4193,7 +4196,7 @@ class IX_input:                                                            # IX_
     def restart(self):                                                     # IX_input
     #--------------------------------------------------------------------------------
         # Check if this is a restart-run
-        match = next((m for m in self.afi.matches() if b'restart' in m[2]), None)
+        match = next((m for m in self.afi.matches() if m[2] and b'restart' in m[2]), None)
         if match:
             folder = self.path.with_name(match[1].decode())
             keymatch = finditer(rb'(\w+)=["\']([^"\']+)["\']', match[2])
@@ -4220,7 +4223,7 @@ class IX_input:                                                            # IX_
     def UNRST_settings(self):                                              # IX_input
     #--------------------------------------------------------------------------------
         nodename = 'Recurrent3DReport'
-        nodes = list(self.nodes(nodename))
+        nodes = list(self.nodes(nodename, context=True))
         if nodes:
             return nodes[-1]
         raise SystemError((f"ERROR Node {nodename} not found in {self}"))
