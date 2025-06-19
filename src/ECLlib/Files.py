@@ -4140,51 +4140,51 @@ class IX_input:                                                            # IX_
         return list(keys)
 
 
-    #--------------------------------------------------------------------------------
-    def make_iorsim_compatible(self, backup='_NO_IORSIM_'):                # IX_input
-    #--------------------------------------------------------------------------------
-        """
-        Update nodes in IXF-files with values found in 'iorsim_ix_fix.ixf'
-        """
-        ior = IX_input('IORlib/iorsim_ix_fix')
-        ior_nodes = list(ior.nodes('all', context=True, table=True))
-        # Get relevant nodes from IX files or None if missing 
-        ix_nodes = [self.get_node(node) for node in ior_nodes]
-        # Syntax with 'add_property' currently not supported
-        if any('add_property' in n.content for n in ix_nodes if n):
-            raise SystemError(
-                'ERROR Currently unable to update nodes with *add_property* statements')
-        # Use node name from ix_nodes if node type exists
-        node_name = {n.type:n.name for n in ior_nodes}
-        node_name.update({n.type:n.name for n in ix_nodes if n})
-        # Update ix_nodes with values from ior_nodes
-        for i,ior in enumerate(ior_nodes):
-            if ix_nodes[i]:
-                ix_nodes[i].update(ior)
-            else:
-                ix_nodes[i] = ior.copy()
-            ix_nodes[i].name = node_name[ix_nodes[i].type]
-        # Get the name of the file holding the relevant nodes
-        filename = list(set(n.file for n in ix_nodes if n.file))
-        if len(filename) > 1:
-            print(f'WARNING! More than one filename in IX_input.make_iorsim_compatible(): {filename}')
-        file = File(filename[0])
-        if backup:
-            # Returns None if backup-file already exists
-            backup = file.backup(tag=backup)
-        # Place new nodes just after the last updated nodes
-        max_pos = 2*[max(max(n.pos for n in ix_nodes if n.pos))]
-        # Split text and pos in separate tuples
-        text, pos = zip(*[(str(n), n.pos or max_pos) for n in ix_nodes])
-        file.replace_text(text, pos)
-        if backup:
-            # Add comment at top of updated file
-            comment = ( '#----------------------------------------------------\n'
-                        '# This file is updated to be compatible with IORSim.\n'
-                       f"# The original file is renamed to '{backup.name}'\n"
-                        '#----------------------------------------------------\n\n')
-            file.write_text(comment + file.as_text())
-        return (file, backup)
+    # #--------------------------------------------------------------------------------
+    # def make_iorsim_compatible(self, backup='_NO_IORSIM_'):                # IX_input
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Update nodes in IXF-files with values found in 'iorsim_ix_fix.ixf'
+    #     """
+    #     ior = IX_input('IORlib/iorsim_ix_fix')
+    #     ior_nodes = list(ior.nodes('all', context=True, table=True))
+    #     # Get relevant nodes from IX files or None if missing 
+    #     ix_nodes = [self.get_node(node) for node in ior_nodes]
+    #     # Syntax with 'add_property' currently not supported
+    #     if any('add_property' in n.content for n in ix_nodes if n):
+    #         raise SystemError(
+    #             'ERROR Currently unable to update nodes with *add_property* statements')
+    #     # Use node name from ix_nodes if node type exists
+    #     node_name = {n.type:n.name for n in ior_nodes}
+    #     node_name.update({n.type:n.name for n in ix_nodes if n})
+    #     # Update ix_nodes with values from ior_nodes
+    #     for i,ior in enumerate(ior_nodes):
+    #         if ix_nodes[i]:
+    #             ix_nodes[i].update(ior)
+    #         else:
+    #             ix_nodes[i] = ior.copy()
+    #         ix_nodes[i].name = node_name[ix_nodes[i].type]
+    #     # Get the name of the file holding the relevant nodes
+    #     filename = list(set(n.file for n in ix_nodes if n.file))
+    #     if len(filename) > 1:
+    #         print(f'WARNING! More than one filename in IX_input.make_iorsim_compatible(): {filename}')
+    #     file = File(filename[0])
+    #     if backup:
+    #         # Returns None if backup-file already exists
+    #         backup = file.backup(tag=backup)
+    #     # Place new nodes just after the last updated nodes
+    #     max_pos = 2*[max(max(n.pos for n in ix_nodes if n.pos))]
+    #     # Split text and pos in separate tuples
+    #     text, pos = zip(*[(str(n), n.pos or max_pos) for n in ix_nodes])
+    #     file.replace_text(text, pos)
+    #     if backup:
+    #         # Add comment at top of updated file
+    #         comment = ( '#----------------------------------------------------\n'
+    #                     '# This file is updated to be compatible with IORSim.\n'
+    #                    f"# The original file is renamed to '{backup.name}'\n"
+    #                     '#----------------------------------------------------\n\n')
+    #         file.write_text(comment + file.as_text())
+    #     return (file, backup)
 
 
     #--------------------------------------------------------------------------------
