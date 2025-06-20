@@ -24,12 +24,12 @@ from matplotlib.pyplot import figure as pl_figure
 #from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
 
+from proclib import Process
 from ECLlib.utils import (any_cell_in_box, batched, batched_when, bounding_box, cumtrapz, date_range,
                     decode, ensure_bytestring, expand_pattern, flatten, index_limits, last_line,
                     match_in_wildlist, nth, pad, slice_range, tail_file, head_file, flat_list,
                     flatten_all, grouper, list2text, pairwise, remove_chars, float_or_str,
                     matches, split_by_words, string_split, split_in_lines, take)
-from proclib import Process
 
 
 DEBUG = False
@@ -4191,8 +4191,9 @@ class IX_input:                                                            # IX_
         return False
 
 
-#////////////////////////////////////////////////////////////////////////////////////
-#                          Utility functions
-#////////////////////////////////////////////////////////////////////////////////////
+# #////////////////////////////////////////////////////////////////////////////////////
+# #                          Utility functions
+# #////////////////////////////////////////////////////////////////////////////////////
 
-ENDSOL = unfmt_block.from_data('ENDSOL', [], 'mess')
+# ENDSOL = unfmt_block.from_data('ENDSOL', [], 'mess')
+
