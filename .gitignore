@@ -1,5 +1,5 @@
-requirements-dev.txt
-develop.sh
+# ECLlib .gitignore file
+
 src/ECLlib/_version.py
 
 # Python
