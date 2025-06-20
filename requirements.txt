@@ -1,1 +1,0 @@
-git+https://github.com/janlv/proclib.git#egg=proclib

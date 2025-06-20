@@ -10,13 +10,19 @@ dependencies = [
     "numpy",
     "matplotlib",
     "pyvista",
-    "molmass"
+    "molmass",
+    "proclib @ git+https://github.com/janlv/proclib.git#egg=proclib"
 ]
 
 # Version obtained automatically from the git-tag using setuptools_scm.
 # setuptools_scm dynamically determines the version based on the latest Git tag
 # and commit history, ensuring accurate versioning for the project.
 dynamic = ["version"]
+
+#[project.optional-dependencies]
+#dev = [
+#    "proclib @ file://../proclib"
+#]
 
 [build-system]
 requires = ["setuptools>=61.2.0", "wheel", "setuptools_scm"]

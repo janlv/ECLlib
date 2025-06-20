@@ -21,13 +21,6 @@ call "!VENV_DIR!\Scripts\activate.bat"
 echo 📦 Installing local project ...
 pip install .
 
-if exist requirements.txt (
-    echo ➕ Installing additional dependencies from requirements.txt ...
-    pip install -r requirements.txt
-) else (
-    echo ℹ️ No requirements.txt found – skipping extra dependencies.
-)
-
 echo.
 echo ✅ Done! Virtual environment created in !VENV_DIR!
 echo 💡 To activate it later, run:

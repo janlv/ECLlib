@@ -15,13 +15,6 @@ source "$VENV_DIR/bin/activate"
 echo "📦 Installing local project with pip install ."
 pip install .
 
-if [ -f requirements.txt ]; then
-    echo "➕ Installing additional dependencies from requirements.txt ..."
-    pip install -r requirements.txt
-else
-    echo "ℹ️ No requirements.txt found – skipping extra dependencies."
-fi
-
 echo "✅ Done! Environment is ready in: $VENV_DIR"
 echo "💡 To activate it later, run:"
 echo "    source $VENV_DIR/bin/activate"
