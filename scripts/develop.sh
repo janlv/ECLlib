@@ -2,7 +2,7 @@
 
 # List of local libraries to install in editable mode (relative to project root)
 LOCAL_LIBS=(
-    "proclib"
+    "../proclib"
 )
 
 set -e  # Exit on any error
@@ -18,25 +18,31 @@ VENV_DIR=".venv_${PACKAGE_NAME}"
 
 # Create the virtual environment if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
+    echo
     echo "🔧 Creating virtual environment in $VENV_DIR ..."
     python3 -m venv "$VENV_DIR"
 else
+    echo
     echo "ℹ️ Virtual environment already exists in $VENV_DIR"
 fi
 
+echo
 echo "🔌 Activating virtual environment from $VENV_DIR ..."
 source "$VENV_DIR/bin/activate"
 
 # Install main project in editable mode
+echo
 echo "📦 Installing main project in editable mode ..."
 pip install -e .
 
 # Install local libraries in editable mode
 for LIB in "${LOCAL_LIBS[@]}"; do
+    echo
     echo "📦 Installing $LIB in editable mode ..."
     pip install -e "$LIB"
 done
 
+echo
 echo "✅ Development environment is ready!"
 echo "🔄 To activate, run: source $VENV_DIR/bin/activate"
 echo "💡 To deactivate, run: deactivate"
