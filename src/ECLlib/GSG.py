@@ -717,7 +717,7 @@ class Data():
     def unique_key(self, key):
     #--------------------------------------------------------------------------------
         if (count := self.keys().count(key)):
-            key += f'{'#'}{count}'
+            key += f"{'#'}{count}"
         return key
         #return unique_key(key, self.keys())
 
