@@ -12,14 +12,14 @@ from platform import system
 from mmap import mmap, ACCESS_READ, ACCESS_WRITE
 from re import MULTILINE, finditer, findall, compile as re_compile, search as re_search
 from subprocess import Popen, STDOUT
-from time import perf_counter, sleep
+from time import sleep
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import (asarray, dtype as npdtype, frombuffer, fromstring, int32, float32, float64, bool_ as np_bool,
-                   array as nparray, ndarray, sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
+from numpy import (asarray, dtype as npdtype, frombuffer, fromstring, array as nparray, ndarray, 
+                   sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
 from matplotlib.pyplot import figure as pl_figure
 #from pandas import DataFrame
 from pyvista import CellType, UnstructuredGrid
@@ -508,7 +508,7 @@ class File:                                                                    #
         Returns:
             float: The file's creation time as a timestamp, or -1 if the file does not exist.
         """
-        return self.__stat('st_ctime')
+        return datetime.fromtimestamp(self.__stat('st_ctime'))
 
     #--------------------------------------------------------------------------------
     def tail(self, **kwargs):                                                  # File
@@ -4100,6 +4100,29 @@ class IX_input:                                                            # IX_
                 if not well_list:
                     break
         return tuple(wpos.values())
+
+    #--------------------------------------------------------------------------------
+    def wellpos_by_name(self, ijk=False, wellnames=None):                  # IX_input
+    #--------------------------------------------------------------------------------
+        """
+        Returns a dictionary mapping well names to their positions.
+
+        Parameters:
+            ijk (bool, optional): If True, returns positions as tuples of I, J, K indices.
+                                If False (default), returns positions as returned by self.wellpos.
+            wellnames (list of str, optional): List of well names to include. If None, uses all well names.
+
+        Returns:
+            dict: A dictionary where keys are well names and values are positions.
+                If ijk is True, positions are tuples of (I, J, K) indices.
+                If ijk is False, positions are as returned by self.wellpos.
+
+        """
+        wellnames = wellnames or self.wellnames()
+        name_pos = dict(zip(wellnames, self.wellpos(*wellnames)))
+        if ijk:
+            return {name:tuple(zip(*pos)) for name, pos in name_pos.items()}
+        return name_pos
 
     #--------------------------------------------------------------------------------
     def injectors(self, *wellnames):                                         # IX_input
