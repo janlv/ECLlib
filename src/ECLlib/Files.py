@@ -2282,9 +2282,9 @@ class INIT_file(unfmt_file):                                              # INIT
         return self._dim
     
     #--------------------------------------------------------------------------------
-    def reshape_dim(self, *data):                                         # INIT_file
+    def reshape_dim(self, *data, dtype=None):                             # INIT_file
     #--------------------------------------------------------------------------------
-        return [nparray(d).reshape(self.dim(), order='F') for d in data]
+        return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
 
     #--------------------------------------------------------------------------------
     def cell_ijk(self, *cellnum):                                         # INIT_file
@@ -2395,9 +2395,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return self._dim
     
     #--------------------------------------------------------------------------------
-    def reshape_dim(self, *data): #, flip=True):                         # UNRST_file
+    def reshape_dim(self, *data, dtype=None):                         # UNRST_file
     #--------------------------------------------------------------------------------
-        return [asarray(d).reshape(self.dim(), order='F') for d in data]
+        return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
         # if flip:
         #     return [npflip(a, axis=-1) for a in arr]
         # return arr
