@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from struct import unpack, pack, error as struct_error
 #from locale import getpreferredencoding
 from shutil import copy
-from numpy import (asarray, dtype as npdtype, frombuffer, fromstring, array as nparray, ndarray, 
+from numpy import (asarray, dtype as npdtype, frombuffer, fromstring, array as nparray, ndarray, stack, 
                    sum as npsum, zeros, ones, char as npchar, split as npsplit, cumsum)
 from matplotlib.pyplot import figure as pl_figure
 #from pandas import DataFrame
@@ -2301,7 +2301,8 @@ class INIT_file(unfmt_file):                                              # INIT
         i = cellnum % ni
         j = (cellnum % nij) // ni
         k = cellnum // nij
-        return nparray([i, j, k]).T
+        return stack([i, j, k], axis=-1)
+        #return nparray([i, j, k]).T
 
     #--------------------------------------------------------------------------------
     def non_neigh_conn(self):                                             # INIT_file
