@@ -1294,7 +1294,7 @@ class unfmt_file(File):                                                  # unfmt
             if any(n>1 for n in nvar):
                 # Split values to match number of input variables
                 values = iter(values)
-                yield [take(n,values)[0] if n==1 else take(n,flatten(values)) for n in nvar]
+                yield [take(n, values)[0] if n==1 else take(n, flatten(values)) for n in nvar]
             else:
                 yield values
 
@@ -2829,7 +2829,7 @@ class UNSMRY_file(unfmt_file):
     #--------------------------------------------------------------------------------
         super().__init__(file, suffix='.UNSMRY')
         self.spec = SMSPEC_file(file)
-        self.start = None
+        self.startdate = None
         self._plots = None
 
     #--------------------------------------------------------------------------------
@@ -2877,17 +2877,15 @@ class UNSMRY_file(unfmt_file):
             self.var_pos['welldata'] = ('PARAMS', *self.spec.well_pos())
             reader = self.read('days', 'welldata', only_new=only_new, singleton=True, **kwargs)
             try:
-                #days, data = zip(*self.read('days', 'welldata', only_new=only_new, **kwargs))
-                #days, data = zip(*self.read2('days', 'welldata', only_new=only_new, **kwargs))
                 days, data = zip(*islice(reader, start, stop, step))
-                days = tuple(flatten(days))
+                days = tuple(float(day) for day in flatten(days))
             except ValueError:
                 days, data = (), ()
             if not data:
                 return ()
             # Add dates
-            self.start = self.start or self.spec.startdate()
-            dates = (self.start + timedelta(days=day) for day in days)
+            self.startdate = self.startdate or self.spec.startdate()
+            dates = (self.startdate + timedelta(days=day) for day in days)
             # Process keys and wells
             kwd = zip(self.spec.keys, self.spec.wells, zip(*data))
             if as_array:
@@ -3017,8 +3015,9 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
         # Do not use mmap here because the SMSPEC-file might 
         # get truncated while mmap'ed which will cause a bus-error
-        self.data = Data(*next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False), ()))
-        #if all(self.data):
+        blockdata = next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False), None)
+        self.data = Data(*(bd.tolist() for bd in blockdata)) if blockdata else Data()
+        #self.data = Data(*next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False), ()))
         if self.data.keys and self.data.wells and self.data.units:
             keys = keys or set(self.data.keys)
             all_wells = set(w for w in self.data.wells if w and not '+' in w)
@@ -3048,9 +3047,8 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
     #--------------------------------------------------------------------------------
     def startdate(self):                                                # SMSPEC_file
     #--------------------------------------------------------------------------------
-        if start := next(self.blockdata('STARTDAT'), None):
+        if (start := next(self.blockdata('STARTDAT'), None)) is not None:
             day, month, year, hour, minute, second = start
-            #day, month, year, hour, minute, second = start[0]
             return datetime(year, month, day, hour, minute, second)
 
     #--------------------------------------------------------------------------------
