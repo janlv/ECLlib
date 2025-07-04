@@ -3006,6 +3006,12 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         #self.wellkey = None
 
     #--------------------------------------------------------------------------------
+    def list_keys(self):                                                # SMSPEC_file
+    #--------------------------------------------------------------------------------
+        keys = next(self.blockdata('KEYWORDS')).tolist() if self.is_file() else []
+        return tuple(set(keys))
+
+    #--------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), named=False):                 # SMSPEC_file
     #--------------------------------------------------------------------------------
         # print('SMSPEC WELLDATA', self.is_file())
