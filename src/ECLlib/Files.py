@@ -4,6 +4,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
+import inspect
 from itertools import chain, product, repeat, accumulate, groupby, zip_longest, islice
 from math import hypot, prod
 from operator import attrgetter, itemgetter, sub as subtract
@@ -47,6 +48,74 @@ ECL2IX_LOG = 'ecl2ix.log'
 #
 #
 #
+
+#====================================================================================
+class RefreshIterator:
+#====================================================================================
+    """
+    RefreshIterator is an iterator wrapper that allows re-reading from a source iterator
+    by recreating it using a provided factory function. The factory must accept an 'only_new'
+    parameter, which is set to True to ensure only new items are produced.
+
+    Args:
+        iterable_factory (callable): A function that returns a new iterator each time it is called.
+            Must accept an 'only_new' keyword argument.
+        *args: Positional arguments to pass to the factory.
+        **kwargs: Keyword arguments to pass to the factory.
+
+    Raises:
+        ValueError: If the factory does not support the 'only_new' parameter.
+
+    Usage:
+        - On exhaustion of the underlying iterator, RereadIterator will refresh the iterator
+        by calling the factory again with the same arguments.
+        - If the refreshed iterator is also exhausted, StopIteration is raised.
+
+    Methods:
+        __iter__(): Returns self as an iterator.
+        __next__(): Returns the next item from the underlying iterator, refreshing if needed.
+    """
+
+    #--------------------------------------------------------------------------------
+    def __init__(self, iterable_factory, *args, **kwargs):
+    #--------------------------------------------------------------------------------
+        """
+        iterable_factory: callable returning a NEW iterator every time it is invoked.
+        only_new: if True and supported by the factory, pass only_new=True to the factory.
+        """
+        self._factory = iterable_factory
+        params = inspect.signature(iterable_factory).parameters
+        if not 'only_new' in params:
+            raise ValueError(f"Function {iterable_factory.__name__} does not support 'only_new' parameter.")
+        kwargs['only_new'] = True
+        self._iter = self._factory(*args, **kwargs)
+        self._args = args
+        self._kwargs = dict(kwargs)
+
+    #--------------------------------------------------------------------------------
+    def __iter__(self):
+    #--------------------------------------------------------------------------------
+        return self
+
+    #--------------------------------------------------------------------------------
+    def _refresh(self):
+    #--------------------------------------------------------------------------------
+        """Create a fresh underlying iterator from the factory."""
+        self._iter = self._factory(*self._args, **self._kwargs)
+
+    #--------------------------------------------------------------------------------
+    def __next__(self):
+    #--------------------------------------------------------------------------------
+        """
+        Get the next element.
+        If underlying iterator is exhausted, refresh once and try again.
+        If still exhausted, raise StopIteration.
+        """
+        try:
+            return next(self._iter)
+        except StopIteration:
+            self._refresh()
+            return next(self._iter)  # may raise StopIteration again (desired)
 
 
 #====================================================================================
@@ -1119,32 +1188,49 @@ class unfmt_file(File):                                                  # unfmt
     def __init__(self, filename, **kwargs):                              # unfmt_file
     #--------------------------------------------------------------------------------
         super().__init__(filename, **kwargs)
-        self.endpos = 0
+        self._endpos = 0
         if DEBUG:
             print(f'Creating {unfmt_file.__repr__(self)}')
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_file
     #--------------------------------------------------------------------------------
-        return f'<{super().__repr__()}, endpos={self.endpos}>'
+        return f'<{super().__repr__()}, endpos={self._endpos}>'
 
     #--------------------------------------------------------------------------------
     def at_end(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
-        return self.endpos == self.size()
+        return self._endpos == self.size()
 
     #--------------------------------------------------------------------------------
     def is_flushed(self, endkey):                                        # unfmt_file
     #--------------------------------------------------------------------------------
+        """
+        Check if the file is flushed up to the specified end key.
+
+        Args:
+            endkey: The key to check against the last block in the file.
+
+        Returns:
+            bool: True if the last block's key matches endkey, False otherwise.
+        """
         if self.is_file():
             last_block = next(self.tail_blocks(), None)
             if last_block and last_block.key() == endkey:
                 return True
 
     #--------------------------------------------------------------------------------
+    def reset(self):                                                   # unfmt_file
+    #--------------------------------------------------------------------------------
+        """
+        Resets the internal end position to zero, effectively clearing the file's read position.
+        """
+        self._endpos = 0
+
+    #--------------------------------------------------------------------------------
     def offset(self):                                                    # unfmt_file
     #--------------------------------------------------------------------------------
-        return self.size() - self.endpos
+        return self.size() - self._endpos
 
     #--------------------------------------------------------------------------------
     def __prepare_limits(self, *keylim):                                 # unfmt_file
@@ -1235,9 +1321,11 @@ class unfmt_file(File):                                                  # unfmt
                 data = {key:None for key in dictkeys}
 
     #--------------------------------------------------------------------------------
+    # def blockdata(self, *keylim, limits=None, strip=True,
+    #               tail=False, singleton=False,
+    #               start=0, stop=None, step=1, **kwargs):                # unfmt_file
     def blockdata(self, *keylim, limits=None, strip=True,
-                  tail=False, singleton=False,
-                  start=0, stop=None, step=1, **kwargs):                # unfmt_file
+                  tail=False, singleton=False, only_new=False, **kwargs):                # unfmt_file
     #--------------------------------------------------------------------------------
         """ 
         Return data in the order of the given keys, not the reading order.
@@ -1252,7 +1340,7 @@ class unfmt_file(File):                                                  # unfmt
         keys, limits, dictkeys = self.__prepare_limits(*keylim)
         limits = dict(zip(keys, limits))
         data = {key:None for key in dictkeys}
-        for blocks in self.section_blocks(tail, start, stop, step, **kwargs):
+        for blocks in self.section_blocks(tail=tail, only_new=only_new, **kwargs):
             for block in blocks:
                 if key:=match_in_wildlist(block.key(), keys):
                     limit = limits[key]
@@ -1371,6 +1459,7 @@ class unfmt_file(File):                                                  # unfmt
         except (ValueError, struct_error):
             return False
 
+
     #--------------------------------------------------------------------------------
     def blocks(self, only_new=False, start=None, use_mmap=True, **kwargs):  # unfmt_file
     #--------------------------------------------------------------------------------
@@ -1378,7 +1467,7 @@ class unfmt_file(File):                                                  # unfmt
             return ()
         startpos = 0
         if only_new:
-            startpos = self.endpos
+            startpos = self._endpos
         if start:
             startpos = start
         if self.size() - startpos < 24: # Header is 24 bytes
@@ -1398,13 +1487,11 @@ class unfmt_file(File):                                                  # unfmt
                 pos = startpos
                 while pos < size:
                     header = self.read_header(data[pos+4:pos+20], pos)
-                    #header = self.read_header(data[pos:pos+20], pos)
                     if not header:
-                        return #() #False
-                    # pos = self.endpos = header.endpos
+                        return
                     pos = header.endpos
                     if only_new:
-                        self.endpos = pos
+                        self._endpos = pos
                     yield unfmt_block(header=header, data=data, file=self.path)
         except ValueError: # Catch 'cannot mmap an empty file'
             return #() #False
@@ -1424,7 +1511,7 @@ class unfmt_file(File):                                                  # unfmt
                 # pos = self.endpos = header.endpos
                 pos = header.endpos
                 if only_new:
-                    self.endpos = pos
+                    self._endpos = pos
                 yield unfmt_block(header=header, file_obj=file, file=self.path)
 
 
@@ -1533,8 +1620,22 @@ class unfmt_file(File):                                                  # unfmt
         return expand_pattern(keys, self.section_keys(sec))
 
     #--------------------------------------------------------------------------------
-    def blocks_matching(self, *keys, **kwargs):                                    # unfmt_file
+    def blocks_matching(self, *keys, **kwargs):                          # unfmt_file
     #--------------------------------------------------------------------------------
+        """
+        Yields blocks from the file whose keys match any of the specified keys, along with their associated step.
+
+        Args:
+            *keys: Variable length argument list of keys to match against block keys.
+            **kwargs: Arbitrary keyword arguments passed to the `blocks` method.
+
+        Yields:
+            tuple: A tuple containing the current step (int or relevant type) and the matching block object.
+
+        Notes:
+            - The step is updated whenever a block contains `self.start`.
+            - Only blocks whose key matches one of the provided keys are yielded.
+        """
         step = -1
         keyset = set(keys)
         for b in self.blocks(**kwargs):
@@ -1545,50 +1646,117 @@ class unfmt_file(File):                                                  # unfmt
                 yield (step, b)
 
     #--------------------------------------------------------------------------------
-    def section_start_blocks(self, tail=False, **kwargs):                             # unfmt_file
-    #--------------------------------------------------------------------------------
-        # Generator that returns the block number of the start-block of each section, 
-        # and finally the total number of blocks. This is to enable use of 'pairwise' 
-        # to get start and end blocks of a section.
-        blocks = self.blocks
-        start = self.start
-        if tail:
-            blocks = self.tail_blocks
-            start = self.end
-        i = -1
-        for i, block in enumerate(blocks(**kwargs)):
-            if start in block:
-                yield i
-        yield i + 1
-
-
-    #--------------------------------------------------------------------------------
-    def section_blocks(self, tail=False, start=0, stop=None, step=1, **kwargs):    # unfmt_file
+    def section_start_indices(self, tail=False, start=None):              # unfmt_file
     #--------------------------------------------------------------------------------
         """
-        Return blocks one section at a time
+        Generator that yields the block index of the start-block of each section in a file,
+        and finally the total number of blocks.
+        This is useful for determining the start and end blocks of sections, for example,
+        when using 'pairwise' to process sections.
+        Args:
+            tail (bool, optional): If True, use tail_blocks and end token; otherwise, use blocks and start token.
+            start (optional): Starting position or block for iteration (passed to blocks_func).
+        Yields:
+            int: Block index of the start-block of each section.
+            int: After all sections, yields the total number of blocks.
+        """
+        blocks_func = self.tail_blocks if tail else self.blocks
+        start_token = self.end if tail else self.start
+
+        n = 0
+        for i, block in enumerate(blocks_func(start=start)):
+            n = i + 1
+            if start_token in block:
+                yield i
+        yield n
+
+
+    #--------------------------------------------------------------------------------
+    def section_blocks(self, tail=False, only_new=False, **kwargs):  # unfmt_file
+    #--------------------------------------------------------------------------------
+        """
+        Yields batches of blocks corresponding to sections in the file. The sections are 
+        determined by the start blocks defined in the file.
+
+        Args:
+            tail (bool, optional): If True, use tail_blocks instead of blocks. Defaults to False.
+            only_new (bool, optional): If True, process only new blocks since the last read. Defaults to False.
+            **kwargs: Additional keyword arguments passed to the blocks function.
+
+        Yields:
+            tuple: A batch of blocks for each section.
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
         """
         self.exists(raise_error=True)
-        blocks_func = self.blocks
-        if tail:
-            blocks_func = self.tail_blocks
-        start_blocks = self.section_start_blocks(tail=tail, **kwargs)
-        section_pos = islice(pairwise(start_blocks), start, stop, step)
-        blocks = blocks_func(**kwargs)
+        blocks_func = self.tail_blocks if tail else self.blocks
+        start_indx = self.section_start_indices(tail=tail, start=self._endpos if only_new else None)
+        # Use pairwise to get start and end positions of each section
+        section_pos = islice(pairwise(start_indx), None)
+        blocks_iter = blocks_func(only_new=only_new, **kwargs)
         prev = 0
         a, b = next(section_pos, (0, 0))
-        while batch := tuple(islice(blocks, a-prev, b-prev)):
+        while True:
+            # Use islice to get blocks from a to b, where a and b are the start and end
+            # Need to subtract prev to get the correct slice since the iterator is consumed
+            batch = tuple(islice(blocks_iter, a - prev, b - prev))
+            if not batch:
+                break
             yield batch
             prev = b
             a, b = next(section_pos, (b, b))
+            if a == b:  # No more sections
+                break
+    
+    # #--------------------------------------------------------------------------------
+    # #def section_blocks(self, tail=False, start=0, stop=None, step=1, **kwargs):    # unfmt_file
+    # def section_blocks(self, tail=False, **kwargs):    # unfmt_file
+    # #--------------------------------------------------------------------------------
+    #     """
+    #     Return blocks one section at a time
+    #     """
+    #     self.exists(raise_error=True)
+    #     blocks_func = self.blocks
+    #     if tail:
+    #         blocks_func = self.tail_blocks
+    #     start_blocks = self.section_start_blocks(tail=tail, start=kwargs.get('start'))
+    #     section_pos = islice(pairwise(start_blocks), None) #, start, stop, step)
+    #     blocks = blocks_func(**kwargs)
+    #     prev = 0
+    #     a, b = next(section_pos, (0, 0))
+    #     while batch := tuple(islice(blocks, a-prev, b-prev)):
+    #         yield batch
+    #         prev = b
+    #         a, b = next(section_pos, (b, b))
 
     #--------------------------------------------------------------------------------
     def section_data(self, start=(), end=(), rename=(), begin=0):        # unfmt_file
-    #--------------------------------------------------------------------------------        
-        # Example of start and end format: 
-        # start=('SEQNUM', 'startpos'), end=('ENDSOL', 'endpos')
-        # startpos and endpos are attributes of the unfmt_blocks 
-        # returned by blocks_matching()
+    #--------------------------------------------------------------------------------
+        """
+        Extracts sections of data from a memory-mapped file based on specified start 
+        and end block markers.
+
+        Args:
+            start (tuple): A tuple specifying the start block marker and its attribute 
+                           (e.g., ('SEQNUM', 'startpos')).
+            end (tuple): A tuple specifying the end block marker and its attribute 
+                         (e.g., ('ENDSOL', 'endpos')).
+            rename (tuple, optional): A tuple of (old_name, new_name) pairs to rename 
+                                      occurrences in the extracted data.
+            begin (int, optional): The minimum step value to begin extraction from. 
+                                   Defaults to 0.
+
+        Yields:
+            tuple: A tuple containing the step value and the corresponding data slice 
+                   from the file, with optional renaming applied.
+
+        Example:
+            start = ('SEQNUM', 'startpos')
+            end = ('ENDSOL', 'endpos')
+            for step, data in section_data(start, end, rename=[('OLDNAME', 'NEWNAME')]):
+                # process data
+        """
         keys, attrs = zip(start, end)
         pairs = batched(self.blocks_matching(*keys), 2)
         with self.mmap() as filemap:
@@ -1606,19 +1774,32 @@ class unfmt_file(File):                                                  # unfmt
 
 
     #--------------------------------------------------------------------------------
-    # def section_slices(self, start=(), end=()):                          # unfmt_file
-    def section_slices(self, start, end, **kwargs):                          # unfmt_file
+    def section_slices(self, start, end, only_new=False, **kwargs):      # unfmt_file
     #--------------------------------------------------------------------------------
         """
-        Get the file-position slice defined by the 'start' and 'end' block-keywords. 
+        Yields slices representing file positions between specified start and end blocks.
+
+        Args:
+            start (tuple): A tuple specifying the start block key and its attribute (e.g., ('SEQNUM', 'startpos')).
+            end (tuple): A tuple specifying the end block key and its attribute (e.g., ('ENDSOL', 'endpos')).
+            **kwargs: Additional keyword arguments passed to `section_blocks`.
+
+        Yields:
+            tuple: A tuple containing:
+                - step (int): The step value, typically extracted from the block containing `self.start`.
+                - slice (slice): A slice object representing the file position between the start and end blocks.
+
+        Example:
+            start = ('SEQNUM', 'startpos')
+            end = ('ENDSOL', 'endpos')
+            for step, file_slice in obj.section_slices(start, end):
+                # Use file_slice to access the desired section in the file.
         """
-        # Example of start and end format: 
-        # start=('SEQNUM', 'startpos'), end=('ENDSOL', 'endpos') 
         # Start by splitting args in keys=('SEQNUM', 'ENDSOL') and attrs=('startpos', 'endpos')
         keys, attrs = zip(start, end)
         step = -1
         _matches = {k:None for k in keys}
-        for section in self.section_blocks(**kwargs):
+        for section in self.section_blocks(only_new=only_new, **kwargs):
             for block in section:
                 if self.start in block:
                     step = block.data()[0]
@@ -1645,8 +1826,24 @@ class unfmt_file(File):                                                  # unfmt
                 yield (step, data)
 
     #--------------------------------------------------------------------------------
-    def section_ends(self, **kwargs):                                    # unfmt_file
+    def section_start_end_blocks(self, **kwargs):                        # unfmt_file
     #--------------------------------------------------------------------------------
+        """
+        Yields pairs of blocks that mark the start and end of sections within the file.
+
+        Iterates over blocks whose keys match either the section start or end keywords.
+        Groups these blocks into pairs (start, end) using the `batched` function.
+        If a pair contains identical keys, raises a ValueError indicating an incomplete section.
+
+        Keyword Arguments:
+            **kwargs: Additional arguments passed to the `blocks` method.
+
+        Yields:
+            tuple: A tuple containing the start and end block for each section.
+
+        Raises:
+            ValueError: If a section is incomplete (i.e., missing a start or end keyword).
+        """
         endwords = [self.start, self.end]
         ends = (bl for bl in self.blocks(**kwargs) if bl.key() in endwords)
         for first, last in batched(ends, 2):
@@ -1654,7 +1851,6 @@ class unfmt_file(File):                                                  # unfmt
                 endwords.remove(first.key())
                 raise ValueError(f"Incomplete section: '{endwords[0]}' keyword is missing")
             yield (first, last)
-        #return batched(ends, 2)
 
     #--------------------------------------------------------------------------------
     def merge(self, *section_data, progress=lambda x:None, 
@@ -2704,8 +2900,8 @@ class RFT_file(unfmt_file):                                                # RFT
         """
         Yield time and slice for equal time sections
         """
-        endpos = self.endpos
-        ends = self.section_ends(only_new=True)
+        endpos = self._endpos
+        ends = self.section_start_end_blocks(only_new=True)
         try:
             first, last = next(ends, (None, None))
             if first is None:
@@ -2717,13 +2913,13 @@ class RFT_file(unfmt_file):                                                # RFT
                     yield (time, (first.header.startpos, last.header.endpos))
                     return
                 if (t:=a.data()[0]) > time:
-                    self.endpos = a.header.startpos
-                    yield (time, (first.header.startpos, self.endpos))
+                    self._endpos = a.header.startpos
+                    yield (time, (first.header.startpos, self._endpos))
                     first = a
                     time = t
                 last = b
         except ValueError:
-            self.endpos = endpos
+            self._endpos = endpos
             yield (None, None)
             return
 
