@@ -4044,9 +4044,23 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
     def dim(self):                                                         # IX_input
     #--------------------------------------------------------------------------------
+        """
+        Returns the grid dimensions as a list of integers [I, J, K], representing the 
+        number of cells in each direction. Searches for a 'StructuredInfo' node, extracts 
+        its dictionary, and retrieves 'NumberCellsInI', 'NumberCellsInJ', and 
+        'NumberCellsInK' values. Converts these to integers.
+
+        Returns:
+            list[int]: Number of cells in I, J, and K directions.
+
+            StopIteration: If 'StructuredInfo' node is not found.
+            KeyError: If expected keys are missing.
+            ValueError: If values cannot be converted to integers.
+        """
         if node := next(self.nodes('StructuredInfo'), None):
             dim_node = node.as_dict()
-            return [int(dim_node[f'NumberCellsIn{ijk}'][0]) for ijk in 'IJK']
+            return tuple(int(dim_node[f'NumberCellsIn{ijk}'][0]) for ijk in 'IJK')
+            #return [int(dim_node[f'NumberCellsIn{ijk}'][0]) for ijk in 'IJK']
 
     #--------------------------------------------------------------------------------
     def ifind(self, astr:str):                                             # IX_input
@@ -4291,6 +4305,23 @@ class IX_input:                                                            # IX_
     #--------------------------------------------------------------------------------
     def wellpos(self, *wellnames):                                         # IX_input
     #--------------------------------------------------------------------------------
+        """
+        Retrieves the well positions for the specified well names.
+
+        For each well name provided, this method searches through the 'WellDef' nodes,
+        extracts the cell connection indices from the node content using a regular expression,
+        and returns the positions as tuples of zero-based (i, j, k) indices.
+
+        Parameters:
+            *wellnames (str): Variable length argument list of well names to retrieve positions for.
+
+        Returns:
+            tuple: A tuple containing lists of (i, j, k) index tuples for each well name, in the order provided.
+
+        Notes:
+            - Only wells that have both 'WellToCellConnections' and 'Completion' in their node attributes are considered.
+            - If a well name is not found, its corresponding entry will be an empty list.
+        """
         well_list = list(wellnames)
         wpos = {well:[] for well in wellnames}
         regex = re_compile(r'^\s*\(([\d ]+)\)', MULTILINE)
