@@ -17,6 +17,7 @@ from .Files import (File, DATA_file, EGRID_file, INIT_file, UNRST_file, RFT_file
                     unfmt_block, RefreshIterator)
 from .File_checker import File_checker
 from .GSG import read_GSG, write_GSG, change_resolution
+from .constants import ENDSOL
 
 # Exporting the public API of the ECLlib module
 # This is what will be available if ECLlib is imported as 
@@ -30,4 +31,5 @@ __all__ = [
     "unfmt_block", "RefreshIterator",
     "File_checker",
     "read_GSG", "write_GSG", "change_resolution",
+    "ENDSOL",
 ]
