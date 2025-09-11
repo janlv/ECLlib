@@ -1605,10 +1605,10 @@ class unfmt_file(File):                                                  # unfmt
         Raises:
             ValueError: If any keys are missing and raise_error is True.
         """
-        missing = set(keys) - set(self.section_keys())
+        missing = list( set(keys) - set(self.section_keys()) )
         if missing and raise_error:
-            raise ValueError(f'Missing keywords in {self}: {list(missing)}')
-        return list(missing)
+            raise ValueError(f'Missing keywords in {self}: {missing}')
+        return missing
 
     #--------------------------------------------------------------------------------
     def find_keys(self, *keys, sec=0):                                   # unfmt_file
