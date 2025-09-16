@@ -1386,61 +1386,6 @@ class unfmt_file(File):                                                  # unfmt
             else:
                 yield values
 
-    # #--------------------------------------------------------------------------------
-    # def read_new(self, *varnames, **kwargs):                                # unfmt_file
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Raskere versjon som returnerer rene NumPy-arrays.
-    #     Hver runde yielder én tuple med én array per varname
-    #     (eller kun én array hvis du kun ba om én variabel).
-    #     """
-    #     # 1) Sjekk at alle varnames finnes
-    #     missing = [v for v in varnames if v not in self.var_pos]
-    #     if missing:
-    #         raise SyntaxWarning(
-    #             f'Missing variable definitions for {type(self).__name__}: {missing}'
-    #         )
-
-    #     # 2) Bygg var_pos-lista og keylim for blockdata
-    #     var_pos = [self.var_pos[v] for v in varnames]
-    #     # var_pos-elementer = (key, idx1, idx2, …)
-    #     keylim = flatten_all(
-    #         zip(
-    #             repeat(v[0]),
-    #             index_limits([-1 if i is None else i for i in v[1:]])
-    #         )
-    #         for v in var_pos
-    #     )
-
-    #     # 3) For hver key, hvor mange segmenter (slice’er) får vi?
-    #     seg_counts = [len(v)-1 for v in var_pos]  # minus én for key-navnet
-
-    #     # 4) Hent blokker
-    #     for block_vals in self.blockdata(*keylim, **kwargs):
-    #         # Sørg for tuple av arrayer
-    #         if not isinstance(block_vals, (tuple, list)):
-    #             block_vals = (block_vals,)
-
-    #         # 5) Split ut i variabler
-    #         out = []
-    #         idx = 0
-    #         for count in seg_counts:
-    #             # hent neste 'count' arrayer
-    #             segs = block_vals[idx:idx+count]
-    #             idx += count
-    #             if count == 1:
-    #                 # bare ett segment → returner arr direkte
-    #                 out.append(segs[0])
-    #             else:
-    #                 # flere segmenter → concatenate
-    #                 out.append(np.concatenate(segs))
-            
-    #         # 6) Yield som singleton eller tuple
-    #         if len(out) == 1:
-    #             yield out[0]
-    #         else:
-    #             yield tuple(out)
-
 
     #--------------------------------------------------------------------------------
     def last_value(self, var:str):                                        # unfmt_file
@@ -1907,6 +1852,19 @@ class unfmt_file(File):                                                  # unfmt
             if raise_error:
                 raise SystemError('ERROR ' + msg)
             print('WARNING ' + msg)
+
+    #--------------------------------------------------------------------------------
+    def reshape_dim(self, *data, dtype=None):                            # unfmt_file
+    #--------------------------------------------------------------------------------
+        """ 
+            Reshape data arrays to the dimensions defined by self.dim()
+        """
+        if not hasattr(self, 'dim'):
+            raise AttributeError(f'No dim attribute in {type(self).__name__}')
+        return [
+            None if d is None else asarray(d, dtype=dtype).reshape(self.dim(), order='F')
+            for d in data
+        ]
 
 
 #====================================================================================
@@ -2478,10 +2436,10 @@ class INIT_file(unfmt_file):                                              # INIT
         self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
         return self._dim
     
-    #--------------------------------------------------------------------------------
-    def reshape_dim(self, *data, dtype=None):                             # INIT_file
-    #--------------------------------------------------------------------------------
-        return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
+    # #--------------------------------------------------------------------------------
+    # def reshape_dim(self, *data, dtype=None):                             # INIT_file
+    # #--------------------------------------------------------------------------------
+    #     return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
 
     #--------------------------------------------------------------------------------
     def cell_ijk(self, *cellnum):                                         # INIT_file
@@ -2592,13 +2550,13 @@ class UNRST_file(unfmt_file):                                            # UNRST
         self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
         return self._dim
     
-    #--------------------------------------------------------------------------------
-    def reshape_dim(self, *data, dtype=None):                         # UNRST_file
-    #--------------------------------------------------------------------------------
-        return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
-        # if flip:
-        #     return [npflip(a, axis=-1) for a in arr]
-        # return arr
+    # #--------------------------------------------------------------------------------
+    # def reshape_dim(self, *data, dtype=None):                         # UNRST_file
+    # #--------------------------------------------------------------------------------
+    #     return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
+    #     # if flip:
+    #     #     return [npflip(a, axis=-1) for a in arr]
+    #     # return arr
 
     #--------------------------------------------------------------------------------
     def _check_for_missing_keys(self, *in_keys, keys=None):              # UNRST_file
