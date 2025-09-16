@@ -11,10 +11,10 @@ from ._version import version as __version__
 #       from ECLlib import DATA_file 
 # instead of 
 #       from ECLlib.Files import DATA_file
-from .Files import (File, DATA_file, EGRID_file, INIT_file, UNRST_file, RFT_file, UNSMRY_file, 
-                    SMSPEC_file, text_file, MSG_file, PRT_file, PRTX_file, FUNRST_file, 
-                    RSM_file, AFI_file, IXF_file, IX_input, unfmt_file, fmt_file, Restart,
-                    unfmt_block, RefreshIterator)
+from .core import File, RefreshIterator, Restart
+from .Files import (DATA_file, EGRID_file, INIT_file, UNRST_file, RFT_file, UNSMRY_file,
+                    SMSPEC_file, text_file, MSG_file, PRT_file, PRTX_file, FUNRST_file,
+                    RSM_file, AFI_file, IXF_file, IX_input, unfmt_file, fmt_file, unfmt_block)
 from .File_checker import File_checker
 from .GSG import read_GSG, write_GSG, change_resolution
 from .constants import ENDSOL
