@@ -88,9 +88,9 @@ class RefreshIterator:
             return next(self._iter)  # may raise StopIteration again (desired)
 
 
+@dataclass(frozen=True, slots=True)
 #==================================================================================================
-@dataclass
-class Dtyp(frozen=True, slots=True):
+class Dtyp:                                                                                  # Dtyp
 #==================================================================================================
     name     : str = ''     # ECL type name
     unpack   : str = ''     # Char used by struct.unpack/pack to read/write binary data
@@ -127,9 +127,9 @@ DTYPE = {b'INTE' : Dtyp('INTE', 'i',   4, 1000, 'i4'),
 DTYPE_LIST = [v.name for v in DTYPE.values()]
         
 
+@dataclass(frozen=True, slots=True)
 #==================================================================================================
-@dataclass
-class Restart(frozen=True, slots=True):                                     # Restart
+class Restart:                                                                            # Restart
 #==================================================================================================
     start: datetime = None
     days: float = 0
