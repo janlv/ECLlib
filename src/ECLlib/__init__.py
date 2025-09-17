@@ -17,7 +17,7 @@ from .Files import (File, DATA_file, EGRID_file, INIT_file, UNRST_file, RFT_file
 from .intersect import AFI_file, IXF_file, IX_input
 from .unformatted import unfmt_file, unfmt_block
 from .File_checker import File_checker
-from .GSG import read_GSG, write_GSG, change_resolution
+from .gsgfile import read_GSG, write_GSG, change_resolution
 from .constants import ENDSOL
 
 # Exporting the public API of the ECLlib module
