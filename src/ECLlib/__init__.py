@@ -26,10 +26,9 @@ from .output import (
     text_file,
 )
 from .input.intersect import AFI_file, IXF_file, IX_input
-from .unformatted_base import unfmt_block, unfmt_file
+from .unformatted_base import ENDSOL, unfmt_block, unfmt_file
 from .output.file_checker import File_checker
 from .input.gsgfile import change_resolution, read_GSG, write_GSG
-from .constants import ENDSOL
 
 __all__ = [
     "__version__",
