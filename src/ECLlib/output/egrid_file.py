@@ -6,7 +6,7 @@ from math import hypot, prod
 from numpy import array as nparray, ones, zeros
 from pyvista import CellType, UnstructuredGrid
 
-from ..unformatted import unfmt_file
+from ..unformatted_base import unfmt_file
 from ..utils import batched, flatten
 from .unformatted_files import INIT_file
 

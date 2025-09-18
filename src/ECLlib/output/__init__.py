@@ -1,6 +1,6 @@
 """Output-related helpers for ECLlib."""
 
-from .egrid import EGRID_file
+from .egrid_file import EGRID_file
 from .unformatted_files import (
     INIT_file,
     RFT_file,
@@ -8,8 +8,8 @@ from .unformatted_files import (
     UNRST_file,
     UNSMRY_file,
 )
-from .textual import MSG_file, PRTX_file, PRT_file, text_file
-from .formatted import FUNRST_file, RSM_block, RSM_file, fmt_block, fmt_file
+from .textual_files import MSG_file, PRTX_file, PRT_file, text_file
+from .formatted_files import FUNRST_file, RSM_block, RSM_file, fmt_block, fmt_file
 
 __all__ = [
     "EGRID_file",
