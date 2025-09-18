@@ -21,7 +21,7 @@ from .constants import DEBUG, ENDIAN
 from .utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all, 
     index_limits, match_in_wildlist, nth, pad, pairwise, slice_range, string_split, take)
 
-__all__ = ["unfmt_header", "unfmt_block", "unfmt_file"]
+__all__ = ["unfmt_header", "unfmt_block", "unfmt_file", "ENDSOL"]
 
 class unfmt_header:                                                    # unfmt_header
 #==================================================================================================
@@ -1153,6 +1153,10 @@ class unfmt_file(File):                                                  # unfmt
             None if d is None else asarray(d, dtype=dtype).reshape(self.dim(), order='F')
             for d in data
         ]
+
+
+# Empty block that terminates a SEQNUM - ENDSOL section in UNRST-files
+ENDSOL = unfmt_block.from_data('ENDSOL', [], 'mess')
 
 
 #==================================================================================================
