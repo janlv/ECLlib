@@ -15,8 +15,10 @@ from numpy import fromstring
 
 from proclib import Process
 
-from .core import DATA_file, ECL2IX_LOG, File, Restart
-from .utils import (
+from ..core import File, Restart
+from ..constants import ECL2IX_LOG
+from .eclipse import DATA_file
+from ..utils import (
     any_cell_in_box,
     bounding_box,
     date_range,

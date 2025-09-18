@@ -9,7 +9,7 @@ from platform import system
 from re import MULTILINE, finditer, search as re_search
 
 from ..core import File, Restart
-from ..output.summary import UNRST_file
+from ..output.unformatted import UNRST_file
 from ..utils import decode, flat_list, grouper, list2text, remove_chars, split_by_words
 
 __all__ = ["DATA_file"]

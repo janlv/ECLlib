@@ -25,10 +25,10 @@ from .output import (
     fmt_file,
     text_file,
 )
-from .intersect import AFI_file, IXF_file, IX_input
+from .input.intersect import AFI_file, IXF_file, IX_input
 from .unformatted import unfmt_block, unfmt_file
 from .File_checker import File_checker
-from .gsgfile import change_resolution, read_GSG, write_GSG
+from .input.gsgfile import change_resolution, read_GSG, write_GSG
 from .constants import ENDSOL
 
 __all__ = [

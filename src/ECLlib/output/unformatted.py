@@ -1,20 +1,118 @@
-"""Summary and restart output file handlers."""
+"""Unformatted output file handlers."""
 
 from collections import namedtuple
 from datetime import datetime, timedelta
 from fnmatch import fnmatch
-from itertools import accumulate, chain, groupby, islice, product, repeat
+from itertools import groupby, islice, product, repeat
 from operator import attrgetter, itemgetter
 
 from matplotlib.pyplot import figure as pl_figure
-from numpy import array as nparray, sum as npsum
+from numpy import array as nparray, sum as npsum, stack
 
 from ..core import File
 from ..unformatted import unfmt_block, unfmt_file
 from ..utils import cumtrapz, flatten, flatten_all, grouper, remove_chars
 
-__all__ = ["UNRST_file", "RFT_file", "UNSMRY_file", "SMSPEC_file"]
 
+__all__ = ["INIT_file", "UNRST_file", "RFT_file", "UNSMRY_file", "SMSPEC_file"]
+
+
+#==================================================================================================
+class INIT_file(unfmt_file):                                              # INIT_file
+#==================================================================================================
+    start = 'INTEHEAD'
+
+    #----------------------------------------------------------------------------------------------
+    def __init__(self, file, **kwargs):                                   # INIT_file
+    #----------------------------------------------------------------------------------------------
+        super().__init__(file, suffix='.INIT', **kwargs)
+        self.var_pos = {'nx'        : ('INTEHEAD',  8),
+                        'ny'        : ('INTEHEAD',  9),
+                        'nz'        : ('INTEHEAD', 10),
+                        'day'       : ('INTEHEAD', 64),
+                        'month'     : ('INTEHEAD', 65),
+                        'year'      : ('INTEHEAD', 66),
+                        'simulator' : ('INTEHEAD', 94),
+                        'hour'      : ('INTEHEAD', 206),
+                        'minute'    : ('INTEHEAD', 207),
+                        'second'    : ('INTEHEAD', 410),
+                        }
+        self._dim = None
+
+    #----------------------------------------------------------------------------------------------
+    def dim(self):                                                       # INIT_file
+    #----------------------------------------------------------------------------------------------
+        self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
+        return self._dim
+    
+    # #--------------------------------------------------------------------------------
+    # def reshape_dim(self, *data, dtype=None):                             # INIT_file
+    # #--------------------------------------------------------------------------------
+    #     return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
+
+    #----------------------------------------------------------------------------------------------
+    def cell_ijk(self, *cellnum):                                         # INIT_file
+    #----------------------------------------------------------------------------------------------
+        """
+        Return ijk-indices of cells given a list of cell-numbers. 
+        The cell numbers (Eclipse/Intersect) are 1-based and the ijk-indices are 0-based.
+        """
+        if not cellnum:
+            return nparray([])
+        dim = self.dim()
+        ni, nij = dim[0], dim[0]*dim[1]
+        cellnum = nparray(cellnum) - 1
+        i = cellnum % ni
+        j = (cellnum % nij) // ni
+        k = cellnum // nij
+        return stack([i, j, k], axis=-1)
+        #return nparray([i, j, k]).T
+
+    #----------------------------------------------------------------------------------------------
+    def non_neigh_conn(self):                                             # INIT_file
+    #----------------------------------------------------------------------------------------------
+        """
+        Identifies and returns non-neighbor connections (NNC) between cells.
+
+        This method searches for the keys 'NNC1' and 'NNC2' in the data. If these keys
+        are not found, it raises a ValueError. If the keys are found, it retrieves the
+        corresponding block data and returns a zip object containing the cell indices
+        for the non-neighbor connections.
+
+        Returns:
+            zip: A zip object containing tuples of cell indices for non-neighbor connections.
+
+        Raises:
+            ValueError: If 'NNC1' and 'NNC2' keys are not found in the data.
+        """
+        keys = ('NNC1', 'NNC2')
+        self.check_missing_keys(*keys)
+        nncs = next(self.blockdata(*keys, singleton=True), ((),()))
+        return [self.cell_ijk(*nnc).tolist() for nnc in nncs]
+        #return nparray([self.cell_ijk(*nnc) for nnc in nncs])
+        #return stack([self.cell_ijk(*nnc) for nnc in nncs], axis=0)
+
+    #----------------------------------------------------------------------------------------------
+    def simulator(self):                                                  # INIT_file
+    #----------------------------------------------------------------------------------------------
+        sim_codes = {100:'ecl', 300:'ecl', 500:'ecl', 700:'ix', 800:'FrontSim'}
+        if sim:=next(self.read('simulator'), None):
+            if sim < 0:
+                return 'other simulator'
+            return sim_codes[sim]
+
+    #----------------------------------------------------------------------------------------------
+    def start_date(self):                                                  # INIT_file
+    #----------------------------------------------------------------------------------------------
+        keys = ('year', 'month', 'day', 'hour', 'minute', 'second')
+        if data := next(self.read(*keys), None):
+            kwargs = dict(zip(keys, data))
+            # Unit of second is microsecond
+            kwargs['second'] = int(kwargs['second']/1e6)
+            return datetime(**kwargs)
+
+
+#==================================================================================================
 class UNRST_file(unfmt_file):                                            # UNRST_file
 #==================================================================================================
     start = 'SEQNUM'
@@ -445,6 +543,7 @@ class RFT_file(unfmt_file):                                                # RFT
                 wells = []
             wells.append(well)
             current_time = time
+
 
 class UNSMRY_file(unfmt_file):
 #==================================================================================================
