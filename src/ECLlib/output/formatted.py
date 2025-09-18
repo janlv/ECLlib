@@ -9,7 +9,7 @@ from struct import pack
 from ..constants import ENDIAN
 from ..core import DTYPE, File
 from ..utils import batched, float_or_str, flatten
-from .unformatted import UNRST_file
+from .unformatted_files import UNRST_file
 
 __all__ = ["fmt_block", "fmt_file", "FUNRST_file", "RSM_block", "RSM_file"]
 

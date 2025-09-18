@@ -8,7 +8,7 @@ from pyvista import CellType, UnstructuredGrid
 
 from ..unformatted import unfmt_file
 from ..utils import batched, flatten
-from .unformatted import INIT_file
+from .unformatted_files import INIT_file
 
 __all__ = ["EGRID_file"]
 
