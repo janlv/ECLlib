@@ -1,4 +1,4 @@
-from ECLlib import unfmt_block
+from .unformatted_base import unfmt_block
 
 DEBUG = False
 ENDIAN = '>'  # Big-endian
