@@ -102,7 +102,9 @@ class Dtyp:                                                                     
     #----------------------------------------------------------------------------------------------
     def __post_init__(self):
     #----------------------------------------------------------------------------------------------
-        self.max_bytes = self.max * self.size
+        #self.max_bytes = self.max * self.size
+        # Because of frozen=True
+        object.__setattr__(self, 'max_bytes', self.max * self.size)
 
 
 #                        name  unpack size max  nptype
