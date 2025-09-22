@@ -19,8 +19,8 @@ class File_checker:                                                    # File_ch
             self._unfmt = file
         else:
             self._unfmt = unfmt_file(file)
-        start = start or file.start
-        end = end or file.end
+        start = start or self._unfmt.start
+        end = end or self._unfmt.end
         self._keys = [start.ljust(8).encode(), [], end.ljust(8).encode(),  0]
         self._data = None
         self._wait_func = wait_func

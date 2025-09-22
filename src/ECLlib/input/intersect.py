@@ -17,7 +17,7 @@ from proclib import Process
 
 from ..core import File, Restart
 from ..constants import ECL2IX_LOG
-from .eclipse import DATA_file
+#from .eclipse import DATA_file
 from ..utils import (
     any_cell_in_box,
     bounding_box,
@@ -35,6 +35,13 @@ __all__ = [
     "IX_input",
 ]
 
+#--------------------------------------------------------------------------------------------------
+def Eclipse_input(path):
+#--------------------------------------------------------------------------------------------------
+    """ Return the Eclipse input file (DATA-file) based on case name """
+    # Define Eclipse input file (DATA-file) based on case name to avoid import from .eclipse
+    # which would create a circular import 
+    return File(path, suffix='.DATA', ignore_suffix_case=True)
 
 #==================================================================================================
 class AFI_file(File):                                                      # AFI_file
@@ -403,12 +410,12 @@ class IX_input:                                                            # IX_
     #----------------------------------------------------------------------------------------------
         path = Path(path)
         afi_file = AFI_file(path)
-        data_file = DATA_file(path)
-        if afi_file.is_file() and not data_file.is_file():
+        eclipse_inp = Eclipse_input(path)
+        if afi_file.is_file() and not eclipse_inp.is_file():
             # No need for convert
             return
         if not afi_file.is_file():
-            if not data_file.is_file():
+            if not eclipse_inp.is_file():
                 raise SystemError('ERROR Eclipse input is missing, unable to create Intersect input.')
             return 'Intersect input is missing for this case, but can be created from the Eclipse input.'
         # Check if input is complete
@@ -416,7 +423,7 @@ class IX_input:                                                            # IX_
             return 'Intersect input is incomplete for this case (missing include files).'
         # Check if DATA-file has changed since last convert
         stat_file = path.with_suffix(self.STAT_FILE)
-        mtime, size = attrgetter('st_mtime_ns', 'st_size')(data_file.stat())
+        mtime, size = attrgetter('st_mtime_ns', 'st_size')(eclipse_inp.stat())
         if stat_file.is_file():
             old_mtime, old_size = map(int, stat_file.read_text(encoding='utf-8').split())
             if mtime > old_mtime and size > old_size:
@@ -431,7 +438,9 @@ class IX_input:                                                            # IX_
     def from_eclipse(self, path, progress=None, abort=None, freq=20):      # IX_input
     #----------------------------------------------------------------------------------------------
         # Create IX input from Eclipse input
-        if not DATA_file(path).is_file():
+        #if not DATA_file(path).is_file():
+        eclipse_inp = Eclipse_input(path)
+        if not eclipse_inp.is_file():
             raise SystemError('ERROR Eclipse input is missing, convert aborted...')
         path = Path(path)
         cmd = ['eclrun', 'ecl2ix', path]
@@ -440,24 +449,25 @@ class IX_input:                                                            # IX_
         sec = 1/freq
         logfile = path.with_name(ECL2IX_LOG)
         with open(logfile, 'w', encoding='utf-8') as log:
-            popen = Popen(cmd, stdout=log, stderr=STDOUT)
-            proc = Process(pid=popen.pid)
-            i = 0
-            while (proc.is_running()):
-                if abort and abort():
-                    proc.kill(children=True)
-                    return False
-                if progress:
-                    i += 1
-                    progress(i)
-                    #dots = ((1+i%5)*'.').ljust(5)
-                    #print(f'\r   {msg} {dots}', end='')
-                sleep(sec)
-            #print('\r',' '*80, end='')
+            with Popen(cmd, stdout=log, stderr=STDOUT) as popen:
+            #popen = Popen(cmd, stdout=log, stderr=STDOUT)
+                proc = Process(pid=popen.pid)
+                i = 0
+                while (proc.is_running()):
+                    if abort and abort():
+                        proc.kill(children=True)
+                        return False
+                    if progress:
+                        i += 1
+                        progress(i)
+                        #dots = ((1+i%5)*'.').ljust(5)
+                        #print(f'\r   {msg} {dots}', end='')
+                    sleep(sec)
+                #print('\r',' '*80, end='')
             if not AFI_file(path).is_file():
                 return False, logfile
             # If successful, save modification time and current size of DATA_file
-            mtime, size = attrgetter('st_mtime_ns', 'st_size')(DATA_file(path).stat())
+            mtime, size = attrgetter('st_mtime_ns', 'st_size')(eclipse_inp.stat())
             path.with_name(self.STAT_FILE).write_text(f'{mtime} {size}', encoding='utf-8')
             return True, logfile
 
