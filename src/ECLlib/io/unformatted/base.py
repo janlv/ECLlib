@@ -16,6 +16,7 @@ from ...utils import (batched, batched_when, ensure_bytestring, expand_pattern, 
 __all__ = ["unfmt_header", "unfmt_block", "unfmt_file", "ENDSOL"]
 
 class unfmt_header:                                                    # unfmt_header
+    """Metadata describing an unformatted Eclipse block header."""
 #==================================================================================================
     #         | h e a d e r  |     d a t a     |     d a t a     |    d a t a      |
     #         |4i|8s|4i|4s|4i|4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i|
@@ -56,6 +57,7 @@ class unfmt_header:                                                    # unfmt_h
     @classmethod
     #----------------------------------------------------------------------------------------------
     def from_bytes(cls, _bytes, startpos=0):                           # unfmt_header
+        """Create an instance from raw bytes."""
     #----------------------------------------------------------------------------------------------
         try:
             # Header is 24 bytes, but we skip size int of length 4 before and after
@@ -67,6 +69,7 @@ class unfmt_header:                                                    # unfmt_h
 
     #----------------------------------------------------------------------------------------------
     def as_bytes(self):                                               # unfmt_header
+        """Return the data serialized as bytes."""
     #----------------------------------------------------------------------------------------------
         #  | h e a d e r  |
         #  |4i|8s|4i|4s|4i|
@@ -151,6 +154,7 @@ class unfmt_header:                                                    # unfmt_h
 
 #==================================================================================================
 class unfmt_block:                                                     # unfmt_block
+    """Container for an unformatted Eclipse data block."""
 #==================================================================================================
     #
     # Block of unformatted Eclipse data
@@ -183,6 +187,7 @@ class unfmt_block:                                                     # unfmt_b
     @classmethod
     #----------------------------------------------------------------------------------------------
     def from_data(cls, key:str, data, _dtype):                          # unfmt_block
+        """Create an instance from existing data."""
     #----------------------------------------------------------------------------------------------
         dtype = {'int':b'INTE', 'float':b'REAL', 'double':b'DOUB',
                  'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'}[_dtype]
@@ -194,6 +199,7 @@ class unfmt_block:                                                     # unfmt_b
 
     #----------------------------------------------------------------------------------------------
     def binarydata(self):                                               # unfmt_block
+        """Return the file contents as bytes."""
     #----------------------------------------------------------------------------------------------
         sl = slice(self.header.startpos, self.header.endpos)
         if self._data:
@@ -323,6 +329,7 @@ class unfmt_block:                                                     # unfmt_b
 
     #----------------------------------------------------------------------------------------------
     def _read_data(self, limit):                                        # unfmt_block
+        """Read raw data for the current block."""
     #----------------------------------------------------------------------------------------------
         #slices = tuple(flatten(self.header._data_slices(limit)))
         slices = tuple(self.header._data_slices(limit))
@@ -343,6 +350,7 @@ class unfmt_block:                                                     # unfmt_b
 
     #----------------------------------------------------------------------------------------------
     def data_old(self, *index, limit=((None,),), strip=False, unpack=True):  # unfmt_block
+        """Return block data using the legacy reader."""
     #----------------------------------------------------------------------------------------------
         #start = perf_counter()
         if self.header.length == 0:
@@ -442,6 +450,7 @@ class unfmt_block:                                                     # unfmt_b
 
     #----------------------------------------------------------------------------------------------
     def _pack_data(self):                                               # unfmt_block
+        """Pack block data into bytes."""
     #----------------------------------------------------------------------------------------------
         # 4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i|...|4i| 1000 data |4i|
         dtype = self.header.dtype
@@ -454,6 +463,7 @@ class unfmt_block:                                                     # unfmt_b
 
     #----------------------------------------------------------------------------------------------
     def _pack_data_fast(self):                                          # unfmt_block
+        """Pack block data using NumPy acceleration."""
     #----------------------------------------------------------------------------------------------
         # 4i| 1000 data |4i|4i| 1000 data |4i|4i| 1000 data |4i|...|4i| 1000 data |4i|
         dtype = self.header.dtype
@@ -476,12 +486,14 @@ class unfmt_block:                                                     # unfmt_b
 
     #----------------------------------------------------------------------------------------------
     def as_bytes(self):                                               # unfmt_block
+        """Return the data serialized as bytes."""
     #----------------------------------------------------------------------------------------------
         return self.header.as_bytes() + b''.join(self._pack_data_fast())
 
 
 #==================================================================================================
 class unfmt_file(File):                                                  # unfmt_file
+    """Reader for unformatted Eclipse binary files."""
 #==================================================================================================
     start = None
     end = None
@@ -489,6 +501,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def __init__(self, filename, **kwargs):                              # unfmt_file
+        """Initialize the unfmt_file."""
     #----------------------------------------------------------------------------------------------
         super().__init__(filename, **kwargs)
         self._endpos = 0
@@ -497,11 +510,13 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def __repr__(self):                                                  # unfmt_file
+        """Return a developer-friendly representation."""
     #----------------------------------------------------------------------------------------------
         return f'<{super().__repr__()}, endpos={self._endpos}>'
 
     #----------------------------------------------------------------------------------------------
     def at_end(self):                                                    # unfmt_file
+        """Return whether the file cursor is at the end."""
     #----------------------------------------------------------------------------------------------
         return self._endpos == self.size()
 
@@ -532,11 +547,13 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def offset(self):                                                    # unfmt_file
+        """Return the byte offset within the file."""
     #----------------------------------------------------------------------------------------------
         return self.size() - self._endpos
 
     #----------------------------------------------------------------------------------------------
     def __prepare_limits(self, *keylim):                                 # unfmt_file
+        """Return prepare limits."""
     #----------------------------------------------------------------------------------------------
         # Examples of keylim tuple is: ('KEY1', 10, 20, 'KEY2', 'KEY3', 5)
         # Batch the input on keywords (str)
@@ -689,11 +706,13 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def last_value(self, var:str):                                        # unfmt_file
+        """Return the last value in the block."""
     #----------------------------------------------------------------------------------------------
         return next(self.read(var, tail=True), None) or 0
 
     #----------------------------------------------------------------------------------------------
     def read_header(self, data, startpos):                               # unfmt_file
+        """Read the next block header."""
     #----------------------------------------------------------------------------------------------
         try:
             # Header is 24 bytes, but we skip size int of length 4 before and after
@@ -707,6 +726,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def blocks(self, only_new=False, start=None, use_mmap=True, **kwargs):  # unfmt_file
+        """Iterate over blocks in the file."""
     #----------------------------------------------------------------------------------------------
         if not self.is_file():
             return ()
@@ -725,6 +745,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def blocks_from_mmap(self, startpos, only_new=False, write=False):    # unfmt_file
+        """Yield blocks streamed from a memory map."""
     #----------------------------------------------------------------------------------------------
         try:
             with self.mmap(write=write) as data:
@@ -743,6 +764,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def blocks_from_file(self, startpos, only_new=False):                # unfmt_file
+        """Yield blocks streamed directly from the file."""
     #----------------------------------------------------------------------------------------------
         with open(self.path, mode='rb') as file:
             size = self.size()
@@ -762,6 +784,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def tail_blocks(self, **kwargs):                                     # unfmt_file
+        """Return the last blocks in the file."""
     #----------------------------------------------------------------------------------------------
         if not self.is_file() or self.size() < 24: # Header is 24 bytes
             return ()
@@ -799,6 +822,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def fix_errors(self):                                                # unfmt_file
+        """Attempt to repair corrupt block boundaries."""
     #----------------------------------------------------------------------------------------------
         # If reading from tail does not work we need to fix block payload errors
         if not next(self.tail_blocks(), False):
@@ -808,11 +832,13 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def count_sections(self):                                            # unfmt_file
+        """Return the number of sections in the file."""
     #----------------------------------------------------------------------------------------------
         return sum(1 for block in self.blocks() if self.start in block)
 
     #----------------------------------------------------------------------------------------------
     def count_blocks(self):                                              # unfmt_file
+        """Return the number of blocks per keyword."""
     #----------------------------------------------------------------------------------------------
         return sum(1 for _ in self.blocks())
 
@@ -1037,6 +1063,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def section_data2(self, start=(), end=(), rename=(), begin=0):       # unfmt_file
+        """Return data grouped by section."""
     #----------------------------------------------------------------------------------------------
         # Extract data from sections defined by start and end keywords. 
         # Used to merge sections of unfmt-files
@@ -1078,8 +1105,10 @@ class unfmt_file(File):                                                  # unfmt
             yield (first, last)
 
     #----------------------------------------------------------------------------------------------
-    def merge(self, *section_data, progress=lambda x:None, 
+    def merge(self, *section_data, progress=lambda x:
+        None,
               cancel=lambda:None):                                       # unfmt_file
+        """Merge consecutive blocks with identical keys."""
     #----------------------------------------------------------------------------------------------
         skipped = []
         with open(self.path, 'wb') as merge_file:
@@ -1123,6 +1152,7 @@ class unfmt_file(File):                                                  # unfmt
 
     #----------------------------------------------------------------------------------------------
     def assert_no_duplicates(self, raise_error=True):                    # unfmt_file
+        """Ensure that block keys are unique."""
     #----------------------------------------------------------------------------------------------
         allowed = (self.start, 'ZTRACER')
         seen = set()

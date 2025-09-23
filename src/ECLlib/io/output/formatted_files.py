@@ -14,12 +14,14 @@ from .unformatted_files import UNRST_file
 __all__ = ["fmt_block", "fmt_file", "FUNRST_file", "RSM_block", "RSM_file"]
 
 class fmt_block:                                                         # fmt_block
+    """Representation of a formatted Eclipse block."""
     #
     # Block of formatted Eclipse data
     #
 #==================================================================================================
     #----------------------------------------------------------------------------------------------
     def __init__(self, key=None, length=None, datatype=None, data=(), filemap:mmap=None, start=0, size=0): # fmt_block
+        """Initialize the fmt_block."""
     #----------------------------------------------------------------------------------------------
         self._key = key
         self._length = length
@@ -32,32 +34,38 @@ class fmt_block:                                                         # fmt_b
 
     #----------------------------------------------------------------------------------------------
     def __str__(self):                                                    # fmt_block
+        """Return a human-readable representation."""
     #----------------------------------------------------------------------------------------------
         return (f'key={self.key():8s}, type={self._dtype.name:4s},' 
                 f'length={self._length:8d}, start={self.startpos:8d}, end={self.endpos:8d}')
 
     #--------------------------------------------------------------------------------                                                            
     def __repr__(self):                                                   # fmt_block                                                           
+        """Return a developer-friendly representation."""
     #--------------------------------------------------------------------------------                                                            
         return f'<{type(self)}, key={self.key():8s}, type={self._dtype.name}, length={self._length:8d}>'
 
     #----------------------------------------------------------------------------------------------
     def __contains__(self, key:str):                                      # fmt_block
+        """Return whether the value exists."""
     #----------------------------------------------------------------------------------------------
         return self.key() == key
 
     #----------------------------------------------------------------------------------------------
     def is_last(self):                                                    # fmt_block
+        """Return whether the block is the final one."""
     #----------------------------------------------------------------------------------------------
         return self.endpos == self.filemap.size()
 
     #----------------------------------------------------------------------------------------------
     def formatted(self):                                                  # fmt_block
+        """Return the block rendered as formatted text."""
     #----------------------------------------------------------------------------------------------
         return self.filemap[self.startpos:self.endpos]
 
     #----------------------------------------------------------------------------------------------
     def key(self):                                                        # fmt_block
+        """Return the block keyword."""
     #----------------------------------------------------------------------------------------------
         return self._key.decode().strip()
         #return self.keyword.strip()
@@ -69,6 +77,7 @@ class fmt_block:                                                         # fmt_b
 
     #----------------------------------------------------------------------------------------------
     def as_binary(self):                                                  # fmt_block
+        """Return the block encoded as binary data."""
     #----------------------------------------------------------------------------------------------
         dtype = self._dtype
         count = self._length//dtype.max
@@ -84,27 +93,33 @@ class fmt_block:                                                         # fmt_b
                 
     #----------------------------------------------------------------------------------------------
     def print(self):                                                      # fmt_block
+        """Print the current progress line."""
     #----------------------------------------------------------------------------------------------
         print(self._key, self._length, self._dtype.name)
 
 #==================================================================================================
 class fmt_file(File):                                                      # fmt_file
+    """Reader for formatted Eclipse output."""
 #==================================================================================================
     #
     # Class to handle formatted Eclipse files.
     #
     #----------------------------------------------------------------------------------------------
     def __init__(self, filename, **kwargs):                                # fmt_file
+        """Initialize the fmt_file."""
     #----------------------------------------------------------------------------------------------
         super().__init__(filename, **kwargs)
         self.start = None 
 
     #----------------------------------------------------------------------------------------------
     def blocks(self):                                                      # fmt_file
+        """Iterate over blocks in the file."""
     #----------------------------------------------------------------------------------------------
         def double(string):
+            """Return the data interpreted as double precision."""
             return float(string.replace(b'D',b'E'))
         def logi(string):
+            """Return logical values decoded from the block."""
             return True if string=='T' else False
         wordsize = {b'INTE':12,  b'LOGI':3,    b'DOUB':23,     b'REAL':17}
         rows     = {b'INTE':6,   b'LOGI':20,   b'DOUB':3,      b'REAL':4}
@@ -124,6 +139,7 @@ class fmt_file(File):                                                      # fmt
 
     #----------------------------------------------------------------------------------------------
     def first_section(self):                                               # fmt_file
+        """Return the first data section."""
     #----------------------------------------------------------------------------------------------
         # Get number of blocks and size of first section
         secs = ((i,b) for i, b in enumerate(self.blocks()) if 'SEQNUM' in b)
@@ -132,6 +148,7 @@ class fmt_file(File):                                                      # fmt
 
     #----------------------------------------------------------------------------------------------
     def section_blocks(self, count=None, with_attr:str=None):              # fmt_file
+        """Return blocks grouped per section."""
     #----------------------------------------------------------------------------------------------
         count = count or self.section_count()
         if with_attr:
@@ -139,8 +156,10 @@ class fmt_file(File):                                                      # fmt
         return batched(self.blocks(), count)
 
     #----------------------------------------------------------------------------------------------
-    def as_binary(self, outfile, stop:int=None, buffer=100, rename=(),
+    def as_binary(self, outfile, stop:
+        int=None, buffer=100, rename=(),
                   progress=lambda x:None, cancel=lambda:None):             # fmt_file
+        """Return the block encoded as binary data."""
     #----------------------------------------------------------------------------------------------
         buffer *= 1024**3
         section = self.first_section()
@@ -180,15 +199,18 @@ class fmt_file(File):                                                      # fmt
 
 #==================================================================================================
 class FUNRST_file(fmt_file):
+    """Parser for formatted UNRST output files."""
 #==================================================================================================
     #----------------------------------------------------------------------------
     def __init__(self, filename):                           # FUNRST_file
+        """Initialize the FUNRST_file."""
     #----------------------------------------------------------------------------
         super().__init__(filename, suffix='.FUNRST')
         self.start = 'SEQNUM'
 
     #----------------------------------------------------------------------------------------------
     def data(self, *keys):                                       # FUNRST_file
+        """Return decoded block data."""
     #----------------------------------------------------------------------------------------------
         data = {}
         for block in self.blocks():
@@ -205,6 +227,7 @@ class FUNRST_file(fmt_file):
 
     #----------------------------------------------------------------------------
     def as_unrst(self, outfile=None, **kwargs):  # FUNRST_file 
+        """Return the block mapped to unified UNRST data."""
     #----------------------------------------------------------------------------
         outfile = Path(outfile) if outfile else self.path
         outfile = outfile.with_suffix('.UNRST')
@@ -212,9 +235,11 @@ class FUNRST_file(fmt_file):
 
 #==================================================================================================
 class RSM_block:                                                          # RSM_block
+    """Representation of a single RSM block."""
 #==================================================================================================
     #----------------------------------------------------------------------------------------------
     def __init__(self, var, unit, well, data):                            # RSM_block
+        """Initialize the RSM_block."""
     #----------------------------------------------------------------------------------------------
         self.var = var
         self.unit = unit
@@ -224,14 +249,17 @@ class RSM_block:                                                          # RSM_
         
     #----------------------------------------------------------------------------------------------
     def get_data(self):                                                   # RSM_block
+        """Return raw data for the key."""
     #----------------------------------------------------------------------------------------------
         for col,(v,u,w) in enumerate(zip(self.var, self.unit, self.well)):
             yield (v, u, w, [self.data[row][col] for row in range(self.nrow)])
 
 class RSM_file(File):                                                      # RSM_file
+    """Reader for Eclipse RSM summary files."""
 #==================================================================================================
     #----------------------------------------------------------------------------------------------
     def __init__(self, filename, **kwargs):
+        """Initialize the RSM_file."""
     #----------------------------------------------------------------------------------------------
         #self.file = Path(filename)
         super().__init__(filename, **kwargs)
@@ -242,6 +270,7 @@ class RSM_file(File):                                                      # RSM
         
     #----------------------------------------------------------------------------------------------
     def get_data(self):                                                    # RSM_file
+        """Return raw data for the key."""
     #----------------------------------------------------------------------------------------------
         if not self.path.is_file():
             return ()
@@ -254,6 +283,7 @@ class RSM_file(File):                                                      # RSM
                             
     #----------------------------------------------------------------------------------------------
     def read_block(self):                                                  # RSM_file
+        """Read the payload for the next block."""
     #----------------------------------------------------------------------------------------------
         self.skip_lines(3)
         var, unit, well = self.read_var_unit_well()
@@ -263,6 +293,7 @@ class RSM_file(File):                                                      # RSM
                 
     #----------------------------------------------------------------------------------------------
     def skip_lines(self, n):                                               # RSM_file
+        """Skip the requested number of lines."""
     #----------------------------------------------------------------------------------------------
         next(islice(self.fh, n, n), None)
         # for i in range(n):
@@ -270,6 +301,7 @@ class RSM_file(File):                                                      # RSM
         
     #----------------------------------------------------------------------------------------------
     def read_data(self, ncol=None):                                        # RSM_file
+        """Read raw block data."""
     #----------------------------------------------------------------------------------------------
         data = [None]*self.nrow        
         for l in range(self.nrow):
@@ -298,6 +330,7 @@ class RSM_file(File):                                                      # RSM
     
     #----------------------------------------------------------------------------------------------
     def read_var_unit_well(self):                                          # RSM_file
+        """Read well unit assignments."""
     #----------------------------------------------------------------------------------------------
         line = next(self.fh)
         var = line.split()
@@ -314,6 +347,7 @@ class RSM_file(File):                                                      # RSM
 
     #----------------------------------------------------------------------------------------------
     def block_length(self):                                                # RSM_file
+        """Return the length of the current block."""
     #----------------------------------------------------------------------------------------------
         with open(self.path, 'r', encoding='utf-8') as fh:
             nb, n = 0, 0

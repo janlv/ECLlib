@@ -15,6 +15,7 @@ from ...utils import decode, flat_list, grouper, list2text, remove_chars, split_
 __all__ = ["DATA_file"]
 
 class DATA_file(File):
+    """Loader for Eclipse DATA files."""
 #==================================================================================================
     # Sections
     section_names = ('RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION', 'SUMMARY',
@@ -44,6 +45,15 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def __init__(self, file, suffix=None, check=False, sections=True, **kwargs):      # DATA_file
+        """Initialize the DATA_file.
+
+        Args:
+            file: Path to the input deck.
+            suffix: Optional suffix enforced on the resolved path.
+            check: Whether to validate the file immediately.
+            sections: Whether to populate :attr:`section_names`.
+            **kwargs: Extra arguments forwarded to :class:`~ECLlib.core.file.File`.
+        """
     #----------------------------------------------------------------------------------------------
         #print(f'Input_file({file}, check={check}, read={read}, reread={reread}, include={include})')
         suffix = Path(file).suffix or suffix or '.DATA'
@@ -71,29 +81,38 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def __repr__(self):                                                   # DATA_file
+        """Return a developer-friendly representation."""
     #----------------------------------------------------------------------------------------------
         return f'<{type(self)}, {self.path}>'
 
     #----------------------------------------------------------------------------------------------
     def __call__(self):                                                  # DATA_file
+        """Invoke the underlying callable."""
     #----------------------------------------------------------------------------------------------
         self.data = self.binarydata()
         return self
 
     #----------------------------------------------------------------------------------------------
     def __contains__(self, key):                                          # DATA_file
+        """Return whether the value exists.
+
+        Args:
+            key: Keyword searched for in the DATA file.
+        """
     #----------------------------------------------------------------------------------------------
         self.data = None
         return bool(self.search(key, regex=rf'^[ \t]*{key}', comments=True))
         
     #----------------------------------------------------------------------------------------------
     def mode(self):                                                       # DATA_file
+        """Return the mode string."""
     #----------------------------------------------------------------------------------------------
         return 'backward' if ('READDATA' in self) else 'forward'
 
 
     #----------------------------------------------------------------------------------------------
     def restart(self):                                                  # DATA_file
+        """Return restart metadata for the block."""
     #----------------------------------------------------------------------------------------------
         # Check if this is a restart-run
         file, step = self.get('RESTART')
@@ -114,6 +133,11 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def binarydata(self, raise_error=False):                              # DATA_file
+        """Return the file contents as bytes.
+
+        Args:
+            raise_error: Whether to raise if the file is missing.
+        """
     #----------------------------------------------------------------------------------------------
         self.data = super().binarydata(raise_error)
         end = b'END' in self.data and re_search(rb'^[ \t]*\bEND\b', self.data, flags=MULTILINE)
@@ -121,6 +145,12 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def check(self, include=True, uppercase=False):                          # DATA_file
+        """Check the file for inconsistencies.
+
+        Args:
+            include: Whether to verify that included files exist.
+            uppercase: Whether to enforce uppercase filenames on Linux.
+        """
     #----------------------------------------------------------------------------------------------
         self._checked = True
         # Check if file exists
@@ -140,6 +170,13 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def search(self, key, regex, comments=False):                         # DATA_file
+        """Search for matching blocks.
+
+        Args:
+            key: Keyword to pre-filter sections.
+            regex: Regular expression used to extract values.
+            comments: Whether to keep comments in the search data.
+        """
     #----------------------------------------------------------------------------------------------
         data = self._matching(key)
         if not comments:
@@ -157,13 +194,21 @@ class DATA_file(File):
     #----------------------------------------------------------------------------------------------
     def include_files(self, data:bytes=None):                           # DATA_file
     #----------------------------------------------------------------------------------------------
-        """ Return full path of INCLUDE files as a generator """
+        """Return full path of INCLUDE files as a generator.
+
+        Args:
+            data: Optional binary blob to inspect instead of reading from disk.
+        """
         return (f[0] for f in self._included_file_data(data))
 
     #----------------------------------------------------------------------------------------------
     def _included_file_data(self, data:bytes=None):                           # DATA_file
     #----------------------------------------------------------------------------------------------
-        """ Return tuple of filename and binary-data for each include file """
+        """Yield tuples of filename and binary data for each include file.
+
+        Args:
+            data: Optional binary blob to inspect instead of reading from disk.
+        """
         data = data or self.binarydata()
         # This regex is explained at: https://regex101.com/r/jTYq16/2
         regex = rb"^\s*(?:\bINCLUDE\b)(?:\s*--.*\s*|\s*)*'*([^' ]+)['\s]*/.*$"
@@ -178,6 +223,11 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def grid_files(self, data:bytes=None):                           # DATA_file
+        """Return the grid related filenames.
+
+        Args:
+            data: Optional binary blob to inspect instead of reading from disk.
+        """
     #----------------------------------------------------------------------------------------------
         data = data or self.binarydata()
         regex = rb"^\s*(?:\bGDFILE\b)(?:\s*--.*\s*|\s*)*'*([^' ]+)['\s]*/.*$"
@@ -187,7 +237,11 @@ class DATA_file(File):
     #----------------------------------------------------------------------------------------------
     def including(self, *files):                                          # DATA_file
     #----------------------------------------------------------------------------------------------
-        """ Add the given files and return self """
+        """Add the given files and return self.
+
+        Args:
+            *files: Iterable of filenames to treat as additional includes.
+        """
         # Added files must be an iterator to avoid an infinite recursive
         # loop when self._added_files is called in _included_file_data
         self._added_files = iter(files)
@@ -197,13 +251,22 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def start(self):                                                      # DATA_file
+        """Start progress reporting."""
     #----------------------------------------------------------------------------------------------
         return self.get('START')[0]
 
     #----------------------------------------------------------------------------------------------
     def timesteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
     #----------------------------------------------------------------------------------------------
-        """ Return tsteps, if DATES are present they are converted to tsteps """
+        """Return timestep information for the schedule.
+
+        Args:
+            start: Optional start date overriding the deck value.
+            negative_ok: Whether negative or zero durations are allowed.
+            missing_ok: Whether missing timestep data should pass silently.
+            pos: Whether to return positions alongside values.
+            skiprest: Whether to ignore restart-induced negative timesteps.
+        """
         _start, tsteps, dates = self.get('START','TSTEP','DATES', pos=True)
         if not tsteps and not dates:
             return ()
@@ -227,6 +290,7 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def report_dates(self):                                               # DATA_file
+        """Return formatted report dates."""
     #----------------------------------------------------------------------------------------------
         return [self.start() + timedelta(days=days) for days in accumulate(self.timesteps())]
     
@@ -266,6 +330,13 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def get(self, *keywords, raise_error=False, pos=False):                # DATA_file
+        """Return the requested value.
+
+        Args:
+            *keywords: Keyword names to extract from the DATA file.
+            raise_error: Whether to raise if a keyword is missing.
+            pos: Whether to return positions in addition to values.
+        """
     #----------------------------------------------------------------------------------------------
         #print('get', keywords)
         #FAIL = len(keywords)*((),)
@@ -306,21 +377,25 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def lines(self):                                                       # DATA_file
+        """Iterate over the file lines."""
     #----------------------------------------------------------------------------------------------
         return (line for line in self._remove_comments(self._matching()).split('\n') if line)
 
     #----------------------------------------------------------------------------------------------
     def text(self):                                                       # DATA_file
+        """Return textual data for the block."""
     #----------------------------------------------------------------------------------------------
         return self._remove_comments(self._matching())
 
     #----------------------------------------------------------------------------------------------
     def summary_keys(self, matching=()):                                # DATA_file
+        """Return metadata for summary keys."""
     #----------------------------------------------------------------------------------------------
         return [k for k in self.section('SUMMARY').text().split() if k in matching]
 
     #----------------------------------------------------------------------------------------------
     def section_positions(self, *sections):                               # DATA_file
+        """Return start offsets for each section."""
     #----------------------------------------------------------------------------------------------
         data = self.data or self.binarydata()
         sec_pos = {sec.upper().decode():(a,b) for sec,a,b in split_by_words(data, self.section_names)}
@@ -330,6 +405,7 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def section(self, *sections, raise_error=True):                       # DATA_file
+        """Return a named section."""
     #----------------------------------------------------------------------------------------------
         #print('section', sections)
         if not self._checked:
@@ -348,6 +424,12 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def replace_keyword(self, keyword, new_string):                      # DATA_file
+        """Replace a keyword within the data.
+
+        Args:
+            keyword: Keyword to search for in the deck.
+            new_string: Replacement text including trailing slash.
+        """
     #----------------------------------------------------------------------------------------------
         ### Get keyword value and position in file
         match = self.get(keyword, pos=True)
@@ -361,6 +443,11 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def _remove_comments(self, data=None):                   # DATA_file
+        """Strip comment lines from the file.
+
+        Args:
+            data: Optional iterable of binary blobs to process.
+        """
     #----------------------------------------------------------------------------------------------
         data = data or (self.binarydata(),)
         lines = (l for d in data for l in d.split(b'\n'))
@@ -371,6 +458,11 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def _matching(self, *keys):                                           # DATA_file
+        """Yield matches for the provided patterns.
+
+        Args:
+            *keys: Keyword names used to filter the DATA file.
+        """
     #----------------------------------------------------------------------------------------------
         #print('_matching', keys)
         self.data = self.data or self.binarydata()
@@ -396,15 +488,18 @@ class DATA_file(File):
             
     #----------------------------------------------------------------------------------------------
     def _convert_string(self, values, key):                               # DATA_file
+        """Convert textual values to strings."""
     #----------------------------------------------------------------------------------------------
         ret = [v for val in values for v in val.split('\n') if v and v != '/']
         return (ret,)
 
     #----------------------------------------------------------------------------------------------
     def _convert_float(self, values, key):                                # DATA_file
+        """Convert textual values to floats."""
     #----------------------------------------------------------------------------------------------
         #mult = lambda x, y : list(repeat(float(y),int(x))) # Process x*y statements
         def mult(x,y):
+            """Return the data converted to floats."""
             # Process x*y statements
             return list(repeat(float(y),int(x)))
         values = ([mult(*n.split('*')) if '*' in n else [float(n)] for n in v.split()] for v in values)
@@ -413,6 +508,7 @@ class DATA_file(File):
 
     #----------------------------------------------------------------------------------------------
     def _convert_date(self, dates, key):                                  # DATA_file
+        """Convert raw date values to datetime objects."""
     #----------------------------------------------------------------------------------------------
         ### Remove possible quotes
         ### Extract groups of 3 from the dates strings 

@@ -16,6 +16,7 @@ class Progress:
     """Simple command-line progress bar."""
 
     def __init__(self, N: int = 1, format: str = "%", indent: int = 3, min: int = 0):
+        """Initialize the Progress."""
         self.start_time = datetime.now()
         self.N = N
         self.n = 0
@@ -39,18 +40,22 @@ class Progress:
         self.prev_n = -1
 
     def __str__(self) -> str:
+        """Return a human-readable representation."""
         return ", ".join(f"{k}:{v}" for k, v in self.__dict__.items() if k[0] != "_" and not callable(v))
 
     def set_min(self, min_value: int):
+        """Set the minimum progress counter."""
         self.reset_time()
         self.min = self.n0 = min_value
 
     def reset(self, N: int = 1, **kwargs):
+        """Reset the progress counter."""
         self.N = N
         self.n0 = 0
         self.reset_time(**kwargs)
 
     def reset_time(self, n: int = 0, min: Optional[int] = None):
+        """Reset the timing reference point."""
         self.start_time = datetime.now()
         self.min = min or 0
         self.time_str = "--:--:--"
@@ -60,14 +65,17 @@ class Progress:
         self.time_last_eta = None
 
     def format_percent(self, n: int) -> str:
+        """Format a percentage based progress message."""
         nn = max(n - self.min, 0)
         percent = 100 * nn / (self.N - self.min)
         return f"Progress {n: 4d} / {self.N:4d} = {percent:.0f} %   ETA: {self.eta}"
 
     def format_bar(self, n: int) -> str:
+        """Format a textual progress bar."""
         return f"{self.fraction(n)}  [{self.bar(n)}]  {self.time_str}"
 
     def bar(self, n: int) -> str:
+        """Return a textual progress bar."""
         hash_count = 0
         nn = max(n - self.min, 0)
         if (diff := self.N - self.min) > 0:
@@ -78,6 +86,7 @@ class Progress:
         return f"-- E R R O R, n:{n}, N:{self.N}, min:{self.min} --"
 
     def fraction(self, n: Optional[int]) -> str:
+        """Return the formatted progress fraction."""
         n = n or 0
         nn = max(n - self.min, 0)
         t, T = strip_zero((n, self.N))
@@ -87,9 +96,11 @@ class Progress:
         return f"{t} / {T}"
 
     def set_N(self, N: int):
+        """Set the total iteration count."""
         self.N = N
 
     def print(self, n: int = -1, head: str | None = None, text: str | None = None):
+        """Print the current progress line."""
         if n < 0:
             self.n += 1
             n = self.n
@@ -109,6 +120,7 @@ class Progress:
         )
 
     def remaining_time(self, n: int) -> str:
+        """Return the estimated time remaining."""
         time_ = timedelta(0)
         if self.prev_n < self.min:
             self.start_time = datetime.now()
@@ -130,6 +142,7 @@ class Timer:
     """Simple execution timer writing results to ``filename``."""
 
     def __init__(self, filename: str | None = None):
+        """Initialize the Timer."""
         self.counter = 0
         self.timefile = Path(f"{filename}_timer.dat")
         self.timefile.write_text("# step \t seconds\n")
@@ -137,10 +150,12 @@ class Timer:
         self.info = f"Execution time saved in {self.timefile.name}"
 
     def start(self):
+        """Start progress reporting."""
         self.counter += 1
         self.starttime = time()
 
     def stop(self):
+        """Stop progress reporting."""
         with self.timefile.open("a") as f:
             f.write(f"{self.counter:d}\t{time() - self.starttime:.3e}\n")
 
@@ -151,6 +166,7 @@ class TimerThread:
     DEBUG = False
 
     def __init__(self, limit: float = 0, prec: float = 0.5, func: Optional[Callable] = None):
+        """Initialize the TimerThread."""
         self._func = func
         self._call_func = func
         self._limit = limit
@@ -162,25 +178,32 @@ class TimerThread:
         self.DEBUG and print(f"Creating {self}")
 
     def __str__(self) -> str:
+        """Return a human-readable representation."""
         func_name = self._func.__qualname__ if self._func else None
         return f"<TimerThread (limit={self._limit}, prec={self._idle}, func={func_name}, thread={self._thread})>"
 
     def __del__(self):
+        """Handle object cleanup."""
         self.DEBUG and print(f"Deleting {self}")
 
     def __enter__(self):
+        """Enter the runtime context."""
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context."""
         self.close()
 
     def endtime(self):
+        """Return the recorded end time."""
         return self._endtime
 
     def uptime(self):
+        """Return the remaining time budget."""
         return self._limit - self.time()
 
     def start(self):
+        """Start progress reporting."""
         self._endtime = None
         self._call_func = self._func
         self._starttime = datetime.now()
@@ -189,11 +212,13 @@ class TimerThread:
             self._thread.start()
 
     def close(self):
+        """Stop the timer thread."""
         self._running = False
         if self._thread.is_alive():
             self._thread.join()
 
     def cancel_if_alive(self):
+        """Cancel the timer if it has not fired yet."""
         if not self._endtime:
             self._call_func = lambda: None
             self._endtime = self.time()
@@ -201,14 +226,17 @@ class TimerThread:
         return False
 
     def is_alive(self):
+        """Return whether the timer thread is running."""
         return not self._endtime
 
     def time(self):
+        """Return the elapsed time."""
         if self._starttime is None:
             return 0.0
         return (datetime.now() - self._starttime).total_seconds()
 
     def _timer(self):
+        """Internal timer loop used by the background thread."""
         while self._running:
             sleep(self._idle)
             if not self._endtime:
@@ -223,6 +251,7 @@ class LivePlot:
     """Matplotlib based live plot for Jupyter notebooks."""
 
     def __init__(self, figure: int = 1, func: Optional[Callable] = None, loop=None, **kwargs):
+        """Initialize the LivePlot."""
         from IPython import get_ipython
 
         if ipython := get_ipython():
@@ -240,9 +269,11 @@ class LivePlot:
         self.loop = loop
 
     def start(self, wait: float = 1.0):
+        """Start progress reporting."""
         import asyncio
 
         async def update():
+            """Refresh the live plot canvas."""
             self.running = True
             while self.running:
                 if self.func:
@@ -257,6 +288,7 @@ class LivePlot:
             loop.create_task(update())
 
     def stop(self):
+        """Stop progress reporting."""
         if self.running:
             print("Stopping LivePlot!")
             self.running = False
