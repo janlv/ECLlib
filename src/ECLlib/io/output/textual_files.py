@@ -3,8 +3,8 @@
 from datetime import datetime
 from re import findall
 
-from ..core import File
-from ..utils import matches
+from ...core import File
+from ...utils import matches
 
 __all__ = ["text_file", "MSG_file", "PRT_file", "PRTX_file"]
 

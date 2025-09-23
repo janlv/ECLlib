@@ -9,9 +9,9 @@ from operator import attrgetter, itemgetter
 from matplotlib.pyplot import figure as pl_figure
 from numpy import array as nparray, sum as npsum, stack
 
-from ..core import File
-from ..unformatted_base import unfmt_block, unfmt_file
-from ..utils import cumtrapz, flatten, flatten_all, grouper, remove_chars
+from ...core import File
+from ..unformatted.base import unfmt_block, unfmt_file
+from ...utils import cumtrapz, flatten, flatten_all, grouper, remove_chars
 
 
 __all__ = ["INIT_file", "UNRST_file", "RFT_file", "UNSMRY_file", "SMSPEC_file"]
