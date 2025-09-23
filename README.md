@@ -1,61 +1,68 @@
 # ECLlib
-Python library to read, modify, and write Eclipse/Intersect files. 
 
-## Project Installation Guide
+ECLlib is a Python toolkit for reading, writing, and analysing files produced by Schlumberger's Eclipse and Intersect reservoir simulators. It gathers convenience wrappers for both formatted and unformatted data so you can assemble custom workflows for quality control, post-processing, and visualisation.
 
-This project includes installation scripts that create a virtual environment and install all necessary dependencies.
+## Key capabilities
 
----
+- Parse and emit common Eclipse output files such as `EGRID`, `INIT`, `UNRST`, `RSM`, `SMSPEC`, `PRT`, and more.
+- Work with Intersect input artefacts (`AFI`, `IXF`, `IX`) as well as GSG grid files.
+- Access low-level blocks in unformatted binaries (`unfmt_block`) alongside supporting datatypes (`ENDSOL`).
+- Combine the high-level interfaces (`File`, `Restart`, `RefreshIterator`) with the specialised I/O classes to build bespoke solutions.
 
-### Installation (Linux/macOS)
+## Installation
 
-1. Make the script executable:
-```bash
-chmod +x install.sh
+The project requires Python 3.10 or newer. The supplied installation scripts create an isolated virtual environment (`venv`), activate it, and install ECLlib together with its dependencies via `pip install .`.
+
+### Linux and macOS
+
+1. **Make the script executable** (first run only):
+   ```bash
+   chmod +x install.sh
+   ```
+2. **Run the installation** from the project root:
+   ```bash
+   ./install.sh
+   ```
+
+The script determines the package name from `pyproject.toml`, provisions a `.venv_ECLlib` directory, activates the environment, and installs the project in editable mode.
+
+### Windows
+
+1. Open *Command Prompt* or *PowerShell*.
+2. Change into the project root if required using `cd`.
+3. Run the installer:
+   ```bat
+   install.bat
+   ```
+
+The batch script mirrors the UNIX workflow by creating a `.venv_ECLlib` environment, activating it for the duration of the session, and installing the project with `pip install .`.
+
+### After installation
+
+- **Reactivate the environment** whenever you return to the project:
+  - Linux/macOS:
+    ```bash
+    source .venv_ECLlib/bin/activate
+    ```
+  - Windows:
+    ```bat
+    call .venv_ECLlib\Scripts\activate.bat
+    ```
+- **Deactivate the environment** when you are done:
+  ```bash
+  deactivate
+  ```
+
+## Quick start
+
+```python
+from ECLlib import EGRID_file, RSM_file
+
+egrid = EGRID_file("model.EGRID")
+rsm = RSM_file("results.RSM")
+
+print(egrid.grid_dimensions)
+print(rsm.summary.head())
 ```
 
-2. Run the installer:
-```bash
-./install.sh
-```
-
----
-
-### Installation (Windows)
-
-1. Open a terminal (e.g., Command Prompt or PowerShell)
-
-2. Run:
-```bat
-install.bat
-```
-
----
-
-## Activating and deactivating the environment
-
-### Linux/macOS:
-
-To **activate** the environment:
-```bash
-source .venv_resplot/bin/activate
-```
-
-To **deactivate**, run:
-```bash
-deactivate
-```
-
----
-
-### Windows:
-
-To **activate** the environment:
-```bat
-call .venv_resplot\Scripts\activate.bat
-```
-
-To **deactivate**, run:
-```bat
-deactivate
-```
+See `src/ECLlib/__init__.py` for a full overview of the public API. The project is licensed under the MIT License and versioned via git tags managed by `setuptools_scm`.
