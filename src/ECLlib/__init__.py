@@ -7,8 +7,8 @@
 from ._version import version as __version__
 
 from .core import File, RefreshIterator, Restart
-from .input import DATA_file
-from .output import (
+from .io.input import DATA_file
+from .io.output import (
     EGRID_file,
     FUNRST_file,
     INIT_file,
@@ -25,10 +25,10 @@ from .output import (
     fmt_file,
     text_file,
 )
-from .input.intersect import AFI_file, IXF_file, IX_input
-from .unformatted_base import ENDSOL, unfmt_block, unfmt_file
-from .output.file_checker import File_checker
-from .input.gsgfile import change_resolution, read_GSG, write_GSG
+from .io.input.intersect import AFI_file, IXF_file, IX_input
+from .io.unformatted.base import ENDSOL, unfmt_block, unfmt_file
+from .io.output.file_checker import File_checker
+from .io.input.gsgfile import change_resolution, read_GSG, write_GSG
 
 __all__ = [
     "__version__",

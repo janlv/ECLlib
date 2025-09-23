@@ -16,9 +16,9 @@ from numpy import (
     split as npsplit,
 )
 
-from .core import File, DTYPE
-from .constants import DEBUG, ENDIAN
-from .utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all, 
+from ...core import File, DTYPE
+from ...config import DEBUG, ENDIAN
+from ...utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all, 
     index_limits, match_in_wildlist, nth, pad, pairwise, slice_range, string_split, take)
 
 __all__ = ["unfmt_header", "unfmt_block", "unfmt_file", "ENDSOL"]
