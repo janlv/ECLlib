@@ -26,9 +26,11 @@ def call_if_callable(func: Callable | None, *args, **kwargs):
 
 def running_jupyter() -> bool:
     """Return ``True`` if running inside IPython/Jupyter."""
-    from IPython import get_ipython
-
-    return bool(get_ipython())
+    try:
+        from IPython import get_ipython
+        return bool(get_ipython())
+    except ImportError:
+        return False
 
 
 @contextmanager
