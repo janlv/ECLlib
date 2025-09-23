@@ -14,6 +14,7 @@ class File_checker:                                                    # File_ch
     #--------------------------------------------------------------------------------
     def __init__(self, file, start=None, end=None, wait_func=None, 
                  warn_offset=True, timer=False):                       # File_checker
+        """Initialize the File_checker."""
     #--------------------------------------------------------------------------------
         if isinstance(file, unfmt_file):
             self._unfmt = file
@@ -31,23 +32,27 @@ class File_checker:                                                    # File_ch
 
     #--------------------------------------------------------------------------------
     def __repr__(self):                                                 # File_checker
+        """Return a developer-friendly representation."""
     #--------------------------------------------------------------------------------
         return f'<{type(self)}, file={self._unfmt}>'
 
     #--------------------------------------------------------------------------------
     def __del__(self):                                                 # File_checker
+        """Handle object cleanup."""
     #--------------------------------------------------------------------------------
         if DEBUG:
             print(f'Deleting {self}')
 
     #--------------------------------------------------------------------------------
     def data(self):                                                    # File_checker
+        """Return decoded block data."""
     #--------------------------------------------------------------------------------
         #return self._data and self._data[1]
         return self._data[1] if self._data else None
 
     #--------------------------------------------------------------------------------
     def not_in_sync(self, time, prec=0.1):                             # File_checker
+        """Return whether the files appear out of sync."""
     #--------------------------------------------------------------------------------
         data = self.data()
         if data and any(abs(asarray(data)-time) > prec):
@@ -56,11 +61,13 @@ class File_checker:                                                    # File_ch
 
     #--------------------------------------------------------------------------------
     def info(self, data=None, count=False):                            # File_checker
+        """Return a textual summary of the file."""
     #--------------------------------------------------------------------------------
         return f"  {self._data[0].decode()} : {list2str(data and data or self._data[1], count=count)}"
         
     #--------------------------------------------------------------------------------
     def blocks_complete(self, nblocks=1, only_new=True):               # File_checker
+        """Return whether the file contains every expected block."""
     #--------------------------------------------------------------------------------
         block = None
         start, start_val, end, end_val = 0, 1, 2, 3
@@ -81,6 +88,7 @@ class File_checker:                                                    # File_ch
 
     #--------------------------------------------------------------------------------
     def steps_complete(self):                                          # File_checker
+        """Return whether all report steps are present."""
     #--------------------------------------------------------------------------------
         # 1: start_list, 3: end_count
         return len(self._keys[1]) == self._keys[3]
@@ -88,6 +96,7 @@ class File_checker:                                                    # File_ch
 
     #--------------------------------------------------------------------------------
     def warn_if_offset(self):                                          # File_checker
+        """Warn about detected offsets."""
     #--------------------------------------------------------------------------------
         msg = ''
         if (offset := self._unfmt.offset()):
@@ -130,6 +139,7 @@ class File_checker:                                                    # File_ch
 
     #--------------------------------------------------------------------------------
     def data_saved(self, nblocks=1, wait_func=None, **kwargs):         # File_checker
+        """Return whether all data has been written to disk."""
     #--------------------------------------------------------------------------------
         msg = ''
         wait_func = self._wait_func or wait_func

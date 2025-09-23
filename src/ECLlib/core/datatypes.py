@@ -16,6 +16,7 @@ class Dtyp:
     max_bytes: int = field(init=False)
 
     def __post_init__(self):
+        """Finalize derived attributes."""
         object.__setattr__(self, "max_bytes", self.max * self.size)
 
 

@@ -28,10 +28,12 @@ PROP_data = namedtuple('PROP_data', 'type name alias array kind',
 #--------------------------------------------------------------------------------------------------
 def read_GSG(file, kind='prop', **kwargs):
 #--------------------------------------------------------------------------------------------------
-    """
-    Read GSG-file with PROP data and return a generator of PROP_data.
-    If dim is given, the data is reshaped to that dimension.
-    If raise_error is True, a ValueError is raised if the file does not contain PROP data.
+    """Read GSG PROP data.
+
+    Args:
+        file: Path to the GSG file.
+        kind: Data kind to parse; only ``'prop'`` is supported.
+        **kwargs: Extra arguments forwarded to :func:`read_prop_file`.
     """
     if kind.lower() != 'prop':
         return read_prop_file(file, **kwargs)
@@ -39,6 +41,12 @@ def read_GSG(file, kind='prop', **kwargs):
 
 #--------------------------------------------------------------------------------------------------
 def write_GSG(file, *data:PROP_data):
+    """Write a GSG output file.
+
+    Args:
+        file: Destination file path.
+        *data: ``PROP_data`` entries to serialize.
+    """
 #--------------------------------------------------------------------------------------------------
     if isinstance(data[0], PROP_data):
         # Write PROP data
@@ -49,6 +57,13 @@ def write_GSG(file, *data:PROP_data):
 
 #--------------------------------------------------------------------------------------------------
 def read_prop_file(file, dim=None, raise_error=False):
+    """Read a property file.
+
+    Args:
+        file: Path to the PROP-enabled GSG file.
+        dim: Optional shape used to reshape the returned array.
+        raise_error: Whether to raise if PROP data is missing.
+    """
 #--------------------------------------------------------------------------------------------------
     # Read data from GSG-file with PROP data.
     with File(file) as gsg:
@@ -86,6 +101,12 @@ def read_prop_file(file, dim=None, raise_error=False):
 
 #--------------------------------------------------------------------------------------------------
 def write_prop_file(file, *prop_data:PROP_data):
+    """Write a property file.
+
+    Args:
+        file: Destination file path.
+        *prop_data: Sequences of :class:`PROP_data` to output.
+    """
 #--------------------------------------------------------------------------------------------------
     with File(file, write=True) as gsg:
         gsg.write_header('PetrelForIx', '2022.9.0')
@@ -132,6 +153,12 @@ def write_prop_file(file, *prop_data:PROP_data):
 
 #--------------------------------------------------------------------------------------------------
 def change_resolution(dim, rundir):
+    """Return grid metadata with updated resolution.
+
+    Args:
+        dim: Target grid dimensions.
+        rundir: Directory containing GSG files to update.
+    """
 #--------------------------------------------------------------------------------------------------
     rundir = Path(rundir)
     backup = rundir/'GSG_backup'
@@ -158,10 +185,17 @@ def change_resolution(dim, rundir):
 
 #==================================================================================================
 class File:
+    """High-level convenience wrapper around a filesystem path."""
 #==================================================================================================
 
     #----------------------------------------------------------------------------------------------
     def __init__(self, filepath, write=False):
+        """Initialize the File.
+
+        Args:
+            filepath: Path to open.
+            write: Whether to open the file handle in read-write mode.
+        """
     #----------------------------------------------------------------------------------------------
         self.filepath = Path(filepath) #.with_suffix('.GSG')
         self.file_obj = None
@@ -187,8 +221,18 @@ class File:
             ('DEFINED_CELLS', '4s3i',     16))
 
         def get_readers(x):
+            """Return functions that read the block format.
+
+            Args:
+                x: Sequence describing keyword formats and handlers.
+            """
             return tuple((b, c, d[0] if d else self.read_keyword) for _,b,c,*d in x)
         def get_writers(x):
+            """Return functions that write the block format.
+
+            Args:
+                x: Sequence describing keyword formats and handlers.
+            """
             return tuple((b, d[1] if d else self.write_keyword) for _,b,_,*d in x)
 
         self.readers = {'PROP':get_readers(data), 'AXES':get_readers(grid)}
@@ -196,23 +240,27 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def __str__(self):
+        """Return a human-readable representation."""
     #----------------------------------------------------------------------------------------------
         return f'{self.filepath}'
 
     #----------------------------------------------------------------------------------------------
     def __enter__(self):
+        """Enter the runtime context."""
     #----------------------------------------------------------------------------------------------
         self.file_obj = open(self.filepath, self.mode)
         return self
 
     #----------------------------------------------------------------------------------------------
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit the runtime context."""
     #----------------------------------------------------------------------------------------------
         if self.file_obj:
             self.file_obj.close()
 
     #----------------------------------------------------------------------------------------------
     def data_positions(self):
+        """Return byte offsets for each block."""
     #----------------------------------------------------------------------------------------------
         meta = self.read_meta()
         nvar = meta['INDEX'][1]-1
@@ -237,6 +285,11 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def blocks(self, file_format=None):
+        """Iterate over blocks in the file.
+
+        Args:
+            file_format: Optional override for the block type (``'PROP'``/``'AXES'``).
+        """
     #----------------------------------------------------------------------------------------------
         file_format = file_format or self.read_format()
         for fmt, size, reader in self.readers[file_format]:
@@ -250,6 +303,12 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def block_writers(self, datadict:dict, _format:str):
+        """Return the registered block writer callbacks.
+
+        Args:
+            datadict: Mapping of block names to serialized payload.
+            _format: Keyword identifying whether PROP or AXES writers should be used.
+        """
     #----------------------------------------------------------------------------------------------
         nvar = 0
         writers = self.writers[_format]
@@ -265,21 +324,47 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def write_pack(self, fmt:str, data, **kwargs):
+        """Write packed payload data.
+
+        Args:
+            fmt: Struct format string without endian prefix.
+            data: Iterable of values to pack.
+            **kwargs: Additional ``struct.pack`` keyword arguments.
+        """
     #----------------------------------------------------------------------------------------------
         self.write(pack('<'+fmt, *data, **kwargs))
 
     #----------------------------------------------------------------------------------------------
     def read_unpack(self, fmt:str, *args, **kwargs):
+        """Read data and unpack it using ``struct``.
+
+        Args:
+            fmt: Struct format string without endian prefix.
+            *args: Positional arguments forwarded to :meth:`read`.
+            **kwargs: Keyword arguments forwarded to :meth:`read`.
+        """
     #----------------------------------------------------------------------------------------------
         return unpack('<'+fmt, self.read(calcsize('='+fmt), *args, **kwargs))
 
     #----------------------------------------------------------------------------------------------
     def read(self, *args, **kwargs):
+        """Read the complete file contents.
+
+        Args:
+            *args: Positional arguments forwarded to the underlying file object.
+            **kwargs: Keyword arguments forwarded to the underlying file object.
+        """
     #----------------------------------------------------------------------------------------------
         return self.file_obj.read(*args, **kwargs)
 
     #----------------------------------------------------------------------------------------------
     def read_keyword(self, fmt:str, pre=None):
+        """Read the keyword for the next block.
+
+        Args:
+            fmt: Struct format string describing the metadata payload.
+            pre: Optional struct format to read before the keyword.
+        """
     #----------------------------------------------------------------------------------------------
         data = []
         if pre:
@@ -300,9 +385,7 @@ class File:
     #----------------------------------------------------------------------------------------------
     def read_format(self):
     #----------------------------------------------------------------------------------------------
-        """
-        Read and return first keyword (PROP or AXES) to identify type of GSG-file 
-        """
+        """Read the first keyword to identify the GSG-file type."""
         try:
             keyword, _ = self.read_keyword('')
         except (UnicodeDecodeError, ValueError):
@@ -315,6 +398,11 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def read_data(self, *args):
+        """Read raw block data.
+
+        Args:
+            *args: Parameters forwarded to :meth:`read_unpack`.
+        """
     #----------------------------------------------------------------------------------------------
         # If PROP is [1,1] only 3 data-values are given
         # Rewind 8 bytes and read the PROP-values
@@ -334,6 +422,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def write_data(self, key:str, fmt:str, data2d:list):
+        """Write raw block data."""
     #----------------------------------------------------------------------------------------------
         # If PROP is [1,1] only 3 data-values are given
         # Rewind 8 bytes and read the PROP-values
@@ -350,6 +439,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def read_varnames(self, *args):
+        """Read variable names from the file."""
     #----------------------------------------------------------------------------------------------
         # It seems that the header-data after the keyword is different if more
         # than one variable is read. For 3 keywords, only the last keyword follow
@@ -370,11 +460,13 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def write_varnames(self, *args):
+        """Write variable names to disk."""
     #----------------------------------------------------------------------------------------------
         self.write_keyword(*args)
 
     #----------------------------------------------------------------------------------------------
     def read_case(self, *args):
+        """Read metadata from the case file."""
     #----------------------------------------------------------------------------------------------
         key, data = self.read_keyword(*args)
         head = data[0]
@@ -385,6 +477,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def write_case(self, key:str, fmt:str, data:list):
+        """Write metadata to the case file."""
     #----------------------------------------------------------------------------------------------
         # Example data: [-1, 20, 1, 1, 1, b'scor', 1, b'sp  ', 1, b'vp  ', 0]
         data = data[0]
@@ -393,6 +486,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def read_areal(self, *args, len_areal=6):
+        """Read AREAL grid data."""
     #----------------------------------------------------------------------------------------------
         key, data = self.read_keyword(*args)
         head = data[0]
@@ -402,6 +496,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def write_areal(self, key:str, fmt:str, data2d:list):
+        """Write AREAL keyword data."""
     #----------------------------------------------------------------------------------------------
         head, data = data2d
         # nxny = len(data)
@@ -413,6 +508,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def read_pillars(self, *args):
+        """Read pillar coordinate data."""
     #----------------------------------------------------------------------------------------------
         key, data = self.read_keyword(*args)
         head = data[0]
@@ -428,6 +524,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def write_pillars(self, key:str, fmt:str, data2d:list):
+        """Write pillar coordinate data."""
     #----------------------------------------------------------------------------------------------
         head, data = data2d
         len_pillar = len(data[0])
@@ -440,6 +537,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def write_header(self, creator, version):
+        """Write a block header."""
     #----------------------------------------------------------------------------------------------
         header = (1, 1, len(creator), creator.encode(), len(version), version.encode(), 0, 0, 0, 1)
         packed_header = pack(f'<3i{len(creator)}si{len(version)}s4i', *header)
@@ -447,6 +545,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def read_header(self):
+        """Read the next block header."""
     #----------------------------------------------------------------------------------------------
         self.goto(28)
         creator, _ = self.read_keyword('')
@@ -508,27 +607,32 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def read_int(self, length=1):
+        """Read a signed integer."""
     #----------------------------------------------------------------------------------------------
         return unpack(f'<{length}i', self.read(4*length))
 
     #----------------------------------------------------------------------------------------------
     def read_uint(self, length=1):
+        """Read an unsigned integer."""
     #----------------------------------------------------------------------------------------------
         return unpack(f'<{length}q', self.read(8*length))
 
     #----------------------------------------------------------------------------------------------
     def write_fmt(self, fmt, data, length=None):
+        """Write formatted records."""
     #----------------------------------------------------------------------------------------------
         length = length or len(data)
         return self.write(pack(f'<{length}{fmt}', *data))
 
     #----------------------------------------------------------------------------------------------
     def write_int(self, *args, **kwargs):
+        """Write a signed integer."""
     #----------------------------------------------------------------------------------------------
         return self.write_fmt('i', *args, **kwargs)
 
     #----------------------------------------------------------------------------------------------
     def write_uint(self, *args, **kwargs):
+        """Write an unsigned integer."""
     #----------------------------------------------------------------------------------------------
         return self.write_fmt('q', *args, **kwargs)
 
@@ -556,6 +660,7 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def keyword_positions(self, *keywords):
+        """Return keyword locations within the file."""
     #----------------------------------------------------------------------------------------------
         chunk_size = 1024
         pattern = re_compile(rb'(' + rb'|'.join(k.encode() for k in keywords) + rb')')
@@ -571,40 +676,48 @@ class File:
 
     #----------------------------------------------------------------------------------------------
     def skip(self, pos):
+        """Skip the provided keywords."""
     #----------------------------------------------------------------------------------------------
         self.file_obj.seek(pos, SEEK_CUR)
 
     #----------------------------------------------------------------------------------------------
     def end(self, pos):
+        """Return the block end marker."""
     #----------------------------------------------------------------------------------------------
         self.file_obj.seek(pos, SEEK_END)
 
     #----------------------------------------------------------------------------------------------
     def goto(self, pos):
+        """Seek to the requested block."""
     #----------------------------------------------------------------------------------------------
         self.file_obj.seek(pos)
 
     #----------------------------------------------------------------------------------------------
     def current_pos(self):
+        """Return the current file position."""
     #----------------------------------------------------------------------------------------------
         return self.file_obj.tell()
 
     #----------------------------------------------------------------------------------------------
     def size(self):
+        """Return the file size in bytes."""
     #----------------------------------------------------------------------------------------------
         return self.filepath.stat().st_size
 
     #----------------------------------------------------------------------------------------------
     def write(self, *args, **kwargs):
+        """Write data to the file."""
     #----------------------------------------------------------------------------------------------
         return self.file_obj.write(*args, **kwargs)
 
 
 #--------------------------------------------------------------------------------------------------
 def grid_function(method):
+    """Apply a function to grid data."""
 #--------------------------------------------------------------------------------------------------
     @wraps(method)
     def wrapper(self, *args, **kwargs):
+        """Wrap the function and print errors."""
         if not self.is_grid():
             raise ValueError("Operation only allowed for grid-objects")
         return method(self, *args, **kwargs)
@@ -612,9 +725,11 @@ def grid_function(method):
 
 #--------------------------------------------------------------------------------------------------
 def data_function(method):
+    """Return a callback that reads block data."""
 #--------------------------------------------------------------------------------------------------
     @wraps(method)
     def wrapper(self, *args, **kwargs):
+        """Wrap the function and print errors."""
         if self.is_grid():
             raise ValueError("Operation only allowed for data-objects")
         return method(self, *args, **kwargs)
@@ -622,11 +737,13 @@ def data_function(method):
 
 #==================================================================================================
 class Data():
+    """Container for summary table rows."""
 #==================================================================================================
     Grid = namedtuple('Grid', 'name dim size res num_areal num_pillars')
 
     #----------------------------------------------------------------------------------------------
     def __init__(self):
+        """Initialize the Data."""
     #----------------------------------------------------------------------------------------------
         self.data = {}
         self.meta = {}
@@ -637,6 +754,7 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def __str__(self):
+        """Return a human-readable representation."""
     #----------------------------------------------------------------------------------------------
         if not self.data:
             return 'No data to show'
@@ -654,12 +772,14 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def __getitem__(self, key):
+        """Return the requested item."""
     #----------------------------------------------------------------------------------------------
         # Return value of the given key in self.data
         return self.data.get(key, None)
 
     #----------------------------------------------------------------------------------------------
     def __setitem__(self, key, value):
+        """Assign the requested item."""
     #----------------------------------------------------------------------------------------------
         # Make sure keyword is unique
         #key = unique_key(key, list(self.data.keys()))
@@ -667,6 +787,7 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def is_grid(self):
+        """Return whether the keyword describes a grid."""
     #----------------------------------------------------------------------------------------------
         if self.format == 'AXES':
             return True
@@ -675,6 +796,7 @@ class Data():
     @data_function
     #----------------------------------------------------------------------------------------------
     def is_indexed(self):
+        """Return whether the block contains indices."""
     #----------------------------------------------------------------------------------------------
         # Data is given by a range of two ints and a common float/int value
         if self.data['PROP'][0][0] == 1:
@@ -684,6 +806,7 @@ class Data():
     @data_function
     #----------------------------------------------------------------------------------------------
     def set_values(self, dim):
+        """Assign values to the block."""
     #----------------------------------------------------------------------------------------------
         head, data = self.data[self.keys()[1]]
         head[2] = dim[0]*dim[1]
@@ -696,6 +819,7 @@ class Data():
     @data_function
     #----------------------------------------------------------------------------------------------
     def num_variables(self):
+        """Return the number of summary variables."""
     #----------------------------------------------------------------------------------------------
         return self.data['CASE_PROPS'][0][3]
         # CASE_PROPS : [[0, b's   ', 0, 1, b'ca  s   ', 1]]
@@ -704,11 +828,13 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def keys(self):
+        """Return the available block keywords."""
     #----------------------------------------------------------------------------------------------
         return tuple(self.data.keys())
 
     #----------------------------------------------------------------------------------------------
     def unique_key(self, key):
+        """Return a keyword guaranteed to be unique."""
     #----------------------------------------------------------------------------------------------
         if (count := self.keys().count(key)):
             key += f"{'#'}{count}"
@@ -717,6 +843,7 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def from_file(self, filepath):
+        """Load block data from a file."""
     #----------------------------------------------------------------------------------------------
         with File(filepath) as file:
             self.creator, self.version = file.read_header()
@@ -739,6 +866,7 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def to_file(self, filepath):
+        """Write the data back to disk."""
     #----------------------------------------------------------------------------------------------
         with File(filepath, write=True) as file:
             file.write_header(self.creator, self.version)
@@ -749,6 +877,7 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def info(self):
+        """Return a textual summary of the file."""
     #----------------------------------------------------------------------------------------------
         if self.is_grid():
             self._grid_info()
@@ -757,6 +886,7 @@ class Data():
 
     #----------------------------------------------------------------------------------------------
     def _data_info(self):
+        """Return metadata describing the data layout."""
     #----------------------------------------------------------------------------------------------
         varname = self.keys()[1]
         print()
@@ -767,6 +897,7 @@ class Data():
     @grid_function
     #----------------------------------------------------------------------------------------------
     def _grid_info(self):
+        """Return metadata describing the grid layout."""
     #----------------------------------------------------------------------------------------------
         fmt = '.4f'
         print()
@@ -781,6 +912,7 @@ class Data():
     @grid_function
     #----------------------------------------------------------------------------------------------
     def set_grid_variables(self):
+        """Assign variables describing the grid."""
     #----------------------------------------------------------------------------------------------
         name = self.keys()[2]
         dim = self.data[name][0][1:4]
@@ -793,6 +925,7 @@ class Data():
     @grid_function
     #----------------------------------------------------------------------------------------------
     def grid_size(self, dim=None):
+        """Return the total grid size."""
     #----------------------------------------------------------------------------------------------
         if not self.is_grid():
             print('This is not a grid')
@@ -808,6 +941,7 @@ class Data():
     @grid_function
     #----------------------------------------------------------------------------------------------
     def grid_resolution(self, size=None, dim=None):
+        """Return metadata about the grid resolution."""
     #----------------------------------------------------------------------------------------------
         size = size or self.grid_size()
         dim = dim or self.grid.dim
@@ -816,6 +950,7 @@ class Data():
     @grid_function
     #----------------------------------------------------------------------------------------------
     def set_areal(self, dim):
+        """Write AREAL grid data."""
     #----------------------------------------------------------------------------------------------
         head, data = self.data['AREAL']
         #self.data['AREAL'][0][3:3+2] = (dim[0]*dim[1], dim[0]+dim[1]+1)
@@ -835,6 +970,7 @@ class Data():
     @grid_function
     #----------------------------------------------------------------------------------------------
     def set_pillars_xy(self, dim):
+        """Write pillar XY coordinates."""
     #----------------------------------------------------------------------------------------------
         # NBNB! Currently only the xy-pos of the pillars are updated
         # Get new grid resolution. NB! Need to do this before modifying the original pillars
@@ -864,6 +1000,7 @@ class Data():
     @grid_function
     #----------------------------------------------------------------------------------------------
     def new_grid(self, dim):
+        """Return a grid definition built from the blocks."""
     #----------------------------------------------------------------------------------------------
         if not self.grid:
             print('This is not a grid')

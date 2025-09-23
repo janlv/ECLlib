@@ -115,6 +115,7 @@ def print_dict(adict: dict) -> str:
 def print_error(func: Callable):
     """Decorator printing :class:`SystemError` exceptions from ``func``."""
     def wrapper(*args, **kwargs):
+        """Wrap the function and print errors."""
         try:
             return func(*args, **kwargs)
         except SystemError as error:

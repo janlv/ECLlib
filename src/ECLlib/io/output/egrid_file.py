@@ -14,11 +14,13 @@ __all__ = ["EGRID_file"]
 
 #==================================================================================================
 class EGRID_file(unfmt_file):                                            # EGRID_file
+    """Interface for reading Eclipse EGRID files."""
 #==================================================================================================
     start = 'FILEHEAD'
     end = 'ENDGRID'
     #----------------------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):                                  # EGRID_file
+        """Initialize the EGRID_file."""
     #----------------------------------------------------------------------------------------------
         super().__init__(file, suffix='.EGRID', **kwargs)
         self.var_pos = {'nx': ('GRIDHEAD', 1),
@@ -30,6 +32,7 @@ class EGRID_file(unfmt_file):                                            # EGRID
 
     #----------------------------------------------------------------------------------------------
     def length(self):                                                    # EGRID_file
+        """Return the grid length along each axis."""
     #----------------------------------------------------------------------------------------------
         convert = {'METRES':1.0, 'FEET':0.3048, 'CM':0.01}
         unit = next(self.blockdata('MAPUNITS'), None)
@@ -39,6 +42,7 @@ class EGRID_file(unfmt_file):                                            # EGRID
 
     #----------------------------------------------------------------------------------------------
     def axes(self):                                                      # EGRID_file
+        """Return arrays describing the grid axes."""
     #----------------------------------------------------------------------------------------------
         ax = next(self.blockdata('MAPAXES'), None)
         origin = (ax[2], ax[3])
@@ -50,18 +54,21 @@ class EGRID_file(unfmt_file):                                            # EGRID
 
     #----------------------------------------------------------------------------------------------
     def nijk(self):                                           # EGRID_file
+        """Return the grid dimensions."""
     #----------------------------------------------------------------------------------------------
         self._nijk = self._nijk or next(self.read('nx', 'ny', 'nz'))
         return self._nijk        
 
     #----------------------------------------------------------------------------------------------
     def coord_zcorn(self):                                           # EGRID_file
+        """Return coordinate and ZCORN arrays."""
     #----------------------------------------------------------------------------------------------
         self._coord_zcorn = self._coord_zcorn or list(map(nparray, next(self.blockdata('COORD', 'ZCORN'))))
         return self._coord_zcorn
 
     #----------------------------------------------------------------------------------------------
     def _indices(self, ijk):                                         # EGRID_file
+        """Return index arrays for the requested block."""
     #----------------------------------------------------------------------------------------------
         nijk = self.nijk()
         # Calculate indices for grid pillars in COORD
@@ -83,6 +90,7 @@ class EGRID_file(unfmt_file):                                            # EGRID
 
     #----------------------------------------------------------------------------------------------
     def cell_corners(self, ijk_iter):                                     # EGRID_file
+        """Return cell corner coordinates."""
     #----------------------------------------------------------------------------------------------
         #nijk = self.nijk()
         coord, zcorn = self.coord_zcorn()
@@ -104,6 +112,7 @@ class EGRID_file(unfmt_file):                                            # EGRID
 
     #----------------------------------------------------------------------------------------------
     def grid(self, i=None, j=None, k=None, scale=(1,1,1)):                     # EGRID_file
+        """Return the structured grid as arrays."""
     #----------------------------------------------------------------------------------------------
         nijk = self.nijk()
         i = i or (0, nijk[0])
@@ -122,6 +131,7 @@ class EGRID_file(unfmt_file):                                            # EGRID
 
     #----------------------------------------------------------------------------------------------
     def cells(self, **kwargs):                                            # EGRID_file
+        """Return structured grid cells."""
     #----------------------------------------------------------------------------------------------
         points = self.grid(**kwargs).cell_centers().points
         dim = INIT_file(self.path).dim() + (3,)
