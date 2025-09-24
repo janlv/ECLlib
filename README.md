@@ -54,13 +54,18 @@ The batch script mirrors the UNIX workflow by creating a `.venv_ECLlib` environm
 ## Quick start
 
 ```python
-from ECLlib import EGRID_file, RSM_file
+from ECLlib import UNRST_file, RFT_file
 
-egrid = EGRID_file("model.EGRID")
-rsm = RSM_file("results.RSM")
+unrst = UNRST_file('rootname')
+rft = RFT_file('rootname')
 
-print(egrid.grid_dimensions)
-print(rsm.summary.head())
+for block in unrst.blocks():
+    if block.key() == 'SWAT':
+        swat = block.data()
+        break
+
+welldata = rft.blockdata('TIME', 'WELLETC')
+print(next(welldata))
 ```
 
 See `src/ECLlib/__init__.py` for a full overview of the public API. The project is licensed under the MIT License and versioned via git tags managed by `setuptools_scm`.
