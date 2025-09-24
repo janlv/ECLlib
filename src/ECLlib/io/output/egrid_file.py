@@ -13,15 +13,15 @@ from .unformatted_files import INIT_file
 __all__ = ["EGRID_file"]
 
 #==================================================================================================
-class EGRID_file(unfmt_file):                                            # EGRID_file
-    """Interface for reading Eclipse EGRID files."""
+class EGRID_file(unfmt_file):                                                          # EGRID_file
 #==================================================================================================
+    """Interface for reading Eclipse EGRID files."""
     start = 'FILEHEAD'
     end = 'ENDGRID'
     #----------------------------------------------------------------------------------------------
-    def __init__(self, file, **kwargs):                                  # EGRID_file
-        """Initialize the EGRID_file."""
+    def __init__(self, file, **kwargs):                                                # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the EGRID_file."""
         super().__init__(file, suffix='.EGRID', **kwargs)
         self.var_pos = {'nx': ('GRIDHEAD', 1),
                         'ny': ('GRIDHEAD', 2),
@@ -31,9 +31,9 @@ class EGRID_file(unfmt_file):                                            # EGRID
         self._coord_zcorn = None
 
     #----------------------------------------------------------------------------------------------
-    def length(self):                                                    # EGRID_file
-        """Return the grid length along each axis."""
+    def length(self):                                                                  # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Return the grid length along each axis."""
         convert = {'METRES':1.0, 'FEET':0.3048, 'CM':0.01}
         unit = next(self.blockdata('MAPUNITS'), None)
         if unit:
@@ -41,9 +41,9 @@ class EGRID_file(unfmt_file):                                            # EGRID
         raise SystemError(f'ERROR Missing MAPUNITS in {self}')
 
     #----------------------------------------------------------------------------------------------
-    def axes(self):                                                      # EGRID_file
-        """Return arrays describing the grid axes."""
+    def axes(self):                                                                    # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Return arrays describing the grid axes."""
         ax = next(self.blockdata('MAPAXES'), None)
         origin = (ax[2], ax[3])
         unit_x = (ax[4]-ax[2], ax[5]-ax[3])
@@ -53,23 +53,25 @@ class EGRID_file(unfmt_file):                                            # EGRID
         return origin, (unit_x[0]*norm_x, unit_x[1]*norm_x), (unit_y[0]*norm_y, unit_y[1]*norm_y)
 
     #----------------------------------------------------------------------------------------------
-    def nijk(self):                                           # EGRID_file
-        """Return the grid dimensions."""
+    def nijk(self):                                                                    # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Return the grid dimensions."""
         self._nijk = self._nijk or next(self.read('nx', 'ny', 'nz'))
         return self._nijk        
 
     #----------------------------------------------------------------------------------------------
-    def coord_zcorn(self):                                           # EGRID_file
-        """Return coordinate and ZCORN arrays."""
+    def coord_zcorn(self):                                                             # EGRID_file
     #----------------------------------------------------------------------------------------------
-        self._coord_zcorn = self._coord_zcorn or list(map(nparray, next(self.blockdata('COORD', 'ZCORN'))))
+        """Return coordinate and ZCORN arrays."""
+        if self._coord_zcorn is None:
+            mapped = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
+            self._coord_zcorn = list(mapped)
         return self._coord_zcorn
 
     #----------------------------------------------------------------------------------------------
-    def _indices(self, ijk):                                         # EGRID_file
-        """Return index arrays for the requested block."""
+    def _indices(self, ijk):                                                           # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Return index arrays for the requested block."""
         nijk = self.nijk()
         # Calculate indices for grid pillars in COORD
         pind = zeros(8, dtype=int)
@@ -89,9 +91,9 @@ class EGRID_file(unfmt_file):                                            # EGRID
         return nparray((pind, pind+1, pind+2)), nparray((pind+3, pind+4, pind+5)), zind
 
     #----------------------------------------------------------------------------------------------
-    def cell_corners(self, ijk_iter):                                     # EGRID_file
-        """Return cell corner coordinates."""
+    def cell_corners(self, ijk_iter):                                                  # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Return cell corner coordinates."""
         #nijk = self.nijk()
         coord, zcorn = self.coord_zcorn()
         #coord, zcorn = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
@@ -111,9 +113,9 @@ class EGRID_file(unfmt_file):                                            # EGRID
             yield nparray((x, y, z)).T
 
     #----------------------------------------------------------------------------------------------
-    def grid(self, i=None, j=None, k=None, scale=(1,1,1)):                     # EGRID_file
-        """Return the structured grid as arrays."""
+    def grid(self, i=None, j=None, k=None, scale=(1,1,1)):                             # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Return the structured grid as arrays."""
         nijk = self.nijk()
         i = i or (0, nijk[0])
         j = j or (0, nijk[1])
@@ -130,9 +132,9 @@ class EGRID_file(unfmt_file):                                            # EGRID
         return UnstructuredGrid(cells, cell_type, points.reshape(-1, 3))
 
     #----------------------------------------------------------------------------------------------
-    def cells(self, **kwargs):                                            # EGRID_file
-        """Return structured grid cells."""
+    def cells(self, **kwargs):                                                         # EGRID_file
     #----------------------------------------------------------------------------------------------
+        """Return structured grid cells."""
         points = self.grid(**kwargs).cell_centers().points
         dim = INIT_file(self.path).dim() + (3,)
         return points.reshape(dim, order='C')

@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 @dataclass(frozen=True, slots=True)
+#==================================================================================================
 class Dtyp:
+#==================================================================================================
     """Descriptor for an Eclipse binary datatype."""
 
     name: str = ""

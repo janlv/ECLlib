@@ -44,9 +44,9 @@ def Eclipse_input(path):
     return File(path, suffix='.DATA', ignore_suffix_case=True)
 
 #==================================================================================================
-class AFI_file(File):                                                      # AFI_file
-    """Parser for INTERSECT AFI input files."""
+class AFI_file(File):                                                                    # AFI_file
 #==================================================================================================
+    """Parser for INTERSECT AFI input files."""
     #include_regex = rb'^[ \t]*\bINCLUDE\b\s*"*([\w.-]+)"*'
     # Return 'filename' and 'key1=val1 key2=val2' as groups from the following format:
     # INCLUDE "filename" {key1=val1, key2=val2}
@@ -56,9 +56,9 @@ class AFI_file(File):                                                      # AFI
     include_regex = rb'^\s*\bINCLUDE\b\s*"([^\"]+)"(?:\s*\{([^}]*)\})?'
 
     #----------------------------------------------------------------------------------------------
-    def __init__(self, file, check=False, **kwargs):                       # AFI_file
-        """Initialize the AFI_file."""
+    def __init__(self, file, check=False, **kwargs):                                     # AFI_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the AFI_file."""
         super().__init__(file, suffix='.afi', role='Top level Intersect input-file',
                          ignore_suffix_case=True, **kwargs)
         self._data = None
@@ -67,16 +67,16 @@ class AFI_file(File):                                                      # AFI
             self.exists(raise_error=True)
 
     #----------------------------------------------------------------------------------------------
-    def data(self):                                                        # AFI_file
-        """Return decoded block data."""
+    def data(self):                                                                      # AFI_file
     #----------------------------------------------------------------------------------------------
+        """Return decoded block data."""
         self._data = self._data or self.binarydata()
         return self._data
 
     #----------------------------------------------------------------------------------------------
-    def ixf_files(self):                                                   # AFI_file
-        """Return the IXF files referenced by the deck."""
+    def ixf_files(self):                                                                 # AFI_file
     #----------------------------------------------------------------------------------------------
+        """Return the IXF files referenced by the deck."""
         #self.data = self.data or self.binarydata()
         # self.pattern = self.pattern or re_compile(self.include_regex, flags=MULTILINE)
         #matches_ = findall(self.include_regex, self.data, flags=MULTILINE)
@@ -86,16 +86,16 @@ class AFI_file(File):                                                      # AFI
         return (file for file in self.include_files(self.data()) if file.suffix.lower() == '.ixf')
 
     #----------------------------------------------------------------------------------------------
-    def matches(self, data:bytes=None):                                   # AFI_file
-        """Yield matches for the supplied patterns."""
+    def matches(self, data:bytes=None):                                                  # AFI_file
     #----------------------------------------------------------------------------------------------
+        """Yield matches for the supplied patterns."""
         self.pattern = self.pattern or re_compile(self.include_regex, flags=MULTILINE)
         return self.pattern.finditer(data or self.data())
 
     #----------------------------------------------------------------------------------------------
-    def include_files(self, data:bytes=None):                              # AFI_file
-        """Return INCLUDE statements discovered in the deck."""
+    def include_files(self, data:bytes=None):                                            # AFI_file
     #----------------------------------------------------------------------------------------------
+        """Return INCLUDE statements discovered in the deck."""
         return (self.path.with_name(m[1].decode()) for m in self.matches(data or self.data()))
         #data =  #binarydata()
         #self.pattern = self.pattern or re_compile(self.include_regex, flags=MULTILINE)
@@ -103,7 +103,7 @@ class AFI_file(File):                                                      # AFI
         # return (f[0] for f in self._included_file_data(self.data))
 
     #----------------------------------------------------------------------------------------------
-    def included_file_data(self, data:bytes=None):                        # AFI_file
+    def included_file_data(self, data:bytes=None):                                       # AFI_file
     #----------------------------------------------------------------------------------------------
         """ Return tuple of filename and binary-data for each include file """
         # data = data or self.binarydata()
@@ -124,9 +124,9 @@ class AFI_file(File):                                                      # AFI
                 #     yield inc_inc
 
 
-#==================================================================================================
 @dataclass
-class IXF_node:                                                            # IXF_node
+#==================================================================================================
+class IXF_node:                                                                          # IXF_node
 #==================================================================================================
     """
     Intersect Input Format (IXF) nodes currently implemented:
@@ -170,9 +170,9 @@ class IXF_node:                                                            # IXF
     file : str = ''
 
     #----------------------------------------------------------------------------------------------
-    def __post_init__(self):                                               # IXF_node
-        """Finalize derived attributes."""
+    def __post_init__(self):                                                             # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Finalize derived attributes."""
         self.is_table = False
         self.is_context = False
         self.brace = None
@@ -185,34 +185,34 @@ class IXF_node:                                                            # IXF
                 self.is_table = True
 
     #----------------------------------------------------------------------------------------------
-    def __str__(self):                                                     # IXF_node
-        """Return a human-readable representation."""
+    def __str__(self):                                                                   # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return a human-readable representation."""
         return f'{self.type} "{self.name}" {self.brace[0]}{self.content}{self.brace[1]}'
 
     #----------------------------------------------------------------------------------------------
-    def __repr__(self):                                                     # IXF_node
-        """Return a developer-friendly representation."""
+    def __repr__(self):                                                                  # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return a developer-friendly representation."""
         return (f'<IXF_node type={self.type}, name={self.name}, '
                 f'is_table={self.is_table}, is_context={self.is_context} >')
 
     #----------------------------------------------------------------------------------------------
-    def copy(self):                                                        # IXF_node
-        """Return a shallow copy of the object."""
+    def copy(self):                                                                      # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return a shallow copy of the object."""
         return IXF_node(self.type, self.name, self.brace[0]+self.content+self.brace[1])
 
     #----------------------------------------------------------------------------------------------
-    def __contains__(self, key):                                           # IXF_node
-        """Return whether the value exists."""
+    def __contains__(self, key):                                                         # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return whether the value exists."""
         return key in self.content
 
     #----------------------------------------------------------------------------------------------
-    def set_content(self, rows):                                           # IXF_node
-        """Assign the file contents."""
+    def set_content(self, rows):                                                         # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Assign the file contents."""
         if self.is_context:
             lines = (f'    {k}{"=" if v else ""}{v}' for k,v in rows)
         else:
@@ -221,15 +221,15 @@ class IXF_node:                                                            # IXF
         self.content = '\n' + '\n'.join(lines) + '\n'
 
     #----------------------------------------------------------------------------------------------
-    def lines(self):                                                       # IXF_node
-        """Iterate over the file lines."""
+    def lines(self):                                                                     # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Iterate over the file lines."""
         return split_in_lines(self.content)
 
     #----------------------------------------------------------------------------------------------
-    def columns(self):                                                     # IXF_node
-        """Return the column headers."""
+    def columns(self):                                                                   # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return the column headers."""
         delimiter = '=' if self.is_context else None # None equals any whitespace
         data = (row for line in self.lines() if (row:=line.split(delimiter)))
         # Use repeat('', 2) to get two columns also if data = (('key',),)
@@ -237,30 +237,30 @@ class IXF_node:                                                            # IXF
         return tuple(v[:-1] for v in zip_longest(*data, ('', ''), fillvalue=''))
 
     #----------------------------------------------------------------------------------------------
-    def rows(self):                                                        # IXF_node
-        """Return the row headers."""
+    def rows(self):                                                                      # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return the row headers."""
         return tuple(zip(*self.columns()))
 
     #----------------------------------------------------------------------------------------------
-    def as_dict(self):                                                     # IXF_node
-        """Return the block contents as a dictionary."""
+    def as_dict(self):                                                                   # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return the block contents as a dictionary."""
         return {k:v for k,*v in self.rows()}
 
     #----------------------------------------------------------------------------------------------
-    def get(self, *items):                                                 # IXF_node
-        """Return the requested value."""
+    def get(self, *items):                                                               # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Return the requested value."""
         #return self.as_dict().get(item)
         values = flatten(self.as_dict().get(item) or [None] for item in items)
         return [val.split('#')[0].strip().replace('"', '') for val in values if val]
         # return list(flatten(self.as_dict().get(item) or [None] for item in items))
 
     #----------------------------------------------------------------------------------------------
-    def update(self, node=None): #, on_top=False):                         # IXF_node
-        """Refresh the live plot canvas."""
+    def update(self, node=None): #, on_top=False):                                       # IXF_node
     #----------------------------------------------------------------------------------------------
+        """Refresh the live plot canvas."""
         adict = self.as_dict()
         ndict = node.as_dict()
         adict.update(ndict)
@@ -274,7 +274,7 @@ class IXF_node:                                                            # IXF
 
 
 #==================================================================================================
-class IXF_file(File):                                                      # IXF_file
+class IXF_file(File):                                                                    # IXF_file
 #==================================================================================================
 
     """
@@ -287,9 +287,9 @@ class IXF_file(File):                                                      # IXF
     """
 
     #----------------------------------------------------------------------------------------------
-    def __init__(self, file, check=False, **kwargs):                       # IXF_file
-        """Initialize the IXF_file."""
+    def __init__(self, file, check=False, **kwargs):                                     # IXF_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the IXF_file."""
         super().__init__(file, role='Intersect input-file', **kwargs)
         self.data = None
         if check:
@@ -297,17 +297,17 @@ class IXF_file(File):                                                      # IXF
 
 
     #----------------------------------------------------------------------------------------------
-    def __contains__(self, key):                                           # IXF_file
-        """Return whether the value exists."""
+    def __contains__(self, key):                                                         # IXF_file
     #----------------------------------------------------------------------------------------------
+        """Return whether the value exists."""
         self.data = self.data or self.binarydata()
         return bool(re_search(rf'^[ \t]*\b{key}\b'.encode(), self.data, flags=MULTILINE))
 
 
     #----------------------------------------------------------------------------------------------
-    def binarydata(self, raise_error=False):                               # IXF_file
-        """Return the file contents as bytes."""
+    def binarydata(self, raise_error=False):                                             # IXF_file
     #----------------------------------------------------------------------------------------------
+        """Return the file contents as bytes."""
         self.data = super().binarydata(raise_error)
         end_key = b'END_INPUT'
         if end_key in self.data and not b'#'+end_key in self.data:
@@ -317,10 +317,9 @@ class IXF_file(File):                                                      # IXF
         # return end and self.data[:end.end()] or self.data
 
     #----------------------------------------------------------------------------------------------
-    #def node(self, *nodes, convert=(), brace=(rb'{',rb'}')):               # IXF_file
-    def node(self, *nodes, convert=(), table=False):               # IXF_file
-        """Return the requested node."""
+    def node(self, *nodes, convert=(), table=False):                                     # IXF_file
     #----------------------------------------------------------------------------------------------
+        """Return the requested node."""
         if table:
             begin, end = b'\\[', b'\\]'
         else:
@@ -345,9 +344,9 @@ class IXF_file(File):                                                      # IXF
 
 
 #==================================================================================================
-class IX_input:                                                            # IX_input
-    """High-level access to INTERSECT input decks."""
+class IX_input:                                                                          # IX_input
 #==================================================================================================
+    """High-level access to INTERSECT input decks."""
     STAT_FILE = '.ecl2ix' # Check if ECL-input has changed and new conversion is needed
 
     @classmethod
@@ -363,9 +362,9 @@ class IX_input:                                                            # IX_
         print('\n'.join(dates))
 
     #----------------------------------------------------------------------------------------------
-    def __init__(self, case, check=False, **kwargs):                       # IX_input
-        """Initialize the IX_input."""
+    def __init__(self, case, check=False, **kwargs):                                     # IX_input
     #----------------------------------------------------------------------------------------------
+        """Initialize the IX_input."""
         self.afi = AFI_file(case)
         self.path = self.afi.path
         self.ixf_files = [IXF_file(file) for file in self.afi.ixf_files()]
@@ -374,26 +373,26 @@ class IX_input:                                                            # IX_
             self.check()
 
     #----------------------------------------------------------------------------------------------
-    def __str__(self):                                                     # IX_input
-        """Return a human-readable representation."""
+    def __str__(self):                                                                   # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return a human-readable representation."""
         return f'{self.afi}'
 
     #----------------------------------------------------------------------------------------------
-    def __getattr__(self, item):                                           # IX_input
-        """Delegate attribute lookups."""
+    def __getattr__(self, item):                                                         # IX_input
     #----------------------------------------------------------------------------------------------
+        """Delegate attribute lookups."""
         #print('IX_INPUT GETATTR')
         return getattr(self.path, item)
 
     #----------------------------------------------------------------------------------------------
-    def __contains__(self, key):                                           # IX_input
-        """Return whether the value exists."""
+    def __contains__(self, key):                                                         # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return whether the value exists."""
         return any(key in ixf for ixf in self.ixf_files)
 
     #----------------------------------------------------------------------------------------------
-    def dim(self):                                                         # IX_input
+    def dim(self):                                                                       # IX_input
     #----------------------------------------------------------------------------------------------
         """
         Returns the grid dimensions as a list of integers [I, J, K], representing the
@@ -414,31 +413,31 @@ class IX_input:                                                            # IX_
             #return [int(dim_node[f'NumberCellsIn{ijk}'][0]) for ijk in 'IJK']
 
     #----------------------------------------------------------------------------------------------
-    def ifind(self, astr:str):                                             # IX_input
-        """Return the index of the next matching block."""
+    def ifind(self, astr:str):                                                           # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return the index of the next matching block."""
         enc_str = astr.encode()
         for file, data in self.afi.included_file_data():
             if enc_str in data:
                 yield file
 
     #----------------------------------------------------------------------------------------------
-    def find(self, *args):                                                 # IX_input
-        """Return the next block matching the criteria."""
+    def find(self, *args):                                                               # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return the next block matching the criteria."""
         return next(self.ifind(*args), None)
 
     #----------------------------------------------------------------------------------------------
-    def findall(self, *args):                                              # IX_input
-        """Return all matches for the pattern."""
+    def findall(self, *args):                                                            # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return all matches for the pattern."""
         return tuple(self.ifind(*args))
 
     @classmethod
     #----------------------------------------------------------------------------------------------
-    def need_convert(self, path):                                          # IX_input
-        """Return whether type conversion is required."""
+    def need_convert(self, path):                                                        # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return whether type conversion is required."""
         path = Path(path)
         afi_file = AFI_file(path)
         eclipse_inp = Eclipse_input(path)
@@ -466,9 +465,9 @@ class IX_input:                                                            # IX_
 
     @classmethod
     #----------------------------------------------------------------------------------------------
-    def from_eclipse(self, path, progress=None, abort=None, freq=20):      # IX_input
-        """Load data from a formatted Eclipse file."""
+    def from_eclipse(self, path, progress=None, abort=None, freq=20):                    # IX_input
     #----------------------------------------------------------------------------------------------
+        """Load data from a formatted Eclipse file."""
         # Create IX input from Eclipse input
         #if not DATA_file(path).is_file():
         eclipse_inp = Eclipse_input(path)
@@ -505,9 +504,9 @@ class IX_input:                                                            # IX_
 
 
     #----------------------------------------------------------------------------------------------
-    def check(self, include=True):                                         # IX_input
-        """Check the file for inconsistencies."""
+    def check(self, include=True):                                                       # IX_input
     #----------------------------------------------------------------------------------------------
+        """Check the file for inconsistencies."""
         self._checked = True
         # Check if top level afi-file exist
         self.afi.exists(raise_error=True)
@@ -518,25 +517,25 @@ class IX_input:                                                            # IX_
         return True
 
     #----------------------------------------------------------------------------------------------
-    def files_matching(self, *keys):                                        # IX_input
+    def files_matching(self, *keys):                                                     # IX_input
     #----------------------------------------------------------------------------------------------
         """ Return only ixf-files that match the given keys """
         return (ixf for ixf in self.ixf_files if any(key in ixf for key in keys))
 
     #----------------------------------------------------------------------------------------------
-    def include_files(self):                                               # IX_input
-        """Return INCLUDE statements discovered in the deck."""
+    def include_files(self):                                                             # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return INCLUDE statements discovered in the deck."""
         return self.afi.include_files()
 
     #----------------------------------------------------------------------------------------------
-    def including(self, *files):                                           # IX_input
+    def including(self, *files):                                                         # IX_input
     #----------------------------------------------------------------------------------------------
         """ For compatibility with DATA_file """
         return self
 
     #----------------------------------------------------------------------------------------------
-    def nodes(self, *types, files=None, table=False, context=False, **kwargs): # IX_input
+    def nodes(self, *types, files=None, table=False, context=False, **kwargs):           # IX_input
     #----------------------------------------------------------------------------------------------
         """
         Return generator of nodes with node syntax:
@@ -568,15 +567,15 @@ class IX_input:                                                            # IX_
 
 
     #----------------------------------------------------------------------------------------------
-    def get_node(self, node):                                              # IX_input
-        """Return the requested tree node."""
+    def get_node(self, node):                                                            # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return the requested tree node."""
         return next(self.nodes(node.type, table=node.is_table, context=node.is_context), None)
 
     #----------------------------------------------------------------------------------------------
-    def start(self):                                                       # IX_input
-        """Start progress reporting."""
+    def start(self):                                                                     # IX_input
     #----------------------------------------------------------------------------------------------
+        """Start progress reporting."""
         pattern = r'Start(\w+) *= *(\w+)'
         key_val = findall(pattern, next(self.nodes('Simulation')).content)
         # Use lowerkey names
@@ -589,9 +588,9 @@ class IX_input:                                                            # IX_
         return datetime(**values)
 
     #----------------------------------------------------------------------------------------------
-    def _timestep_files(self):                                             # IX_input
-        """Yield timestep specific filenames."""
+    def _timestep_files(self):                                                           # IX_input
     #----------------------------------------------------------------------------------------------
+        """Yield timestep specific filenames."""
         date_files = [ixf for ixf in self.ixf_files if 'DATE' in ixf]
         field_files = [ixf for ixf in date_files if next(ixf.node('FieldManagement'), None)]
         if field_files:
@@ -601,7 +600,7 @@ class IX_input:                                                            # IX_
             #return date_files[0]
 
     #----------------------------------------------------------------------------------------------
-    def timesteps(self, start=None, **kwargs):                             # IX_input
+    def timesteps(self, start=None, **kwargs):                                           # IX_input
     #----------------------------------------------------------------------------------------------
         """
         Return list of timesteps for each report step
@@ -629,16 +628,16 @@ class IX_input:                                                            # IX_
         return steps
 
     #----------------------------------------------------------------------------------------------
-    def report_dates(self):                                                # IX_input
-        """Return formatted report dates."""
+    def report_dates(self):                                                              # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return formatted report dates."""
         start = self.start()
         return [start + timedelta(days=days) for days in accumulate(self.timesteps())]
 
     #----------------------------------------------------------------------------------------------
-    def wellnames(self, contains:str=''):                                  # IX_input
-        """Return available well names."""
+    def wellnames(self, contains:str=''):                                                # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return available well names."""
         wells = self.wells()
         if contains:
             return sorted(well[0] for well in wells if contains in well[1])
@@ -647,13 +646,13 @@ class IX_input:                                                            # IX_
         #return tuple(set(node.name for node in self.nodes('WellDef')))
 
     #----------------------------------------------------------------------------------------------
-    def wells(self):                                                       # IX_input
-        """Return the wells defined in the file."""
+    def wells(self):                                                                     # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return the wells defined in the file."""
         return (set((well.name, _type[0]) for well in self.nodes('Well') if (_type:=well.get('Type'))))
 
     #----------------------------------------------------------------------------------------------
-    def wells_by_type(self):                                               # IX_input
+    def wells_by_type(self):                                                             # IX_input
     #----------------------------------------------------------------------------------------------
         """
         Categorizes wells by their type.
@@ -671,7 +670,7 @@ class IX_input:                                                            # IX_
         return dict(wells)
 
     #----------------------------------------------------------------------------------------------
-    def wellpos(self, *wellnames):                                         # IX_input
+    def wellpos(self, *wellnames):                                                       # IX_input
     #----------------------------------------------------------------------------------------------
         """
         Retrieves the well positions for the specified well names.
@@ -705,7 +704,7 @@ class IX_input:                                                            # IX_
         return tuple(wpos.values())
 
     #----------------------------------------------------------------------------------------------
-    def wellpos_by_name(self, ijk=False, wellnames=None):                  # IX_input
+    def wellpos_by_name(self, ijk=False, wellnames=None):                                # IX_input
     #----------------------------------------------------------------------------------------------
         """
         Returns a dictionary mapping well names to their positions.
@@ -728,24 +727,24 @@ class IX_input:                                                            # IX_
         return name_pos
 
     #----------------------------------------------------------------------------------------------
-    def injectors(self, *wellnames):                                         # IX_input
-        """Return metadata about injector wells."""
+    def injectors(self, *wellnames):                                                     # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return metadata about injector wells."""
         inj_names = self.wells_by_type()['WATER_INJECTOR']
         pos, = self.wellpos(*inj_names)
         return pos
 
     #----------------------------------------------------------------------------------------------
-    def wells_near_cells(self, *cells):                                         # IX_input
-        """Return wells located near the supplied cells."""
+    def wells_near_cells(self, *cells):                                                  # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return wells located near the supplied cells."""
         wells, kind = zip(*self.wells())
         wellbbox = [bounding_box(wp) for wp in self.wellpos(*wells)]
         return [(w, k, bb) for w, k, bb in zip(wells, kind, wellbbox) if any_cell_in_box(cells, bb)]
 
 
     #----------------------------------------------------------------------------------------------
-    def summary_keys(self, matching=()):                                   # IX_input
+    def summary_keys(self, matching=()):                                                 # IX_input
     #----------------------------------------------------------------------------------------------
         """
         Summary keys can be in table format (using []) or in node format (using {}).
@@ -769,15 +768,15 @@ class IX_input:                                                            # IX_
 
 
     #----------------------------------------------------------------------------------------------
-    def mode(self):                                                        # IX_input
-        """Return the mode string."""
+    def mode(self):                                                                      # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return the mode string."""
         return 'forward'
 
     #----------------------------------------------------------------------------------------------
-    def restart(self):                                                     # IX_input
-        """Return restart metadata for the block."""
+    def restart(self):                                                                   # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return restart metadata for the block."""
         # Check if this is a restart-run
         match = next((m for m in self.afi.matches() if m[2] and b'restart' in m[2]), None)
         if match:
@@ -803,9 +802,9 @@ class IX_input:                                                            # IX_
         return Restart()
 
     #----------------------------------------------------------------------------------------------
-    def UNRST_settings(self):                                              # IX_input
-        """Return metadata describing the unified UNRST export."""
+    def UNRST_settings(self):                                                            # IX_input
     #----------------------------------------------------------------------------------------------
+        """Return metadata describing the unified UNRST export."""
         nodename = 'Recurrent3DReport'
         nodes = list(self.nodes(nodename, context=True))
         if nodes:
@@ -813,9 +812,9 @@ class IX_input:                                                            # IX_
         raise SystemError((f"ERROR Node {nodename} not found in {self}"))
 
     #----------------------------------------------------------------------------------------------
-    def write_unified_UNRST(self):                                         # IX_input
-        """Write a unified UNRST file."""
+    def write_unified_UNRST(self):                                                       # IX_input
     #----------------------------------------------------------------------------------------------
+        """Write a unified UNRST file."""
         unified = self.UNRST_settings().get('Unified')
         # Default is True if not set
         if not unified or unified[0] in ('TRUE', 'True', 'true'):

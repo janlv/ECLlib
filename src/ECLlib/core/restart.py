@@ -6,7 +6,9 @@ from datetime import datetime
 
 
 @dataclass(frozen=True, slots=True)
+#==================================================================================================
 class Restart:
+#==================================================================================================
     """Restart metadata captured from Eclipse files."""
 
     start: datetime | None = None

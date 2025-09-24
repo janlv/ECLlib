@@ -18,15 +18,15 @@ __all__ = ["INIT_file", "UNRST_file", "RFT_file", "UNSMRY_file", "SMSPEC_file"]
 
 
 #==================================================================================================
-class INIT_file(unfmt_file):                                              # INIT_file
-    """Reader for Eclipse INIT files."""
+class INIT_file(unfmt_file):                                                            # INIT_file
 #==================================================================================================
+    """Reader for Eclipse INIT files."""
     start = 'INTEHEAD'
 
     #----------------------------------------------------------------------------------------------
-    def __init__(self, file, **kwargs):                                   # INIT_file
-        """Initialize the INIT_file."""
+    def __init__(self, file, **kwargs):                                                 # INIT_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the INIT_file."""
         super().__init__(file, suffix='.INIT', **kwargs)
         self.var_pos = {'nx'        : ('INTEHEAD',  8),
                         'ny'        : ('INTEHEAD',  9),
@@ -42,19 +42,14 @@ class INIT_file(unfmt_file):                                              # INIT
         self._dim = None
 
     #----------------------------------------------------------------------------------------------
-    def dim(self):                                                       # INIT_file
-        """Return the grid dimensions."""
+    def dim(self):                                                                      # INIT_file
     #----------------------------------------------------------------------------------------------
+        """Return the grid dimensions."""
         self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
         return self._dim
     
-    # #--------------------------------------------------------------------------------
-    # def reshape_dim(self, *data, dtype=None):                             # INIT_file
-    # #--------------------------------------------------------------------------------
-    #     return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
-
     #----------------------------------------------------------------------------------------------
-    def cell_ijk(self, *cellnum):                                         # INIT_file
+    def cell_ijk(self, *cellnum):                                                       # INIT_file
     #----------------------------------------------------------------------------------------------
         """
         Return ijk-indices of cells given a list of cell-numbers. 
@@ -72,7 +67,7 @@ class INIT_file(unfmt_file):                                              # INIT
         #return nparray([i, j, k]).T
 
     #----------------------------------------------------------------------------------------------
-    def non_neigh_conn(self):                                             # INIT_file
+    def non_neigh_conn(self):                                                           # INIT_file
     #----------------------------------------------------------------------------------------------
         """
         Identifies and returns non-neighbor connections (NNC) between cells.
@@ -96,9 +91,9 @@ class INIT_file(unfmt_file):                                              # INIT
         #return stack([self.cell_ijk(*nnc) for nnc in nncs], axis=0)
 
     #----------------------------------------------------------------------------------------------
-    def simulator(self):                                                  # INIT_file
-        """Return the simulator identifier."""
+    def simulator(self):                                                                # INIT_file
     #----------------------------------------------------------------------------------------------
+        """Return the simulator identifier."""
         sim_codes = {100:'ecl', 300:'ecl', 500:'ecl', 700:'ix', 800:'FrontSim'}
         if sim:=next(self.read('simulator'), None):
             if sim < 0:
@@ -106,9 +101,9 @@ class INIT_file(unfmt_file):                                              # INIT
             return sim_codes[sim]
 
     #----------------------------------------------------------------------------------------------
-    def start_date(self):                                                  # INIT_file
-        """Return the simulation start date."""
+    def start_date(self):                                                               # INIT_file
     #----------------------------------------------------------------------------------------------
+        """Return the simulation start date."""
         keys = ('year', 'month', 'day', 'hour', 'minute', 'second')
         if data := next(self.read(*keys), None):
             kwargs = dict(zip(keys, data))
@@ -117,10 +112,12 @@ class INIT_file(unfmt_file):                                              # INIT
             return datetime(**kwargs)
 
 
+
 #==================================================================================================
-class UNRST_file(unfmt_file):                                            # UNRST_file
+class UNRST_file(unfmt_file):                                                          # UNRST_file
+#==================================================================================================
     """Reader for Eclipse UNRST restart files."""
-#==================================================================================================
+
     start = 'SEQNUM'
     end = 'ENDSOL'
     #           variable   keyword   position (None = whole array)
@@ -139,77 +136,38 @@ class UNRST_file(unfmt_file):                                            # UNRST
                 'wells' : ('ZWEL'    , None)}  # No ZWEL in first section 
                                                 
     #----------------------------------------------------------------------------------------------
-    # def __init__(self, file, suffix='.UNRST', wait_func=None, end=None, role=None, 
-    #              **kwargs):                                              # UNRST_file
-    def __init__(self, file, suffix='.UNRST', end=None, role=None):      # UNRST_file
-        """Initialize the UNRST_file."""
+    def __init__(self, file, suffix='.UNRST', end=None, role=None):                    # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the UNRST_file."""
         super().__init__(file, suffix=suffix, role=role)
         self.end = end or self.end
-        #self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self._dim = None
         self._units = None
-        #self._dates = None
 
     #----------------------------------------------------------------------------------------------
-    def __len__(self):                                                   # UNRST_file
-        """Return the number of entries."""
+    def __len__(self):                                                                 # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the number of entries."""
         return len(list(self.steps()))
 
     #----------------------------------------------------------------------------------------------
-    def dim(self):                                                       # UNRST_file
-        """Return the grid dimensions."""
+    def dim(self):                                                                     # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the grid dimensions."""
         self._dim = self._dim or next(self.read('nx', 'ny', 'nz'))
         return self._dim
     
-    # #--------------------------------------------------------------------------------
-    # def reshape_dim(self, *data, dtype=None):                         # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     return [asarray(d, dtype=dtype).reshape(self.dim(), order='F') for d in data]
-    #     # if flip:
-    #     #     return [npflip(a, axis=-1) for a in arr]
-    #     # return arr
-
     #----------------------------------------------------------------------------------------------
-    def _check_for_missing_keys(self, *in_keys, keys=None):              # UNRST_file
+    def _check_for_missing_keys(self, *in_keys, keys=None):                            # UNRST_file
+    #----------------------------------------------------------------------------------------------
         """Verify that required keywords are present."""
-    #----------------------------------------------------------------------------------------------
         keys = keys or self.find_keys(*in_keys)
         if missing := [ik for ik in in_keys if not any(fnmatch(k, ik) for k in keys)]:
             raise ValueError(f'The following keywords are missing in {self}: {missing}')
         return keys
 
-    # #--------------------------------------------------------------------------------
-    # def cell_ijk(self, *cellnum):                                    # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Return ijk-indices of cells given a list of cell-numbers
-    #     """
-    #     dim = self.dim()
-    #     ni, nij = dim[0], dim[0]*dim[1]
-    #     for cell in cellnum:
-    #         cell -= 1
-    #         yield (cell % ni, (cell % nij) // ni, cell // nij)
-
-    # #--------------------------------------------------------------------------------
-    #def cell_ijk(self, *cellnum):                                    # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Return ijk-indices of cells given a list of cell-numbers
-    #     """
-        # dim = self.dim()
-        # ni, nij = dim[0], dim[0]*dim[1]
-        # cellnum = nparray(cellnum) - 1
-        # i = cellnum % ni
-        # j = (cellnum % nij) // ni
-        # k = cellnum // nij
-        # return nparray([i, j, k]).T
-
-
     #----------------------------------------------------------------------------------------------
-    def _cellnr(self, coord, base=0):                                    # UNRST_file
+    def _cellnr(self, coord, base=0):                                                  # UNRST_file
     #----------------------------------------------------------------------------------------------
         """
         Return position in 1D array given 3D coordinate of base=0 (default) or base=1
@@ -220,7 +178,7 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return base + coord[0]-base + dim[0]*(coord[1]-base) + dim[0]*dim[1]*(coord[2]-base)
 
     #----------------------------------------------------------------------------------------------
-    def celldata(self, coord, *keywords, base=0):                         # UNRST_file
+    def celldata(self, coord, *keywords, base=0):                                      # UNRST_file
     #----------------------------------------------------------------------------------------------
         """
         Return the given keywords as a celldata namedtuple for the given cell-coordinate.
@@ -235,56 +193,39 @@ class UNRST_file(unfmt_file):                                            # UNRST
         data = (zip(*self.blockdata(*args, singleton=False)))
         celldata = namedtuple('celldata', ('days',)+keywords)
         return celldata(tuple(self.days()), *data)
-        #return celldata(tuple(self.days(resolution=time_res)), *data)
-        # for dd in zip(self.days(resolution=time_res), *data):
-        #     yield celldata(*dd)
-
-    # #--------------------------------------------------------------------------------
-    # def celldata_as_dataframe(self, *args, **kwargs):        # UNRST_file
-    # #--------------------------------------------------------------------------------
-    #     """
-    #     Write given keywords for the given cell-coordinate to a tab-separated file
-    #     """
-    #     # data = self.celldata(coord, *keywords, base=base, time_res=time_res)
-    #     data = self.celldata(*args, **kwargs)
-    #     return DataFrame(data._asdict())
 
     #----------------------------------------------------------------------------------------------
-    def cellarray(self, *in_keys, start=None, stop=None, step=1, warn_missing=True):   # UNRST_file                  
+    def cellarray(self, *in_keys, start=None, stop=None, step=1, warn_missing=True):   # UNRST_file
+    #----------------------------------------------------------------------------------------------
         """Return cell array data."""
-    #----------------------------------------------------------------------------------------------
         step = step or self.count_sections()
         keys = self.find_keys(*in_keys)
         if warn_missing:
             self._check_for_missing_keys(*in_keys, keys=keys)
         names = [remove_chars('+-', k) for k in keys]
         celltuple = namedtuple('cellarray', ['days', 'date'] + names)
-        dim = self.dim()
+        #dim = self.dim()
         dds = zip(self.days(), self.dates(), self.section_blocks())
         for day, date, section in islice(dds, start, stop, step):
             blockdata = {k:None for k in keys}
             for block in section:
                 if (key:=block.key()) in keys:
                     blockdata[key] = block.data()
-            yield celltuple(day, date, *[nparray(d).reshape(dim, order='F') for d in blockdata.values()])
+            yield celltuple(day, date, *self.reshape_dim(*blockdata.values()))
+            #yield celltuple(day, date, *[nparray(d).reshape(dim, order='F') for d in blockdata.values()])
     
-    # #--------------------------------------------------------------------------------
-    # def griddata(self, grid, *keys, start=None, stop=None, step=1):   # UNRST_file                  
-    # #--------------------------------------------------------------------------------
-    #     pass
-
     #----------------------------------------------------------------------------------------------
-    def wells(self, stop=None):                                          # UNRST_file
+    def wells(self, stop=None):                                                        # UNRST_file
+    #----------------------------------------------------------------------------------------------
         """Return the wells defined in the file."""
-    #----------------------------------------------------------------------------------------------
         wells = flatten_all(islice(self.read('wells'), 0, stop))
         unique_wells = set(w for well in wells if (w:=well.strip()))
         return tuple(unique_wells)
 
     #----------------------------------------------------------------------------------------------
-    def open_wells(self):                                                # UNRST_file
-        """Return wells that currently produce."""
+    def open_wells(self):                                                              # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return wells that currently produce."""
         for ihead, icon in self.blockdata('INTEHEAD', 'ICON'):
             niconz, ncwmax, nwells  = ihead[32], ihead[17], ihead[16]
             icon = nparray(icon).reshape((niconz, ncwmax, nwells), order='F')
@@ -292,33 +233,33 @@ class UNRST_file(unfmt_file):                                            # UNRST
 
 
     #----------------------------------------------------------------------------------------------
-    def steps(self):                                                     # UNRST_file
-        """Return the simulation report steps."""
+    def steps(self):                                                                   # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the simulation report steps."""
         return flatten_all(self.read('step'))
 
     #----------------------------------------------------------------------------------------------
-    def end_step(self):                                                  # UNRST_file
-        """Return the final report step."""
+    def end_step(self):                                                                # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the final report step."""
         return self.last_value('step')
 
     #----------------------------------------------------------------------------------------------
-    def end_time(self):                                                  # UNRST_file
-        """Return the final timestamp."""
+    def end_time(self):                                                                # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the final timestamp."""
         return self.last_value('time')
 
     #----------------------------------------------------------------------------------------------
-    def end_date(self):                                                  # UNRST_file
-        """Return the last simulation date."""
+    def end_date(self):                                                                # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the last simulation date."""
         return next(self.dates(tail=True), None)
 
     #----------------------------------------------------------------------------------------------
-    def dates(self, resolution='day', **kwargs):                         # UNRST_file
-        """Return the simulation dates."""
+    def dates(self, resolution='day', **kwargs):                                       # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the simulation dates."""
         varnames = ('year', 'month', 'day')
         if resolution == 'day':
             pass
@@ -335,9 +276,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return (datetime(*vars) for vars in self.read(*varnames, **kwargs))
 
     #----------------------------------------------------------------------------------------------
-    def units(self):                                                     # UNRST_file
-        """Return unit names per keyword."""
+    def units(self):                                                                   # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return unit names per keyword."""
         if self._units is None:
             ihead2 = next(self.blockdata('INTEHEAD', 2), None)
             if ihead2:
@@ -345,9 +286,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return self._units
 
     #----------------------------------------------------------------------------------------------
-    def days(self, **kwargs):                                            # UNRST_file
-        """Return the simulation days."""
+    def days(self, **kwargs):                                                          # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the simulation days."""
         # Read units only once
         convert = 1
         if self.units() == 'lab':
@@ -356,9 +297,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
         return (next(flatten(dh))*convert for dh in self.blockdata('DOUBHEAD', singleton=True, **kwargs))
 
     #----------------------------------------------------------------------------------------------
-    def section(self, days=None, date=None):                      # UNRST_file
-        """Return a named section."""
+    def section(self, days=None, date=None):                                           # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return a named section."""
         stop = None
         if days:
             data_func = self.days
@@ -373,15 +314,15 @@ class UNRST_file(unfmt_file):                                            # UNRST
 
 
     #----------------------------------------------------------------------------------------------
-    def end_key(self):                                                   # UNRST_file
-        """Return the keyword used to terminate the block."""
+    def end_key(self):                                                                 # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return the keyword used to terminate the block."""
         block = next(self.tail_blocks(), None)
         if block:
             return block.key()
 
     #----------------------------------------------------------------------------------------------
-    def from_Xfile(self, xfile, log=False, delete=False):                 # UNRST_file
+    def from_Xfile(self, xfile, log=False, delete=False):                              # UNRST_file
     #----------------------------------------------------------------------------------------------
         """
         Append a SEQNUM block at the beginning of the non-unified restart X-file. 
@@ -402,9 +343,9 @@ class UNRST_file(unfmt_file):                                            # UNRST
         #return self
 
     #----------------------------------------------------------------------------------------------
-    def as_Xfiles(self, log=False, stop=None):                           # UNRST_file
-        """Return helper objects mirroring Eclipse X files."""
+    def as_Xfiles(self, log=False, stop=None):                                         # UNRST_file
     #----------------------------------------------------------------------------------------------
+        """Return helper objects mirroring Eclipse X files."""
         for i, sec in enumerate(self.section_blocks()):
             xfile = self.with_suffix(f'.X{i:04d}')
             with open(xfile, 'wb') as file:
@@ -419,9 +360,13 @@ class UNRST_file(unfmt_file):                                            # UNRST
             if stop and i == stop:
                 return
 
-class RFT_file(unfmt_file):                                                # RFT_file
-    """Reader for Eclipse RFT files."""
+
+
 #==================================================================================================
+class RFT_file(unfmt_file):                                                              # RFT_file
+#==================================================================================================
+    """Reader for Eclipse RFT files."""
+
     start = 'TIME'
     end = 'CONNXT'
     var_pos =  {'time'     : ('TIME', 0),
@@ -433,36 +378,21 @@ class RFT_file(unfmt_file):                                                # RFT
                 'K'        : ('CONKPOS', None)}
 
     #----------------------------------------------------------------------------------------------
-    #def __init__(self, file, wait_func=None, **kwargs):                    # RFT_file
-    def __init__(self, file):                                              # RFT_file
-        """Initialize the RFT_file."""
+    def __init__(self, file):                                                            # RFT_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the RFT_file."""
         super().__init__(file, suffix='.RFT')
-        #self.check = check_blocks(self, start=self.start, end=self.end, wait_func=wait_func, **kwargs)
         self.current_section = 0
 
-    # #--------------------------------------------------------------------------------
-    # def not_in_sync(self, time, prec=0.1):                                 # RFT_file
-    # #--------------------------------------------------------------------------------
-    #     data = self.check.data()
-    #     if data and any(abs(nparray(data)-time) > prec):
-    #         return True
-    #     return False
-        
     #----------------------------------------------------------------------------------------------
-    def end_time(self):                                                    # RFT_file
+    def end_time(self):                                                                  # RFT_file
+    #----------------------------------------------------------------------------------------------
         """Return the final timestamp."""
-    #----------------------------------------------------------------------------------------------
-        # Return data from last check if it exists
-        # if data := self.check.data():
-        #     return data[-1]
         # Return time-value from tail of file
         return next(self.read('time', tail=True), None) or 0
-        #return time
-        #return (data := self.check.data()) and data[-1] or 0
 
     #----------------------------------------------------------------------------------------------
-    def time_slice(self):                                                  # RFT_file
+    def time_slice(self):                                                                # RFT_file
     #----------------------------------------------------------------------------------------------
         """
         Yield time and slice for equal time sections
@@ -491,7 +421,7 @@ class RFT_file(unfmt_file):                                                # RFT
             return
 
     #----------------------------------------------------------------------------------------------
-    def sections_matching_time(self, days, acc=1e-5):                      # RFT_file
+    def sections_matching_time(self, days, acc=1e-5):                                    # RFT_file
     #----------------------------------------------------------------------------------------------
         """
         Yield the start- and end-pos of neighbouring sections matching given time
@@ -509,9 +439,9 @@ class RFT_file(unfmt_file):                                                # RFT
         return (start, end)
 
     #----------------------------------------------------------------------------------------------
-    def wellstart(self, *wellnames):                                       # RFT_file
-        """Return the start time for each well."""
+    def wellstart(self, *wellnames):                                                     # RFT_file
     #----------------------------------------------------------------------------------------------
+        """Return the start time for each well."""
         wells = list(wellnames)
         start = {well:None for well in wells}
         for time, name in self.read('time', 'wellname'):
@@ -525,9 +455,9 @@ class RFT_file(unfmt_file):                                                # RFT
         return tuple(start.values())
 
     #----------------------------------------------------------------------------------------------
-    def wellbbox(self, *wellnames, zerobase=True):                          # RFT_file
-        """Return well bounding boxes."""
+    def wellbbox(self, *wellnames, zerobase=True):                                       # RFT_file
     #----------------------------------------------------------------------------------------------
+        """Return well bounding boxes."""
         wpos = self.wellpos(*wellnames, zerobase=zerobase)
         bbox = {well:None for well in wellnames}
         for well, wp in zip(wellnames, wpos):
@@ -535,9 +465,9 @@ class RFT_file(unfmt_file):                                                # RFT
         return tuple(bbox.values())
 
     #----------------------------------------------------------------------------------------------
-    def wellpos(self, *wellnames, zerobase=True):                          # RFT_file
-        """Return well positions."""
+    def wellpos(self, *wellnames, zerobase=True):                                        # RFT_file
     #----------------------------------------------------------------------------------------------
+        """Return well positions."""
         wells = list(wellnames)
         wpos = {well:None for well in wells}
         for name, *pos in self.read('wellname', 'I', 'J', 'K'):
@@ -553,9 +483,9 @@ class RFT_file(unfmt_file):                                                # RFT
         return tuple(wpos.values())
 
     #----------------------------------------------------------------------------------------------
-    def grid2wellname(self, dim, *wellnames):                              # RFT_file
-        """Return well names indexed by grid cells."""
+    def grid2wellname(self, dim, *wellnames):                                            # RFT_file
     #----------------------------------------------------------------------------------------------
+        """Return well names indexed by grid cells."""
         poswell = {pos:[] for pos in product(*(range(d) for d in dim))}
         for well, pos in zip(wellnames, self.wellpos(*wellnames)):
             for p in pos:
@@ -563,9 +493,9 @@ class RFT_file(unfmt_file):                                                # RFT
         return poswell
         
     #----------------------------------------------------------------------------------------------
-    def active_wells(self):                                                # RFT_file
-        """Return the active wells defined in the file."""
+    def active_wells(self):                                                              # RFT_file
     #----------------------------------------------------------------------------------------------
+        """Return the active wells defined in the file."""
         wells = []
         current_time = next(self.read('time'))
         for time, well in self.read('time', 'wellname'):
@@ -576,7 +506,8 @@ class RFT_file(unfmt_file):                                                # RFT
             current_time = time
 
 
-class UNSMRY_file(unfmt_file):
+#==================================================================================================
+class UNSMRY_file(unfmt_file):                                                        # UNSMRY_file
 #==================================================================================================
     """
     Unformatted unified summary file
@@ -585,6 +516,7 @@ class UNSMRY_file(unfmt_file):
     and PARAMS keywords for each ministep. Hence, one sequence might have multiple
     MINISTEP and PARAMS keywords.
     """
+
     start = 'MINISTEP'
     end = 'PARAMS'
     var_pos = {'days' : ('PARAMS', 0),
@@ -592,27 +524,27 @@ class UNSMRY_file(unfmt_file):
                'step' : ('MINISTEP', 0)}
 
     #----------------------------------------------------------------------------------------------
-    def __init__(self, file):                                           # UNSMRY_file
-        """Initialize the UNSMRY_file."""
+    def __init__(self, file):                                                         # UNSMRY_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the UNSMRY_file."""
         super().__init__(file, suffix='.UNSMRY')
         self.spec = SMSPEC_file(file)
         self.startdate = None
         self._plots = None
 
     #----------------------------------------------------------------------------------------------
-    def params(self, *keys):                                            # UNSMRY_file
-        """Return parameters describing the block."""
+    def params(self, *keys):                                                          # UNSMRY_file
     #----------------------------------------------------------------------------------------------
+        """Return parameters describing the block."""
         keypos = {key:i for i, key in enumerate(next(self.spec.blockdata('KEYWORDS')))}
         ind = [keypos[key] for key in keys]
         for param in self.blockdata('PARAMS'):
             yield [param[i] for i in ind]
 
     #----------------------------------------------------------------------------------------------
-    def steptype(self):                                          # UNSMRY_file
-        """Return the summary step type."""
+    def steptype(self):                                                               # UNSMRY_file
     #----------------------------------------------------------------------------------------------
+        """Return the summary step type."""
         codes = {
             1: ('Init', 'The initial time step for a simulation run'),
             2: ('TTE' , 'Time step selected on time truncation error criteria'),
@@ -634,8 +566,8 @@ class UNSMRY_file(unfmt_file):
             yield codes[stype[0]]
 
     #----------------------------------------------------------------------------------------------
-    def welldata(self, keys=(), wells=(), only_new=False, as_array=False, 
-                 named=False, start=0, stop=None, step=1, **kwargs):    # UNSMRY_file
+    def welldata(self, keys=(), wells=(), only_new=False, as_array=False,
+                 named=False, start=0, stop=None, step=1, **kwargs):                  # UNSMRY_file
     #----------------------------------------------------------------------------------------------
         """
         named = False   : Returns days, dates and a tuple of key, well, value for each key-well combination
@@ -675,9 +607,9 @@ class UNSMRY_file(unfmt_file):
 
     #----------------------------------------------------------------------------------------------
     def plot(self, keys=(), wells=(), ncols=1, date=True, fignr=1,
-             args=None, **kwargs):                                      # UNSMRY_file
-        """Plot well curves using matplotlib."""
+             args=None, **kwargs):                                                    # UNSMRY_file
     #----------------------------------------------------------------------------------------------
+        """Plot well curves using matplotlib."""
         if data := self.welldata(keys=keys, wells=wells, **kwargs):
             if date:
                 xlabel = 'Dates'
@@ -727,9 +659,9 @@ class UNSMRY_file(unfmt_file):
             fig.canvas.draw_idle()# draw()
 
     #----------------------------------------------------------------------------------------------
-    def key_units(self):                                                # UNSMRY_file
-        """Return unit information for each summary key."""
+    def key_units(self):                                                              # UNSMRY_file
     #----------------------------------------------------------------------------------------------
+        """Return unit information for each summary key."""
         Var = namedtuple('Var','unit measure')
         # If 'measures' is None, just use empty string
         kum = zip(*attrgetter('keys', 'units')(self.spec), self.spec.measures or repeat(''))
@@ -737,9 +669,9 @@ class UNSMRY_file(unfmt_file):
         return namedtuple('Keys', self.keys)(**var)
 
     #----------------------------------------------------------------------------------------------
-    def __getattr__(self, item):                                        # UNSMRY_file
-        """Delegate attribute lookups."""
+    def __getattr__(self, item):                                                      # UNSMRY_file
     #----------------------------------------------------------------------------------------------
+        """Delegate attribute lookups."""
         try:
             # Look for attribute in File-class first
             return super().__getattr__(item)
@@ -747,9 +679,9 @@ class UNSMRY_file(unfmt_file):
             return tuple(set(getattr(self.spec, item)))
 
     #----------------------------------------------------------------------------------------------
-    def energy(self, *wells):                                           # UNSMRY_file
-        """Return well energy totals."""
+    def energy(self, *wells):                                                         # UNSMRY_file
     #----------------------------------------------------------------------------------------------
+        """Return well energy totals."""
         data = self.welldata(keys=('WBHP','WTHP','WWIR'), wells=wells, as_array=True, named=True)
         wells = wells or self.wells
         # Power = (WBHP - WTHP) * WWIR
@@ -762,15 +694,19 @@ class UNSMRY_file(unfmt_file):
             return namedtuple('Data', 'days dates energy')(data.days[1:], data.dates[1:], energy)
         raise SystemError(f'ERROR Energy calculation only for metric data, pressure unit is: {data.WBHP.unit}')
 
-class SMSPEC_file(unfmt_file):                                          # SMSPEC_file
-    """Reader for Eclipse SMSPEC files."""
+
+
 #==================================================================================================
+class SMSPEC_file(unfmt_file):                                                        # SMSPEC_file
+#==================================================================================================
+    """Reader for Eclipse SMSPEC files."""
+
     start = 'INTEHEAD'
 
     #----------------------------------------------------------------------------------------------
-    def __init__(self, file):                                           # SMSPEC_file
-        """Initialize the SMSPEC_file."""
+    def __init__(self, file):                                                         # SMSPEC_file
     #----------------------------------------------------------------------------------------------
+        """Initialize the SMSPEC_file."""
         super().__init__(file, suffix='.SMSPEC')
         self._inkeys = ()
         self._ind = ()
@@ -780,16 +716,16 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         #self.wellkey = None
 
     #----------------------------------------------------------------------------------------------
-    def list_keys(self):                                                # SMSPEC_file
-        """Return all summary keyword names."""
+    def list_keys(self):                                                              # SMSPEC_file
     #----------------------------------------------------------------------------------------------
+        """Return all summary keyword names."""
         keys = next(self.blockdata('KEYWORDS')) if self.is_file() else nparray()
         return sorted(set(keys.tolist()))
 
     #----------------------------------------------------------------------------------------------
-    def welldata(self, keys=(), wells=(), named=False):                 # SMSPEC_file
-        """Return data for the requested well."""
+    def welldata(self, keys=(), wells=(), named=False):                               # SMSPEC_file
     #----------------------------------------------------------------------------------------------
+        """Return data for the requested well."""
         # print('SMSPEC WELLDATA', self.is_file())
         self._inkeys = keys
         if not self.is_file():
@@ -827,15 +763,15 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         return False
 
     #----------------------------------------------------------------------------------------------
-    def startdate(self):                                                # SMSPEC_file
-        """Return the summary start date."""
+    def startdate(self):                                                              # SMSPEC_file
     #----------------------------------------------------------------------------------------------
+        """Return the summary start date."""
         if (start := next(self.blockdata('STARTDAT'), None)) is not None:
             day, month, year, hour, minute, second = start
             return datetime(year, month, day, hour, minute, second)
 
     #----------------------------------------------------------------------------------------------
-    def __getattr__(self, item):                                        # SMSPEC_file
+    def __getattr__(self, item):                                                      # SMSPEC_file
     #----------------------------------------------------------------------------------------------
         """
         Read attributes from the named-tuple Data
@@ -852,13 +788,13 @@ class SMSPEC_file(unfmt_file):                                          # SMSPEC
         return super().__getattr__(item)
 
     #----------------------------------------------------------------------------------------------
-    def check_missing_keys(self):                                             # SMSPEC_file
-        """Ensure that the requested keywords exist."""
+    def check_missing_keys(self):                                                     # SMSPEC_file
     #----------------------------------------------------------------------------------------------
+        """Ensure that the requested keywords exist."""
         return [a for a in self._inkeys if not a in self.keys]
 
     #----------------------------------------------------------------------------------------------
-    def well_pos(self):                                                 # SMSPEC_file
-        """Return coordinates for wells."""
+    def well_pos(self):                                                               # SMSPEC_file
     #----------------------------------------------------------------------------------------------
+        """Return coordinates for wells."""
         return self._ind
