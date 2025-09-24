@@ -4,10 +4,8 @@ ECLlib is a Python toolkit for reading, writing, and analysing files produced by
 
 ## Key capabilities
 
-- Parse and emit common Eclipse output files such as `EGRID`, `INIT`, `UNRST`, `RSM`, `SMSPEC`, `PRT`, and more.
-- Work with Intersect input artefacts (`AFI`, `IXF`, `IX`) as well as GSG grid files.
-- Access low-level blocks in unformatted binaries (`unfmt_block`) alongside supporting datatypes (`ENDSOL`).
-- Combine the high-level interfaces (`File`, `Restart`, `RefreshIterator`) with the specialised I/O classes to build bespoke solutions.
+- Parse common Eclipse output files such as `.EGRID`, `.INIT`, `.UNRST`, `.RFT`, `.SMSPEC`, `.UNSMRY`, and more.
+- Work with Intersect (`.AFI`, `.IXF`, `.GSG`) and Eclipse (`.DATA`) input files.
 
 ## Installation
 
