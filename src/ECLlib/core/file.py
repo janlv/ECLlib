@@ -13,7 +13,7 @@ __all__ = ["File"]
 
 
 #==================================================================================================
-class File:
+class File:                                                                                  # File
 #==================================================================================================
     """High-level convenience wrapper around :class:`pathlib.Path`."""
 
@@ -38,26 +38,26 @@ class File:
             print(f"Creating {repr(self)}")
 
     #----------------------------------------------------------------------------------------------
-    def __repr__(self):
+    def __repr__(self):                                                                      # File
     #----------------------------------------------------------------------------------------------
         """Return a developer-friendly representation."""
         return f"<{self.__class__.__name__}, file={self.path}, role={self.role or None}>"
 
     #----------------------------------------------------------------------------------------------
-    def __str__(self):
+    def __str__(self):                                                                       # File
     #----------------------------------------------------------------------------------------------
         """Return a human-readable representation."""
         return f"{self.role}{self.name}"
 
     #----------------------------------------------------------------------------------------------
-    def __del__(self):
+    def __del__(self):                                                                       # File
     #----------------------------------------------------------------------------------------------
         """Handle object cleanup."""
         if self.__class__.__name__ == File.__name__ and self.debug:
             print(f"Deleting {repr(self)}")
 
     #----------------------------------------------------------------------------------------------
-    def __getattr__(self, item):
+    def __getattr__(self, item):                                                             # File
     #----------------------------------------------------------------------------------------------
         """Delegate attribute lookups.
 
@@ -78,7 +78,7 @@ class File:
 
     @contextmanager
     #----------------------------------------------------------------------------------------------
-    def mmap(self, write=False):
+    def mmap(self, write=False):                                                             # File
     #----------------------------------------------------------------------------------------------
         """Memory-map the file.
 
@@ -100,7 +100,7 @@ class File:
                 filemap.close()
 
     #----------------------------------------------------------------------------------------------
-    def resize(self, start=0, end=0):
+    def resize(self, start=0, end=0):                                                        # File
     #----------------------------------------------------------------------------------------------
         """Resize the file to remove a byte range.
 
@@ -122,7 +122,7 @@ class File:
             infile.resize(size - length)
 
     #----------------------------------------------------------------------------------------------
-    def binarydata(self, pos=None, raise_error=False):
+    def binarydata(self, pos=None, raise_error=False):                                       # File
     #----------------------------------------------------------------------------------------------
         """Return the file contents as bytes.
 
@@ -141,7 +141,7 @@ class File:
         return b""
 
     #----------------------------------------------------------------------------------------------
-    def as_text(self, **kwargs):
+    def as_text(self, **kwargs):                                                             # File
     #----------------------------------------------------------------------------------------------
         """Return the file contents decoded as text.
 
@@ -151,7 +151,7 @@ class File:
         return self.binarydata(**kwargs).decode()
 
     #----------------------------------------------------------------------------------------------
-    def delete(self, raise_error=False, echo=False):
+    def delete(self, raise_error=False, echo=False):                                         # File
     #----------------------------------------------------------------------------------------------
         """Delete the file from disk.
 
@@ -174,7 +174,7 @@ class File:
                 print(msg)
 
     #----------------------------------------------------------------------------------------------
-    def rename(self, newname, raise_error=False, echo=False):
+    def rename(self, newname, raise_error=False, echo=False):                                # File
     #----------------------------------------------------------------------------------------------
         """Rename the file on disk.
 
@@ -200,7 +200,7 @@ class File:
                 print(msg)
 
     #----------------------------------------------------------------------------------------------
-    def is_file(self):
+    def is_file(self):                                                                       # File
     #----------------------------------------------------------------------------------------------
         """Return whether the path points to a file."""
         if not self.path:
@@ -208,7 +208,7 @@ class File:
         return self.path.is_file()
 
     #----------------------------------------------------------------------------------------------
-    def with_name(self, file):
+    def with_name(self, file):                                                               # File
     #----------------------------------------------------------------------------------------------
         """Return the path with a new name.
 
@@ -220,7 +220,7 @@ class File:
         return (self.path.parent / file).resolve()
 
     #----------------------------------------------------------------------------------------------
-    def with_tag(self, head: str = "", tail: str = ""):
+    def with_tag(self, head: str = "", tail: str = ""):                                      # File
     #----------------------------------------------------------------------------------------------
         """Return the path tagged with a prefix and suffix.
 
@@ -233,7 +233,7 @@ class File:
         return self.path.parent / (head + self.path.stem + tail + self.path.suffix)
 
     #----------------------------------------------------------------------------------------------
-    def with_suffix(self, suffix, ignore_case=False, exists=False):
+    def with_suffix(self, suffix, ignore_case=False, exists=False):                          # File
     #----------------------------------------------------------------------------------------------
         """Return the path with the provided suffix.
 
@@ -255,7 +255,7 @@ class File:
         return path
 
     #----------------------------------------------------------------------------------------------
-    def glob(self, pattern):
+    def glob(self, pattern):                                                                 # File
     #----------------------------------------------------------------------------------------------
         """Return filesystem entries matching the pattern.
 
@@ -267,7 +267,7 @@ class File:
         return self.path.parent.glob(self.path.stem + pattern)
 
     #----------------------------------------------------------------------------------------------
-    def exists(self, raise_error=False):
+    def exists(self, raise_error=False):                                                     # File
     #----------------------------------------------------------------------------------------------
         """Return whether the path exists.
 
@@ -285,7 +285,7 @@ class File:
         return False
 
     #----------------------------------------------------------------------------------------------
-    def __stat(self, attr):
+    def __stat(self, attr):                                                                  # File
     #----------------------------------------------------------------------------------------------
         """Return the requested stat attribute.
 
@@ -299,37 +299,37 @@ class File:
         return getattr(self.path.stat(), attr)
 
     #----------------------------------------------------------------------------------------------
-    def size(self):
+    def size(self):                                                                          # File
     #----------------------------------------------------------------------------------------------
         """Return the file size in bytes."""
         return self.__stat("st_size")
 
     #----------------------------------------------------------------------------------------------
-    def created(self):
+    def created(self):                                                                       # File
     #----------------------------------------------------------------------------------------------
         """Return the file creation timestamp."""
         return self.__stat("st_ctime")
 
     #----------------------------------------------------------------------------------------------
-    def modified(self):
+    def modified(self):                                                                      # File
     #----------------------------------------------------------------------------------------------
         """Return the file modification timestamp."""
         return self.__stat("st_mtime")
 
     #----------------------------------------------------------------------------------------------
-    def changed(self):
+    def changed(self):                                                                       # File
     #----------------------------------------------------------------------------------------------
         """Return the file change timestamp."""
         return self.__stat("st_ctime")
 
     #----------------------------------------------------------------------------------------------
-    def accessed(self):
+    def accessed(self):                                                                      # File
     #----------------------------------------------------------------------------------------------
         """Return the file access timestamp."""
         return self.__stat("st_atime")
 
     #----------------------------------------------------------------------------------------------
-    def read_text(self):
+    def read_text(self):                                                                     # File
     #----------------------------------------------------------------------------------------------
         """Read the file as text."""
         if self.is_file():
@@ -337,7 +337,7 @@ class File:
         return ""
 
     #----------------------------------------------------------------------------------------------
-    def write_text(self, text):
+    def write_text(self, text):                                                              # File
     #----------------------------------------------------------------------------------------------
         """Write text to disk."""
         if not self.path:
@@ -345,7 +345,7 @@ class File:
         self.path.write_text(text, encoding="utf-8")
 
     #----------------------------------------------------------------------------------------------
-    def append_text(self, text):
+    def append_text(self, text):                                                             # File
     #----------------------------------------------------------------------------------------------
         """Append text to the file."""
         if not self.path:
@@ -354,25 +354,25 @@ class File:
             file.write(text)
 
     #----------------------------------------------------------------------------------------------
-    def tail(self, **kwargs):
+    def tail(self, **kwargs):                                                                # File
     #----------------------------------------------------------------------------------------------
         """Return the tail of the file."""
         return next(tail_file(self.path, **kwargs), "")
 
     #----------------------------------------------------------------------------------------------
-    def reversed(self, **kwargs):
+    def reversed(self, **kwargs):                                                            # File
     #----------------------------------------------------------------------------------------------
         """Iterate over the file in reverse."""
         return tail_file(self.path, **kwargs)
 
     #----------------------------------------------------------------------------------------------
-    def head(self, **kwargs):
+    def head(self, **kwargs):                                                                # File
     #----------------------------------------------------------------------------------------------
         """Return the first bytes of the file."""
         return next(head_file(self.path, **kwargs), "")
 
     #----------------------------------------------------------------------------------------------
-    def lines(self):
+    def lines(self):                                                                         # File
     #----------------------------------------------------------------------------------------------
         """Iterate over the file lines."""
         if self.is_file():
@@ -382,19 +382,19 @@ class File:
         return ()
 
     #----------------------------------------------------------------------------------------------
-    def line_matching(self, word):
+    def line_matching(self, word):                                                           # File
     #----------------------------------------------------------------------------------------------
         """Return the first line matching the word."""
         return next((line for line in self.lines() if word in line), None)
 
     #----------------------------------------------------------------------------------------------
-    def last_line(self):
+    def last_line(self):                                                                     # File
     #----------------------------------------------------------------------------------------------
         """Return the last line of the file."""
         return last_line(self.path)
 
     #----------------------------------------------------------------------------------------------
-    def backup(self, tag, overwrite=False):
+    def backup(self, tag, overwrite=False):                                                  # File
     #----------------------------------------------------------------------------------------------
         """Create a backup copy of the file."""
         backup_file = self.path.with_name(f"{self.stem}{tag}{self.suffix}")
@@ -403,7 +403,7 @@ class File:
             return backup_file
 
     #----------------------------------------------------------------------------------------------
-    def replace_text(self, text=(), pos=()):
+    def replace_text(self, text=(), pos=()):                                                 # File
     #----------------------------------------------------------------------------------------------
         """Replace parts of the file text."""
         data = self.binarydata().decode()
@@ -417,14 +417,14 @@ class File:
         self.write_text(data)
 
     #----------------------------------------------------------------------------------------------
-    def append_bytes(self, data):
+    def append_bytes(self, data):                                                            # File
     #----------------------------------------------------------------------------------------------
         """Append raw bytes to the file."""
         with open(self.path, "ab") as file:
             file.write(data)
 
     #----------------------------------------------------------------------------------------------
-    def write_bytes(self, data):
+    def write_bytes(self, data):                                                             # File
     #----------------------------------------------------------------------------------------------
         """Write bytes directly to disk."""
         with open(self.path, "wb") as file:
