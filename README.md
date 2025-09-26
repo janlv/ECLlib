@@ -51,6 +51,10 @@ The batch script mirrors the UNIX workflow by creating a `.venv_ECLlib` environm
   deactivate
   ```
 
+## Documentation
+
+See the [user manual](docs/user-manual.md) for an overview of the core, I/O, and utility APIs.
+
 ## Quick start
 
 ```python
