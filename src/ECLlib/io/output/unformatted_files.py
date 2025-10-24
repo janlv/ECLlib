@@ -872,7 +872,7 @@ class RSSPEC_file(unfmt_file):                                                  
         self._units = None
 
     #----------------------------------------------------------------------------------------------
-    def units(self, key):
+    def units(self, *keys):
     #----------------------------------------------------------------------------------------------
         """
         Return the unit string for a given key in the UNRST file.
@@ -893,8 +893,9 @@ class RSSPEC_file(unfmt_file):                                                  
                 raise ValueError("Missing 'NAME' or 'UNITS' block in RSSPEC file")
             names, unitvals = blockdata
             self._units = dict(zip(map(str, names), map(str, unitvals)))
-        unit_str = self._units.get(str(key), None)
-        if unit_str is None:
+        unit_str = [self._units.get(str(key), None) for key in keys]
+        if None in unit_str:
+            missing_keys = [key for key, unit in zip(keys, unit_str) if unit is None]
             raise KeyError(
-                f'Key {key} not found in RSSPEC units. Available keys: {list(self._units.keys())}')
+                f'Keys {missing_keys} not found in RSSPEC units. Available keys: {list(self._units.keys())}')
         return unit_str
