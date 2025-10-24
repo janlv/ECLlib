@@ -1,4 +1,19 @@
-"""Formatted output file handlers."""
+"""
+Eclipse/INTERSECT formatted output files
+
+Formatted Eclipse files are written in ASCII text rather than Fortran unformatted
+(binary) format. Each data block is preceded by an 8-character keyword, followed by
+a count of items and a 4-character data type descriptor (e.g. INTE, REAL, DOUB, CHAR).
+They can be inspected and parsed using standard text tools and are useful for
+debugging, validation, or creating reduced datasets for sharing.
+
+File types:
+- FUNRST: Formatted unified restart file containing human-readable cell-based 
+  solution data (pressures, saturations, etc.) for all report steps.
+- RSM: Run summary file containing tabular time-series output (e.g. production 
+  rates, totals, pressures) in a simple column-based text format, readable by 
+  spreadsheets and plotting tools.
+"""
 
 from collections import namedtuple
 from itertools import chain, islice, repeat
@@ -97,7 +112,7 @@ class fmt_block:                                                                
 #==================================================================================================
 class fmt_file(File):                                                                    # fmt_file
 #==================================================================================================
-    """Reader for formatted Eclipse output."""
+    """Base reader for formatted Eclipse output."""
 
     #----------------------------------------------------------------------------------------------
     def __init__(self, filename, **kwargs):                                              # fmt_file
@@ -196,7 +211,14 @@ class fmt_file(File):                                                           
 #==================================================================================================
 class FUNRST_file(fmt_file):                                                          # FUNRST_file
 #==================================================================================================
-    """Parser for formatted UNRST output files."""
+    """
+    FUNRST (Formatted Unified Restart File)
+    ASCII text equivalent of the UNRST binary file. Contains solution data arrays for all active 
+    cells at each report step, including pressures, saturations, and other simulation variables. 
+    Each record begins with a keyword line followed by numeric data in human-readable 
+    scientific notation. Useful for inspection, testing, or data exchange when binary files are 
+    not desired.
+    """
 
     #----------------------------------------------------------------------------------------------
     def __init__(self, filename):                                                     # FUNRST_file
@@ -258,7 +280,14 @@ class RSM_block:                                                                
 #==================================================================================================
 class RSM_file(File):                                                                    # RSM_file
 #==================================================================================================
-    """Reader for Eclipse RSM summary files."""
+    """
+    RSM (Run Summary File)
+    Formatted ASCII summary file containing time-series output vectors for the run.
+    Each row corresponds to a timestep or report step, and each column represents 
+    a simulation variable such as field oil production rate, cumulative production, 
+    or well pressure. Easily readable in spreadsheet or plotting software; often 
+    used for quick visualization and post-processing of performance data.
+    """
 
     #----------------------------------------------------------------------------------------------
     def __init__(self, filename, **kwargs):                                              # RSM_file

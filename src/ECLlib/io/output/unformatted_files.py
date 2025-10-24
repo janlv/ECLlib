@@ -1,4 +1,27 @@
-"""Unformatted output file handlers."""
+"""
+Eclipse/INTERSECT unformatted output file handlers.
+
+Unformatted Eclipse files are Fortran-style binary files written in big-endian mode.  
+Each file consists of successive records, where each record (or "block") is prefixed 
+and suffixed by a 4-byte integer specifying the block size in bytes. Data blocks are 
+identified by 8-character keywords and contain arrays of integers, reals, doubles, 
+logicals, or character strings. The data is ordered according to Fortran array 
+conventions, with the leftmost index varying fastest.
+
+File types:
+- INIT: Initial conditions file containing static grid properties (porosity, permeability)
+  and tabular PVT/saturation data.
+- UNRST: Unified restart file containing solution data arrays (e.g. pressure, saturations)
+  for all active cells at each report step.
+- RFT: Well vector file containing depth, pressure, saturation, and flow data at well
+  connections; may include PLT and multisegment data.
+- UNSMRY: Unified summary file containing time-series vector data (production, injection,
+  etc.) for all report steps.
+- SMSPEC: Summary specification file defining which simulation vectors are written
+  to the summary output.
+- RSSPEC: Restart specification file indexing the vectors, offsets, and metadata
+  for UNRST files.
+"""
 
 from collections import namedtuple
 from datetime import datetime, timedelta
@@ -20,7 +43,13 @@ __all__ = ["INIT_file", "UNRST_file", "RFT_file", "UNSMRY_file", "SMSPEC_file"]
 #==================================================================================================
 class INIT_file(unfmt_file):                                                            # INIT_file
 #==================================================================================================
-    """Reader for Eclipse INIT files."""
+    """
+    INIT (Initialization File)
+    Binary unformatted file containing initial grid properties and tabular data. 
+    Includes arrays for porosity, permeability, transmissibilities, and PVT or 
+    saturation function tables. Represents the static state before the first timestep.
+    """
+
     start = 'INTEHEAD'
 
     #----------------------------------------------------------------------------------------------
@@ -116,7 +145,14 @@ class INIT_file(unfmt_file):                                                    
 #==================================================================================================
 class UNRST_file(unfmt_file):                                                          # UNRST_file
 #==================================================================================================
-    """Reader for Eclipse UNRST restart files."""
+    """
+    Reader for Eclipse UNRST restart files.
+    
+    UNRST (Unified Restart File)
+    Binary unformatted file containing solution data arrays for all active grid cells 
+    at each report step. Includes pressure, phase saturations, and other cell-based variables, 
+    as well as optional well, group, and non-neighbor connection (NNC) data.
+    """
 
     start = 'SEQNUM'
     end = 'ENDSOL'
@@ -365,7 +401,13 @@ class UNRST_file(unfmt_file):                                                   
 #==================================================================================================
 class RFT_file(unfmt_file):                                                              # RFT_file
 #==================================================================================================
-    """Reader for Eclipse RFT files."""
+    """
+    RFT (Well/Reservoir Flow Test File)
+    Binary unformatted vector file storing well-specific data at defined timesteps. 
+    Contains depth, pressure, saturation, and flow rates at each well connection. 
+    May include Production Logging Tool (PLT) and Multisegment Well (MSW) data such 
+    as segment pressures, velocities, and phase holdups.
+    """
 
     start = 'TIME'
     end = 'CONNXT'
@@ -510,8 +552,11 @@ class RFT_file(unfmt_file):                                                     
 class UNSMRY_file(unfmt_file):                                                        # UNSMRY_file
 #==================================================================================================
     """
-    Unformatted unified summary file
-    --------------------------------
+    UNSMRY (Unified Summary File)
+    Binary unformatted file containing time-series vector data for the entire run. 
+    Each record corresponds to a report step or ministep and stores all vectors 
+    defined in the associated SMSPEC file (e.g. production rates, pressures, totals).
+
     A report step is initiated by a SEQHDR keyword, followed by pairs of MINISTEP
     and PARAMS keywords for each ministep. Hence, one sequence might have multiple
     MINISTEP and PARAMS keywords.
@@ -699,7 +744,14 @@ class UNSMRY_file(unfmt_file):                                                  
 #==================================================================================================
 class SMSPEC_file(unfmt_file):                                                        # SMSPEC_file
 #==================================================================================================
-    """Reader for Eclipse SMSPEC files."""
+    """
+    Reader for Eclipse SMSPEC files.
+    
+    SMSPEC (Summary Specification File)
+    Binary unformatted file that defines which vectors (e.g. FOPR, WCT, BHP) are 
+    written to the summary output. Contains metadata such as units, vector names, 
+    grid dimensions, and run start time; required to interpret UNSMRY data.
+    """
 
     start = 'INTEHEAD'
 
@@ -798,3 +850,51 @@ class SMSPEC_file(unfmt_file):                                                  
     #----------------------------------------------------------------------------------------------
         """Return coordinates for wells."""
         return self._ind
+
+
+#==================================================================================================
+class RSSPEC_file(unfmt_file):                                                        # RSSPEC_file
+#==================================================================================================
+    """
+    RSSPEC (Restart Specification File)
+    Binary unformatted index file describing the structure and location of data 
+    arrays in UNRST files. Lists vector names, data types, sizes, and file offsets 
+    for use by post-processors or custom readers.
+    """
+
+    start = 'INTEHEAD'
+
+    #----------------------------------------------------------------------------------------------
+    def __init__(self, file):                                                         # RSSPEC_file
+    #----------------------------------------------------------------------------------------------
+        """Initialize the RSSPEC_file."""
+        super().__init__(file, suffix='.RSSPEC')
+        self._units = None
+
+    #----------------------------------------------------------------------------------------------
+    def units(self, key):
+    #----------------------------------------------------------------------------------------------
+        """
+        Return the unit string for a given key in the UNRST file.
+
+        Args:
+            key (str): The name of the variable whose unit is to be retrieved.
+
+        Returns:
+            str: The unit string associated with the given key.
+
+        Raises:
+            ValueError: If the 'NAME' or 'UNITS' block is missing in the RSSPEC file.
+            KeyError: If the specified key is not found in the units dictionary.
+        """
+        if self._units is None:
+            blockdata = next(self.blockdata('NAME', 'UNITS'), None)
+            if blockdata is None:
+                raise ValueError("Missing 'NAME' or 'UNITS' block in RSSPEC file")
+            names, unitvals = blockdata
+            self._units = dict(zip(map(str, names), map(str, unitvals)))
+        unit_str = self._units.get(str(key), None)
+        if unit_str is None:
+            raise KeyError(
+                f'Key {key} not found in RSSPEC units. Available keys: {list(self._units.keys())}')
+        return unit_str

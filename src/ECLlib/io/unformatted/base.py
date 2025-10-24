@@ -950,6 +950,7 @@ class unfmt_file(File):                                                         
         blocks_func = self.tail_blocks if tail else self.blocks
         start_indx = self.section_start_indices(tail=tail, start=self._endpos if only_new else None)
         # Use pairwise to get start and end positions of each section
+        # TODO: use start argument to skip to correct section
         section_pos = islice(pairwise(start_indx), None)
         blocks_iter = blocks_func(only_new=only_new, **kwargs)
         prev = 0

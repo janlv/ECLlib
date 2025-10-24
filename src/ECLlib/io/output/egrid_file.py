@@ -1,4 +1,12 @@
-"""EGRID output file handler"""
+"""
+Eclipse/INTERSECT EGRID file
+
+The EGRID (Extensible Grid) file is a binary unformatted output-file that defines the 
+complete simulation grid geometry, including corner-point coordinates, local grid 
+refinements (LGRs), inactive cells, and non-neighbor connections (NNCs). It is an 
+extension of the older GRID format, designed for efficiency and flexibility, and is 
+used for both structured and unstructured grid representations.
+"""
 
 from itertools import product, repeat
 from math import hypot, prod
@@ -15,7 +23,8 @@ __all__ = ["EGRID_file"]
 #==================================================================================================
 class EGRID_file(unfmt_file):                                                          # EGRID_file
 #==================================================================================================
-    """Interface for reading Eclipse EGRID files."""
+    """Reader of Eclipse EGRID files."""
+
     start = 'FILEHEAD'
     end = 'ENDGRID'
     #----------------------------------------------------------------------------------------------

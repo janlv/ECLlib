@@ -1,5 +1,12 @@
-
-# -*- coding: utf-8 -*-
+"""
+GSG (Grid Simulation Geometry File)
+Binary unformatted file that stores geometric and structural information linking
+the simulation grid to its geological or Petrel model origin. Contains grid-cell
+mapping, partitioning, and geometry references used to maintain consistency
+between Petrel grids and Eclipse/INTERSECT simulation grids. Primarily used by
+Petrel and related SLB tools for grid transfer and synchronization, not required
+for standalone simulation runs.
+"""
 
 from collections import defaultdict, namedtuple
 from itertools import repeat, zip_longest
