@@ -191,13 +191,54 @@ class unfmt_block:                                                              
     #----------------------------------------------------------------------------------------------
     def from_data(cls, key:str, data, _dtype):                                        # unfmt_block
     #----------------------------------------------------------------------------------------------
-        """Create an instance from existing data."""
-        dtype = {'int':b'INTE', 'float':b'REAL', 'double':b'DOUB',
-                 'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'}[_dtype]
-        if isinstance(data, ndarray) and data.ndim > 1:
-            # Flatten multi-dimensional arrays
-            data = data.flatten(order='F')
-        header = unfmt_header(ensure_bytestring(key.ljust(8)[:8]), len(data), dtype)
+        """
+        Create an unfmt_block instance from data.
+
+        Parameters
+        ----------
+        key : str
+            Block identifier (padded/truncated to 8 bytes).
+        data : array_like
+            Input data. Multi-dimensional arrays flattened in Fortran order.
+        _dtype : str
+            Data type: 'int', 'float', 'double', 'bool', 'char', or 'mess'.
+
+        Returns
+        -------
+        cls
+            New instance with header and data.
+
+        Raises
+        ------
+        ValueError
+            If _dtype is invalid.
+        """
+
+        # Map internal dtype codes
+        dtype_map = {
+            'int':b'INTE', 'float':b'REAL', 'double':b'DOUB',
+            'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'
+        }
+
+        # Try to resolve dtype, with clean error chaining
+        try:
+            dtype = dtype_map[_dtype]
+        except KeyError as error:
+            raise ValueError(f"Unknown dtype: {_dtype!r}. Valid options: {list(dtype_map)}") from error
+
+        # Ensure input is ndarray (no copy if already one)
+        data = asarray(data)
+
+        # Flatten multi-dimensional arrays in Fortran (column-major) order
+        # (1D arrays have the same order in C and Fortran)
+        if data.ndim > 1:
+            data = data.ravel(order='F')
+
+        # Build header (pad/truncate key to 8 bytes)
+        k = ensure_bytestring(key.ljust(8)[:8])
+        header = unfmt_header(k, int(data.size), dtype)
+
+        # Return instance
         return cls(header, data)
 
     #----------------------------------------------------------------------------------------------
