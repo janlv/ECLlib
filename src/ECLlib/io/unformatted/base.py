@@ -197,7 +197,7 @@ class unfmt_block:                                                              
         if isinstance(data, ndarray) and data.ndim > 1:
             # Flatten multi-dimensional arrays
             data = data.flatten(order='F')
-        header = unfmt_header(ensure_bytestring(key.ljust(8)), len(data), dtype)
+        header = unfmt_header(ensure_bytestring(key.ljust(8)[:8]), len(data), dtype)
         return cls(header, data)
 
     #----------------------------------------------------------------------------------------------
