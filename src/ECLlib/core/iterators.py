@@ -5,7 +5,7 @@ import inspect
 
 
 #==================================================================================================
-class RefreshIterator:
+class AutoRefreshIterator:
 #==================================================================================================
     """Iterator wrapper that refreshes itself when exhausted."""
 

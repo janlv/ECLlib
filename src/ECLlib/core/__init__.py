@@ -1,7 +1,7 @@
 """Core primitives used throughout :mod:`ECLlib`."""
 from .datatypes import DTYPE, DTYPE_LIST, Dtyp
 from .file import File
-from .iterators import RefreshIterator
+from .iterators import AutoRefreshIterator
 from .restart import Restart
 
 __all__ = [
@@ -9,6 +9,6 @@ __all__ = [
     "DTYPE_LIST",
     "Dtyp",
     "File",
-    "RefreshIterator",
+    "AutoRefreshIterator",
     "Restart",
 ]

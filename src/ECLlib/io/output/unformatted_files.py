@@ -32,7 +32,7 @@ from operator import attrgetter, itemgetter
 from matplotlib.pyplot import figure as pl_figure
 from numpy import array as nparray, sum as npsum, stack
 
-from ...core import File
+from ...core import File, AutoRefreshIterator
 from ..unformatted.base import unfmt_block, unfmt_file
 from ...utils import cumtrapz, flatten, flatten_all, grouper, remove_chars
 
@@ -347,6 +347,44 @@ class UNRST_file(unfmt_file):                                                   
         if not stop:
             raise ValueError('Either days or date must be given')
         return next(i for i,val in enumerate(data_func()) if val >= stop)
+
+
+    #----------------------------------------------------------------------------------------------
+    def section_copy_slices(self, keys=None, only_new=False):                          # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        # Yield header and optional data slices for each section.
+        keys = tuple(keys or ())
+        keyset = set(keys)
+        for section in self.section_blocks(only_new=only_new):
+            step = -1
+            header_start = None
+            header_slice = None
+            data_slices = []
+            in_data = False
+            for block in section:
+                if self.start in block:
+                    step = block.data()[0]
+                    header_start = block.startpos
+                if block.key() == 'STARTSOL':
+                    header_slice = slice(header_start, block.endpos)
+                    in_data = True
+                    continue
+                if block.key() == 'ENDSOL':
+                    break
+                if in_data and keyset and block.key() in keyset:
+                    data_slices.append(slice(block.startpos, block.endpos))
+            yield (step, header_slice, tuple(data_slices))
+
+    #----------------------------------------------------------------------------------------------
+    def section_copy_iter(self, keys=None, only_new=False):                            # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        # Return a AutoRefreshIterator over section_copy_slices.
+        #
+        # Note:
+        #   The AutoRefresIterator is useful for the UNRST-files that are actively written
+        #   since the iterator automatically refreshes when exhausted to capture new sections
+        #   written after the iterator was created.
+        return AutoRefreshIterator(self.section_copy_slices, keys, only_new=only_new)
 
 
     #----------------------------------------------------------------------------------------------

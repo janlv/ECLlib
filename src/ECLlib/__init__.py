@@ -6,7 +6,7 @@
 # setuptools_scm will automatically detect this tag and set the version accordingly.
 from ._version import version as __version__
 
-from .core import File, RefreshIterator, Restart
+from .core import File, AutoRefreshIterator, Restart
 from .io.input import DATA_file
 from .io.output import (
     EGRID_file,
@@ -57,7 +57,7 @@ __all__ = [
     "unfmt_file",
     "Restart",
     "unfmt_block",
-    "RefreshIterator",
+    "AutoRefreshIterator",
     "File_checker",
     "read_GSG",
     "write_GSG",
