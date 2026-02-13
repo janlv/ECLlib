@@ -30,14 +30,25 @@ from itertools import groupby, islice, product, repeat
 from operator import attrgetter, itemgetter
 
 from matplotlib.pyplot import figure as pl_figure
-from numpy import array as nparray, sum as npsum, stack
+from numpy import array as nparray, empty as npempty, sum as npsum, stack
 
 from ...core import File, AutoRefreshIterator
 from ..unformatted.base import unfmt_block, unfmt_file
-from ...utils import cumtrapz, flatten, flatten_all, grouper, remove_chars
+from ...utils import cumtrapz, flatten, flatten_all, remove_chars
 
 
-__all__ = ["INIT_file", "UNRST_file", "RFT_file", "UNSMRY_file", "SMSPEC_file"]
+__all__ = [
+    "INIT_file",
+    "UNRST_file",
+    "RFT_file",
+    "UNSMRY_file",
+    "SMSPEC_file",
+    "RSSPEC_file",
+    "NumIndexedValue",
+]
+
+SummaryVector = namedtuple("SummaryVector", "index key name num unit measure")
+NumIndexedValue = namedtuple("NumIndexedValue", "key well num ijk value")
 
 
 #==================================================================================================
@@ -649,6 +660,97 @@ class UNSMRY_file(unfmt_file):                                                  
             yield codes[stype[0]]
 
     #----------------------------------------------------------------------------------------------
+    @staticmethod
+    def _contiguous_limits(indices):                                                   # UNSMRY_file
+    #----------------------------------------------------------------------------------------------
+        """Return contiguous [start, stop) slices from sorted index positions."""
+        if not indices:
+            return ()
+        limits = []
+        first = indices[0]
+        last = first + 1
+        for index in indices[1:]:
+            if index == last:
+                last += 1
+            else:
+                limits.append((first, last))
+                first = index
+                last = index + 1
+        limits.append((first, last))
+        return tuple(limits)
+
+    #----------------------------------------------------------------------------------------------
+    def num_indexed_vectors(self, keys=(), only_new=False, start=0, stop=None, step=1,
+                            **kwargs):                                                  # UNSMRY_file
+    #----------------------------------------------------------------------------------------------
+        """Yield day and NUM-indexed summary vectors mapped to zero-based (i,j,k)."""
+        # Normalize `keys` so both "CWVFR" and ("CWVFR", "CWPRL") behave consistently.
+        key_patterns = self.spec._normalize_filter_input(keys)
+        if key_patterns:
+            # Select vectors in SMSPEC order, then reorder by requested key-pattern order.
+            vectors = self.spec.select_vectors(keys=key_patterns)
+            if not vectors:
+                raise ValueError(f'No summary vectors matched keys={key_patterns}')
+            if invalid := sorted({v.key for v in vectors if v.num <= 0}):
+                raise ValueError(
+                    f'num_indexed_vectors only supports vectors with NUM > 0. '
+                    f'Invalid keys: {invalid}'
+                )
+            # Requested-key order, then SMSPEC order within each key
+            key_order = []
+            for pattern in key_patterns:
+                for vector in vectors:
+                    if fnmatch(vector.key, pattern) and vector.key not in key_order:
+                        key_order.append(vector.key)
+            vectors = tuple(vector for key in key_order for vector in vectors if vector.key == key)
+        else:
+            # Default mode: include all vectors that carry a positive NUM mapping.
+            vectors = tuple(vector for vector in self.spec.select_vectors() if vector.num > 0)
+            if not vectors:
+                raise ValueError('No NUM-indexed summary vectors found (NUM > 0)')
+
+        init = INIT_file(self.path)
+        if not init.is_file():
+            raise FileNotFoundError(f'Unable to map NUM to ijk because {init} is missing')
+
+        nums = tuple(sorted(set(vector.num for vector in vectors)))
+        ijk = init.cell_ijk(*nums)
+        # Precompute NUM -> (i,j,k) once to avoid per-timestep remapping.
+        num_to_ijk = {num: tuple(int(i) for i in xyz) for num, xyz in zip(nums, ijk)}
+
+        indices = tuple(vector.index for vector in vectors)
+        # Merge adjacent PARAMS indices so blockdata can read fewer contiguous slices.
+        limits = self._contiguous_limits(indices)
+        keylim = ['PARAMS', 0]
+        for start_i, stop_i in limits:
+            keylim.extend(('PARAMS', start_i, stop_i))
+
+        # Native blockdata cursor handles only_new/endpos semantics for streaming updates.
+        reader = self.blockdata(*keylim, singleton=True, only_new=only_new, **kwargs)
+        reader = islice(reader, start, stop, step)
+        for data in reader:
+            # First extracted slice is day (PARAMS[0]), remaining slices are selected vectors.
+            day_data = data[0]
+            day = float(day_data[0]) if day_data.size else 0.0
+            chunks = data[1:]
+            if len(chunks) == 1:
+                # Fast path: selected vector indices are contiguous, no assembly needed.
+                values = chunks[0]
+            else:
+                # Assemble split slices back into one vector-value array in selection order.
+                values = npempty(len(vectors), dtype=chunks[0].dtype)
+                pos = 0
+                for chunk in chunks:
+                    end = pos + chunk.size
+                    values[pos:end] = chunk
+                    pos = end
+            props = tuple(
+                NumIndexedValue(vector.key, vector.name, vector.num, num_to_ijk[vector.num], values[i])
+                for i, vector in enumerate(vectors)
+            )
+            yield (day, props)
+
+    #----------------------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False,
                  named=False, start=0, stop=None, step=1, **kwargs):                  # UNSMRY_file
     #----------------------------------------------------------------------------------------------
@@ -792,6 +894,7 @@ class SMSPEC_file(unfmt_file):                                                  
     """
 
     start = 'INTEHEAD'
+    Data = namedtuple('Data', 'keys wells measures units nums', defaults=5*(None,))
 
     #----------------------------------------------------------------------------------------------
     def __init__(self, file):                                                         # SMSPEC_file
@@ -802,8 +905,75 @@ class SMSPEC_file(unfmt_file):                                                  
         self._ind = ()
         self.measures = ()
         self.wells = ()
-        self.data = ()
-        #self.wellkey = None
+        self.data = self.Data()
+        self._vector_meta = None
+
+    #----------------------------------------------------------------------------------------------
+    def _load_vector_metadata(self):                                                   # SMSPEC_file
+    #----------------------------------------------------------------------------------------------
+        """Read and cache vector metadata from SMSPEC."""
+        if self._vector_meta is not None:
+            return self._vector_meta
+        self._vector_meta = ()
+        self.data = self.Data()
+        if not self.is_file():
+            return self._vector_meta
+        # Do not use mmap here because SMSPEC may be truncated while writing.
+        blockdata = next(
+            self.blockdata('KEYWORDS', '*NAMES', 'NUMS', 'MEASRMNT', 'UNITS', use_mmap=False), None
+        )
+        if blockdata is None:
+            return self._vector_meta
+        keys_raw, names_raw, nums_raw, measures_raw, units_raw = blockdata
+        keys = tuple(keys_raw.tolist())
+        names = tuple(names_raw.tolist())
+        nums = tuple(int(n) for n in nums_raw.tolist())
+        units = tuple(units_raw.tolist())
+        measures = ()
+        if len(keys):
+            n_measures = len(measures_raw)
+            width = n_measures // len(keys) if n_measures else 0
+            if width:
+                measure_chars = measures_raw.tolist()
+                measures = tuple(
+                    ''.join(measure_chars[i*width:(i + 1)*width]) for i in range(len(keys))
+                )
+            else:
+                measures = ('',) * len(keys)
+        self.data = self.Data(keys, names, measures, units, nums)
+        self._vector_meta = tuple(
+            SummaryVector(i, key, name, num, unit, measure)
+            for i, (key, name, num, unit, measure) in enumerate(
+                zip(keys, names, nums, units, measures)
+            )
+        )
+        return self._vector_meta
+
+    #----------------------------------------------------------------------------------------------
+    @staticmethod
+    def _normalize_filter_input(values):                                               # SMSPEC_file
+    #----------------------------------------------------------------------------------------------
+        """Normalize singleton and iterable filter inputs to tuples."""
+        if values in (None, (), [], ''):
+            return ()
+        if isinstance(values, bytes):
+            return (values.decode(),)
+        if isinstance(values, str):
+            return (values,)
+        try:
+            return tuple(values)
+        except TypeError:
+            return (values,)
+
+    #----------------------------------------------------------------------------------------------
+    def meta(self, *keys):                                                            # SMSPEC_file
+    #----------------------------------------------------------------------------------------------
+        """"Return metadata for summary vectors, optionally filtered by key patterns."""
+        if not self._vector_meta:
+            self._load_vector_metadata()
+        if not keys:
+             return self._vector_meta
+        return [m for m in self._vector_meta if m.key.startswith(keys)]
 
     #----------------------------------------------------------------------------------------------
     def list_keys(self):                                                              # SMSPEC_file
@@ -813,6 +983,30 @@ class SMSPEC_file(unfmt_file):                                                  
         return sorted(set(keys.tolist()))
 
     #----------------------------------------------------------------------------------------------
+    def select_vectors(self, keys=(), names=(), nums=()):                             # SMSPEC_file
+    #----------------------------------------------------------------------------------------------
+        """Select vectors from SMSPEC metadata preserving original order."""
+        vectors = self._load_vector_metadata()
+        if not vectors:
+            return ()
+        key_patterns = self._normalize_filter_input(keys)
+        name_patterns = self._normalize_filter_input(names)
+        num_values = self._normalize_filter_input(nums)
+        num_filter = {int(n) for n in num_values}
+        if not key_patterns and not name_patterns and not num_filter:
+            return vectors
+        selected = []
+        for vec in vectors:
+            if key_patterns and not any(fnmatch(vec.key, pattern) for pattern in key_patterns):
+                continue
+            if name_patterns and not any(fnmatch(vec.name, pattern) for pattern in name_patterns):
+                continue
+            if num_filter and vec.num not in num_filter:
+                continue
+            selected.append(vec)
+        return tuple(selected)
+
+    #----------------------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), named=False):                               # SMSPEC_file
     #----------------------------------------------------------------------------------------------
         """Return data for the requested well."""
@@ -820,12 +1014,7 @@ class SMSPEC_file(unfmt_file):                                                  
         self._inkeys = keys
         if not self.is_file():
             return False
-        Data = namedtuple('Data','keys wells measures units', defaults=4*(None,))
-        # Do not use mmap here because the SMSPEC-file might 
-        # get truncated while mmap'ed which will cause a bus-error
-        blockdata = next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False), None)
-        self.data = Data(*(bd.tolist() for bd in blockdata)) if blockdata else Data()
-        #self.data = Data(*next(self.blockdata('KEYWORDS', '*NAMES', 'MEASRMNT', 'UNITS', use_mmap=False), ()))
+        self._load_vector_metadata()
         if self.data.keys and self.data.wells and self.data.units:
             keys = keys or set(self.data.keys)
             all_wells = set(w for w in self.data.wells if w and not '+' in w)
@@ -840,9 +1029,7 @@ class SMSPEC_file(unfmt_file):                                                  
             if self._ind:
                 getter = itemgetter(*self._ind)
                 if self.data.measures:
-                    width = len(self.data.measures)//max(len(self.data.keys), 1)
-                    measure_strings = map(''.join, grouper(self.data.measures, width))
-                    self.measures = getter(tuple(measure_strings))
+                    self.measures = getter(tuple(self.data.measures))
                 if named:
                     self.wells = getter(tuple(w.replace('-','_') for w in self.data.wells))
                 else:
