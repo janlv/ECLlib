@@ -44,11 +44,13 @@ __all__ = [
     "UNSMRY_file",
     "SMSPEC_file",
     "RSSPEC_file",
-    "NumIndexedValue",
+    "NameIndexedValues",
+    "KeyIndexedValues",
 ]
 
 SummaryVector = namedtuple("SummaryVector", "index key name num unit measure")
-NumIndexedValue = namedtuple("NumIndexedValue", "key well num ijk value")
+NameIndexedValues = namedtuple("NameIndexedValues", "name pos values")
+KeyIndexedValues = namedtuple("KeyIndexedValues", "key groups")
 
 
 #==================================================================================================
@@ -663,7 +665,7 @@ class UNSMRY_file(unfmt_file):                                                  
     @staticmethod
     def _contiguous_limits(indices):                                                   # UNSMRY_file
     #----------------------------------------------------------------------------------------------
-        """Return contiguous [start, stop) slices from sorted index positions."""
+        """Return contiguous [start, stop) slices from index positions in traversal order."""
         if not indices:
             return ()
         limits = []
@@ -680,75 +682,126 @@ class UNSMRY_file(unfmt_file):                                                  
         return tuple(limits)
 
     #----------------------------------------------------------------------------------------------
-    def num_indexed_vectors(self, keys=(), only_new=False, start=0, stop=None, step=1,
-                            **kwargs):                                                  # UNSMRY_file
+    def _select_num_vectors(self, keys):                                               # UNSMRY_file
     #----------------------------------------------------------------------------------------------
-        """Yield day and NUM-indexed summary vectors mapped to zero-based (i,j,k)."""
-        # Normalize `keys` so both "CWVFR" and ("CWVFR", "CWPRL") behave consistently.
+        """Return vectors with valid NUM mapping in deterministic logical order."""
         key_patterns = self.spec._normalize_filter_input(keys)
         if key_patterns:
-            # Select vectors in SMSPEC order, then reorder by requested key-pattern order.
             vectors = self.spec.select_vectors(keys=key_patterns)
             if not vectors:
                 raise ValueError(f'No summary vectors matched keys={key_patterns}')
-            if invalid := sorted({v.key for v in vectors if v.num <= 0}):
+            if invalid := sorted({vector.key for vector in vectors if vector.num <= 0}):
                 raise ValueError(
                     f'num_indexed_vectors only supports vectors with NUM > 0. '
                     f'Invalid keys: {invalid}'
                 )
-            # Requested-key order, then SMSPEC order within each key
             key_order = []
             for pattern in key_patterns:
                 for vector in vectors:
                     if fnmatch(vector.key, pattern) and vector.key not in key_order:
                         key_order.append(vector.key)
-            vectors = tuple(vector for key in key_order for vector in vectors if vector.key == key)
-        else:
-            # Default mode: include all vectors that carry a positive NUM mapping.
-            vectors = tuple(vector for vector in self.spec.select_vectors() if vector.num > 0)
-            if not vectors:
-                raise ValueError('No NUM-indexed summary vectors found (NUM > 0)')
+            return tuple(vector for key in key_order for vector in vectors if vector.key == key)
+        vectors = tuple(vector for vector in self.spec.select_vectors() if vector.num > 0)
+        if not vectors:
+            raise ValueError('No NUM-indexed summary vectors found (NUM > 0)')
+        return vectors
+
+    #----------------------------------------------------------------------------------------------
+    def _prepare_num_plan(self, vectors, only_new=False, **kwargs):                   # UNSMRY_file
+    #----------------------------------------------------------------------------------------------
+        """Build monotonic reader and grouped metadata for NUM-indexed vectors."""
+        read_order = nparray([vector.index for vector in vectors], dtype=int).argsort(kind='stable')
+        read_vectors = tuple(vectors[int(i)] for i in read_order)
+        read_pos_by_logical = npempty(len(vectors), dtype=int)
+        for read_pos, logical_pos in enumerate(read_order):
+            read_pos_by_logical[int(logical_pos)] = read_pos
 
         init = INIT_file(self.path)
         if not init.is_file():
             raise FileNotFoundError(f'Unable to map NUM to ijk because {init} is missing')
-
-        nums = tuple(sorted(set(vector.num for vector in vectors)))
+        nums = tuple(sorted({vector.num for vector in vectors}))
         ijk = init.cell_ijk(*nums)
-        # Precompute NUM -> (i,j,k) once to avoid per-timestep remapping.
         num_to_ijk = {num: tuple(int(i) for i in xyz) for num, xyz in zip(nums, ijk)}
 
-        indices = tuple(vector.index for vector in vectors)
-        # Merge adjacent PARAMS indices so blockdata can read fewer contiguous slices.
-        limits = self._contiguous_limits(indices)
-        keylim = ['PARAMS', 0]
-        for start_i, stop_i in limits:
-            keylim.extend(('PARAMS', start_i, stop_i))
+        grouped = {}
+        for logical_pos, vector in enumerate(vectors):
+            by_name = grouped.setdefault(vector.key, {})
+            row = by_name.setdefault(vector.name, {'read_pos': [], 'ipos': [], 'jpos': [], 'kpos': []})
+            row['read_pos'].append(int(read_pos_by_logical[logical_pos]))
+            ipos, jpos, kpos = num_to_ijk[vector.num]
+            row['ipos'].append(ipos)
+            row['jpos'].append(jpos)
+            row['kpos'].append(kpos)
 
-        # Native blockdata cursor handles only_new/endpos semantics for streaming updates.
+        key_name_groups = []
+        for key, by_name in grouped.items():
+            name_groups = []
+            for name, row in by_name.items():
+                read_pos = nparray(row['read_pos'], dtype=int)
+                pos = (
+                    nparray(row['ipos'], dtype=int),
+                    nparray(row['jpos'], dtype=int),
+                    nparray(row['kpos'], dtype=int),
+                )
+                name_groups.append((name, read_pos, pos))
+            key_name_groups.append((key, tuple(name_groups)))
+        key_name_groups = tuple(key_name_groups)
+
+        keylim = ['PARAMS', 0]
+        for start_i, stop_i in self._contiguous_limits(tuple(vector.index for vector in read_vectors)):
+            keylim.extend(('PARAMS', start_i, stop_i))
         reader = self.blockdata(*keylim, singleton=True, only_new=only_new, **kwargs)
+        return reader, key_name_groups, len(read_vectors)
+
+    #----------------------------------------------------------------------------------------------
+    @staticmethod
+    def _assemble_chunks(chunks, size):                                                # UNSMRY_file
+    #----------------------------------------------------------------------------------------------
+        """Assemble potentially split contiguous slices into one value array."""
+        if len(chunks) == 1:
+            return chunks[0]
+        values = npempty(size, dtype=chunks[0].dtype)
+        pos = 0
+        for chunk in chunks:
+            end = pos + chunk.size
+            values[pos:end] = chunk
+            pos = end
+        return values
+
+    def num_indexed_vectors(self, keys=(), only_new=False, start=0, stop=None, step=1,
+                            **kwargs):                                                  # UNSMRY_file
+    #----------------------------------------------------------------------------------------------
+        """
+        Yield `(day, key_groups)` for NUM-indexed vectors mapped to zero-based `(i,j,k)`.
+
+        `key_groups` is a tuple of `KeyIndexedValues`, each containing grouped
+        `NameIndexedValues(name, pos, values)` in deterministic order:
+        requested key-pattern order, then SMSPEC order within each key.
+
+        Examples:
+            `keys=('CWVFR',)` returns one key group for `CWVFR`.
+            `keys=('CW*',)` returns multiple key groups, ordered by requested pattern.
+        """
+        vectors = self._select_num_vectors(keys)
+        reader, key_name_groups, nvalues = self._prepare_num_plan(
+            vectors, only_new=only_new, **kwargs
+        )
         reader = islice(reader, start, stop, step)
         for data in reader:
-            # First extracted slice is day (PARAMS[0]), remaining slices are selected vectors.
-            day_data = data[0]
+            day_data, *chunks = data
             day = float(day_data[0]) if day_data.size else 0.0
-            chunks = data[1:]
-            if len(chunks) == 1:
-                # Fast path: selected vector indices are contiguous, no assembly needed.
-                values = chunks[0]
-            else:
-                # Assemble split slices back into one vector-value array in selection order.
-                values = npempty(len(vectors), dtype=chunks[0].dtype)
-                pos = 0
-                for chunk in chunks:
-                    end = pos + chunk.size
-                    values[pos:end] = chunk
-                    pos = end
-            props = tuple(
-                NumIndexedValue(vector.key, vector.name, vector.num, num_to_ijk[vector.num], values[i])
-                for i, vector in enumerate(vectors)
+            values = self._assemble_chunks(chunks, nvalues)
+            key_groups = tuple(
+                KeyIndexedValues(
+                    key,
+                    tuple(
+                        NameIndexedValues(name, pos, values[read_pos])
+                        for name, read_pos, pos in name_groups
+                    ),
+                )
+                for key, name_groups in key_name_groups
             )
-            yield (day, props)
+            yield day, key_groups
 
     #----------------------------------------------------------------------------------------------
     def welldata(self, keys=(), wells=(), only_new=False, as_array=False,

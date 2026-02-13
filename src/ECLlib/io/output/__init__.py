@@ -2,7 +2,7 @@
 
 from .egrid_file import EGRID_file
 from .unformatted_files import (INIT_file, RFT_file, SMSPEC_file, UNRST_file, UNSMRY_file,
-                                RSSPEC_file, NumIndexedValue)
+                                RSSPEC_file, NameIndexedValues, KeyIndexedValues)
 from .textual_files import MSG_file, PRTX_file, PRT_file, text_file
 from .formatted_files import FUNRST_file, RSM_block, RSM_file, fmt_block, fmt_file
 
@@ -14,7 +14,8 @@ __all__ = [
     "UNSMRY_file",
     "RSSPEC_file",
     "SMSPEC_file",
-    "NumIndexedValue",
+    "NameIndexedValues",
+    "KeyIndexedValues",
     "text_file",
     "MSG_file",
     "PRT_file",

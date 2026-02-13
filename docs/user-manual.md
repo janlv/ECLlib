@@ -147,6 +147,31 @@ directory to a new grid resolution, keeping backups under `GSG_backup`.
   numbers to `(i, j, k)` indices, and `UNRST_file.celldata()` aggregates per-cell time
   series.
 
+`UNSMRY_file.num_indexed_vectors(keys=(), only_new=False, start=0, stop=None, step=1)`
+streams grouped NUM-indexed vectors as `(day, key_groups)`, where:
+
+- `key_groups` is a tuple of `KeyIndexedValues(key, groups)`.
+- Each `groups` entry is `NameIndexedValues(name, pos, values)`.
+- `pos` is `(i_arr, j_arr, k_arr)` with zero-based NumPy integer arrays.
+- `values` is a NumPy array aligned with `pos`.
+
+Example (`CWVFR`):
+
+```python
+for day, key_groups in unsmry.num_indexed_vectors(keys=("CWVFR",), start=1):
+    cwvfr = key_groups[0]
+    for group in cwvfr.groups:
+        print(day, cwvfr.key, group.name, group.pos, group.values)
+```
+
+Example (multi-key wildcard):
+
+```python
+for day, key_groups in unsmry.num_indexed_vectors(keys=("CW*",), start=1):
+    for key_group in key_groups:
+        print(day, key_group.key, len(key_group.groups))
+```
+
 `EGRID_file` also builds on `unfmt_file` but focuses on grid geometry. It adds
 `nijk()`, `coord_zcorn()`, and `grid()` helpers and can assemble a `pyvista.UnstructuredGrid`
 for visualisation.
