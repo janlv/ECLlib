@@ -768,6 +768,7 @@ class UNSMRY_file(unfmt_file):                                                  
             pos = end
         return values
 
+    #----------------------------------------------------------------------------------------------
     def num_indexed_vectors(self, keys=(), only_new=False, start=0, stop=None, step=1,
                             **kwargs):                                                  # UNSMRY_file
     #----------------------------------------------------------------------------------------------

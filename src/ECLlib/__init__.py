@@ -7,64 +7,29 @@
 from ._version import version as __version__
 
 from .core import File, AutoRefreshIterator, Restart
-from .io.input import DATA_file
-from .io.output import (
-    EGRID_file,
-    FUNRST_file,
-    INIT_file,
-    MSG_file,
-    PRTX_file,
-    PRT_file,
-    RFT_file,
-    RSM_block,
-    RSM_file,
-    SMSPEC_file,
-    UNRST_file,
-    UNSMRY_file,
-    NameIndexedValues,
-    KeyIndexedValues,
-    RSSPEC_file,
-    fmt_block,
-    fmt_file,
-    text_file,
+from .io.input.eclipse import DATA_file
+from .io.input.gsgfile import (
+    PROP_data, read_prop_file, write_prop_file, change_resolution, read_GSG, write_GSG
 )
 from .io.input.intersect import AFI_file, IXF_file, IX_input
+
+from .io.output import (
+    EGRID_file, FUNRST_file, INIT_file, MSG_file, PRTX_file, PRT_file, 
+    RFT_file, RSM_block, RSM_file, SMSPEC_file, UNRST_file, UNSMRY_file,
+    NameIndexedValues, KeyIndexedValues, RSSPEC_file, fmt_block, fmt_file, text_file,
+)
 from .io.unformatted.base import ENDSOL, unfmt_block, unfmt_file
 from .io.output.file_checker import File_checker
-from .io.input.gsgfile import change_resolution, read_GSG, write_GSG
 
 __all__ = [
     "__version__",
-    "File",
+    "File", "AutoRefreshIterator", "Restart",
     "DATA_file",
-    "EGRID_file",
-    "INIT_file",
-    "UNRST_file",
-    "RFT_file",
-    "UNSMRY_file",
-    "RSSPEC_file",
-    "SMSPEC_file",
-    "NameIndexedValues",
-    "KeyIndexedValues",
-    "text_file",
-    "MSG_file",
-    "PRT_file",
-    "PRTX_file",
-    "fmt_block",
-    "fmt_file",
-    "FUNRST_file",
-    "RSM_block",
-    "RSM_file",
-    "AFI_file",
-    "IXF_file",
-    "IX_input",
-    "unfmt_file",
-    "Restart",
-    "unfmt_block",
-    "AutoRefreshIterator",
+    "PROP_data", "read_prop_file", "write_prop_file", "change_resolution", "read_GSG", "write_GSG",
+    "AFI_file", "IXF_file", "IX_input",
+    "EGRID_file", "FUNRST_file", "INIT_file", "MSG_file", "PRTX_file", "PRT_file",
+    "RFT_file", "RSM_block", "RSM_file", "SMSPEC_file", "UNRST_file", "UNSMRY_file",
+    "NameIndexedValues", "KeyIndexedValues", "RSSPEC_file", "fmt_block", "fmt_file", "text_file",
+    "ENDSOL", "unfmt_file", "unfmt_block",
     "File_checker",
-    "read_GSG",
-    "write_GSG",
-    "change_resolution",
-    "ENDSOL",
 ]
