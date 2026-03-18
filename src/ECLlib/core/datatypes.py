@@ -25,7 +25,7 @@ DTYPE = {
     b"INTE": Dtyp("INTE", "i", 4, 1000, "i4"),
     b"REAL": Dtyp("REAL", "f", 4, 1000, "f4"),
     b"DOUB": Dtyp("DOUB", "d", 8, 1000, "f8"),
-    b"LOGI": Dtyp("LOGI", "i", 4, 1000, "b1"),
+    b"LOGI": Dtyp("LOGI", "i", 4, 1000, "i4"),
     b"CHAR": Dtyp("CHAR", "s", 8, 105, "S8"),
     b"C008": Dtyp("C008", "s", 8, 105, "S8"),
     b"C009": Dtyp("C009", "s", 9, 105, "S9"),

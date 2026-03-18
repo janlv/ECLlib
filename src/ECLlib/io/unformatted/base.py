@@ -8,7 +8,7 @@ from struct import pack, unpack, error as struct_error
 from numpy import (array as nparray, asarray, char as npchar, cumsum, dtype as npdtype,
     frombuffer, ndarray, split as npsplit)
 
-from ...core import File, DTYPE
+from ...core import BlockSpec, File, DTYPE
 from ...config import DEBUG, ENDIAN
 from ...utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all,
     index_limits, match_in_wildlist, nth, pad, pairwise, slice_range, string_split, take)
@@ -189,6 +189,20 @@ class unfmt_block:                                                              
 
     @classmethod
     #----------------------------------------------------------------------------------------------
+    def from_spec(cls, spec:BlockSpec):                                               # unfmt_block
+    #----------------------------------------------------------------------------------------------
+        """Create an unfmt_block instance from a :class:`BlockSpec`."""
+        dtype_map = {
+            'int':b'INTE', 'float':b'REAL', 'double':b'DOUB',
+            'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'
+        }
+        dtype = dtype_map[spec.dtype]
+        data = spec.array()
+        header = unfmt_header(ensure_bytestring(spec.key.ljust(8)[:8]), int(data.size), dtype)
+        return cls(header, data)
+
+    @classmethod
+    #----------------------------------------------------------------------------------------------
     def from_data(cls, key:str, data, _dtype):                                        # unfmt_block
     #----------------------------------------------------------------------------------------------
         """
@@ -214,39 +228,14 @@ class unfmt_block:                                                              
             If _dtype is invalid.
         """
 
-        # Map internal dtype codes
-        dtype_map = {
-            'int':b'INTE', 'float':b'REAL', 'double':b'DOUB',
-            'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'
-        }
-
-        # Try to resolve dtype, with clean error chaining
-        try:
-            dtype = dtype_map[_dtype]
-        except KeyError as error:
-            raise ValueError(f"Unknown dtype: {_dtype!r}. Valid options: {list(dtype_map)}") from error
-
-        # Ensure input is ndarray (no copy if already one)
-        data = asarray(data)
-
-        # Flatten multi-dimensional arrays in Fortran (column-major) order
-        # (1D arrays have the same order in C and Fortran)
-        if data.ndim > 1:
-            data = data.ravel(order='F')
-
-        # Build header (pad/truncate key to 8 bytes)
-        k = ensure_bytestring(key.ljust(8)[:8])
-        header = unfmt_header(k, int(data.size), dtype)
-
-        # Return instance
-        return cls(header, data)
+        return cls.from_spec(BlockSpec(key=key, data=data, dtype=_dtype))
 
     #----------------------------------------------------------------------------------------------
     def binarydata(self):                                                             # unfmt_block
     #----------------------------------------------------------------------------------------------
         """Return the file contents as bytes."""
         sl = slice(self.header.startpos, self.header.endpos)
-        if self._data:
+        if self._data is not None:
             return self._data[sl]
         return self.read_file(sl)
 
@@ -376,7 +365,7 @@ class unfmt_block:                                                              
     #----------------------------------------------------------------------------------------------
         """Read raw data for the current block."""
         slices = tuple(self.header._data_slices(limit))
-        if self._data:
+        if self._data is not None:
             # File is mmap'ed
             data = (self._data[sl] for sl in slices)
         else:
@@ -419,7 +408,8 @@ class unfmt_block:                                                              
         #print(f'{index=}, {limit=}, {strip=}, {unpack=}')
         # 1) Tom fil
         if self.header.length == 0:
-            out = nparray([], dtype=self.header.dtype.nptype)
+            dtype = bool if self.header.type == b'LOGI' else self.header.dtype.nptype
+            out = nparray([], dtype=dtype)
             return out if unpack else (out,)
 
         # 2) Hvis man bruker index direkte, overstyr limit
@@ -442,6 +432,8 @@ class unfmt_block:                                                              
             values = nparray(pieces)
             if strip:
                 values = npchar.strip(values)
+        elif self.header.type == b'LOGI':
+            values = flat != 0
         else:
             values = flat  # vanlig tall-array
 
@@ -1206,4 +1198,3 @@ class unfmt_file(File):                                                         
 ENDSOL = unfmt_block.from_data('ENDSOL', [], 'mess')
 #--------------------------------------------------------------------------------------------------
 # Empty block that terminates a SEQNUM - ENDSOL section in UNRST-files
-

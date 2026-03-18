@@ -24,6 +24,7 @@ File types:
 """
 
 from collections import namedtuple
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from fnmatch import fnmatch
 from itertools import groupby, islice, product, repeat
@@ -32,7 +33,7 @@ from operator import attrgetter, itemgetter
 from matplotlib.pyplot import figure as pl_figure
 from numpy import array as nparray, empty as npempty, sum as npsum, stack
 
-from ...core import File, AutoRefreshIterator
+from ...core import BlockSpec, File, AutoRefreshIterator
 from ..unformatted.base import unfmt_block, unfmt_file
 from ...utils import cumtrapz, flatten, flatten_all, remove_chars
 
@@ -360,6 +361,159 @@ class UNRST_file(unfmt_file):                                                   
         if not stop:
             raise ValueError('Either days or date must be given')
         return next(i for i,val in enumerate(data_func()) if val >= stop)
+
+    @staticmethod
+    #----------------------------------------------------------------------------------------------
+    def _coerce_steps(steps):                                                          # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        """Normalize optional step filters to a set of integers."""
+        if steps in (None, (), [], set()):
+            return None
+        try:
+            return {int(step) for step in steps}
+        except TypeError:
+            return {int(steps)}
+
+    @staticmethod
+    #----------------------------------------------------------------------------------------------
+    def _is_block_spec_triplet(spec):                                                   # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        """Return True for ``(key, data, dtype)`` style block specifications."""
+        return (isinstance(spec, Sequence)
+                and not isinstance(spec, (str, bytes, bytearray))
+                and len(spec) == 3
+                and isinstance(spec[0], str))
+
+    @staticmethod
+    #----------------------------------------------------------------------------------------------
+    def _coerce_block_spec(spec):                                                      # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        """Normalize one block specification to a BlockSpec instance."""
+        if isinstance(spec, BlockSpec):
+            return spec
+        if isinstance(spec, Mapping):
+            return BlockSpec(**spec)
+        if UNRST_file._is_block_spec_triplet(spec):
+            return BlockSpec(*spec)
+        raise TypeError(
+            "Block specifications must be BlockSpec instances, mappings "
+            "compatible with BlockSpec(**mapping), or (key, data, dtype) tuples"
+        )
+
+    @staticmethod
+    #----------------------------------------------------------------------------------------------
+    def _coerce_block_provider(block_provider):                                        # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        """Normalize callable and mapping providers to a common callable form."""
+        if callable(block_provider):
+            return block_provider
+        if isinstance(block_provider, Mapping):
+            return lambda step, _section: block_provider.get(step, ())
+        raise TypeError("block_provider must be callable or a mapping of step -> BlockSpec iterable")
+
+    @staticmethod
+    #----------------------------------------------------------------------------------------------
+    def _coerce_block_specs(specs):                                                    # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        """Normalize provider results to BlockSpec tuples."""
+        if specs is None:
+            return ()
+        return tuple(UNRST_file._coerce_block_spec(spec) for spec in specs)
+
+    @staticmethod
+    #----------------------------------------------------------------------------------------------
+    def _coerce_insert_blocks(blocks):                                                 # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        """Normalize static block input for insert_blocks()."""
+        if blocks is None:
+            return ()
+        if (isinstance(blocks, (BlockSpec, Mapping))
+                or UNRST_file._is_block_spec_triplet(blocks)):
+            return (UNRST_file._coerce_block_spec(blocks),)
+        if isinstance(blocks, (str, bytes, bytearray)):
+            raise TypeError(
+                "blocks must be a block specification or an iterable of block specifications"
+            )
+        return UNRST_file._coerce_block_specs(blocks)
+
+    #----------------------------------------------------------------------------------------------
+    def _coerce_insert_target(self, target):                                           # UNRST_file
+    #----------------------------------------------------------------------------------------------
+        """Normalize insert_blocks() target values to augment() step filters."""
+        if target == 'all':
+            return None
+        if target == 'last':
+            if (step := self.end_step()) is None:
+                raise ValueError(f'{self} does not contain any SEQNUM sections')
+            return {int(step)}
+        if isinstance(target, str):
+            raise ValueError("target must be 'last', 'all', a step number, or a non-empty iterable of step numbers")
+        if (steps := self._coerce_steps(target)) is None:
+            raise ValueError("target must be 'last', 'all', a step number, or a non-empty iterable of step numbers")
+        return steps
+
+    #----------------------------------------------------------------------------------------------
+    def insert_blocks(self, outfile, blocks, *, target, replace_keys=(),              # UNRST_file
+                      overwrite=False):
+    #----------------------------------------------------------------------------------------------
+        """Write a new UNRST file with static blocks inserted into selected sections."""
+        specs = self._coerce_insert_blocks(blocks)
+        steps = self._coerce_insert_target(target)
+        return self.augment(
+            outfile,
+            lambda _step, _section: specs,
+            steps=steps,
+            replace_keys=replace_keys,
+            overwrite=overwrite,
+        )
+
+    #----------------------------------------------------------------------------------------------
+    def augment(self, outfile, block_provider, *, steps=None, replace_keys=(),        # UNRST_file
+                overwrite=False):
+    #----------------------------------------------------------------------------------------------
+        """Write a new UNRST file with additional blocks inserted before ENDSOL."""
+        self.exists(raise_error=True)
+        provider = self._coerce_block_provider(block_provider)
+        selected_steps = self._coerce_steps(steps)
+        replace_set = {str(key).strip() for key in replace_keys}
+        outfile = File(outfile, suffix='.UNRST')
+        if outfile.path == self.path:
+            raise ValueError("UNRST_file.augment() does not support in-place updates")
+        if outfile.exists() and not overwrite:
+            raise FileExistsError(f"{outfile} already exists; pass overwrite=True to replace it")
+        outfile.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(outfile.path, 'wb') as out:
+            for section in self.section_blocks():
+                step = next((int(block.data()[0]) for block in section if block.key() == 'SEQNUM'), None)
+                if step is None:
+                    raise ValueError(f"Section missing SEQNUM in {self}")
+                if selected_steps is not None and step not in selected_steps:
+                    for block in section:
+                        out.write(block.binarydata())
+                    continue
+
+                specs = self._coerce_block_specs(provider(step, section))
+                in_solution = False
+                ended = False
+                for block in section:
+                    key = block.key()
+                    if key == 'STARTSOL':
+                        in_solution = True
+                        out.write(block.binarydata())
+                        continue
+                    if key == 'ENDSOL':
+                        for spec in specs:
+                            out.write(unfmt_block.from_spec(spec).as_bytes())
+                        out.write(block.binarydata())
+                        ended = True
+                        break
+                    if in_solution and key in replace_set:
+                        continue
+                    out.write(block.binarydata())
+                if not ended:
+                    raise ValueError(f"Section {step} is missing ENDSOL in {self}")
+        return UNRST_file(outfile.path)
 
 
     #----------------------------------------------------------------------------------------------

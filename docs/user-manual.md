@@ -19,6 +19,7 @@ Import the package to expose the public API defined in `src/ECLlib/__init__.py`:
 
 ```python
 from ECLlib import (
+    BlockSpec,
     File,
     UNRST_file,
     DATA_file,
@@ -66,6 +67,19 @@ helpers that are reused across the code base:
 - `resize(start, end)` removes byte ranges in-place and `delete()` unlinks the path.
 - `head()`, `tail()`, and `last_line()` are provided through `ECLlib.utils.file_ops` and
   remain available because `File` exposes them via attribute forwarding.
+
+### `BlockSpec`
+
+`BlockSpec` is the user-facing payload description for one structured Eclipse block.
+Use it together with `unfmt_block.from_spec()` or higher-level helpers such as
+`UNRST_file.insert_blocks()` or `UNRST_file.augment()` when you need to create or
+replace binary data blocks.
+
+```python
+from ECLlib import BlockSpec
+
+spec = BlockSpec("TEMP", [50.0, 51.0], "float")
+```
 
 ### `Restart`
 
@@ -146,6 +160,41 @@ directory to a new grid resolution, keeping backups under `GSG_backup`.
 - Specialised helpers per file type—for example `INIT_file.cell_ijk()` converts cell
   numbers to `(i, j, k)` indices, and `UNRST_file.celldata()` aggregates per-cell time
   series.
+- `UNRST_file.insert_blocks(outfile, blocks, target=..., ...)` copies an existing
+  unified restart file and inserts static `BlockSpec` payloads before `ENDSOL`. Use
+  `target="last"` for the final section, `target="all"` for every section, or step
+  numbers for selected sections.
+- `UNRST_file.augment(outfile, block_provider, ...)` copies an existing unified restart
+  file and inserts `BlockSpec` payloads immediately before each selected `ENDSOL`.
+  This is the advanced variant when inserted blocks depend on the current `step` or
+  `section`.
+
+Static insert example:
+
+```python
+from ECLlib import UNRST_file
+
+UNRST_file("CASE").insert_blocks(
+    "CASE_aug.UNRST",
+    [("XTRA", [1, 2, 3], "int")],
+    target="last",
+    overwrite=True,
+)
+```
+
+Dynamic insert example:
+
+```python
+from ECLlib import BlockSpec, UNRST_file
+
+UNRST_file("CASE").augment(
+    "CASE_temp.UNRST",
+    lambda step, _section: [BlockSpec("TEMP", [200.0 + step], "float")],
+    steps=(10, 11),
+    replace_keys=("TEMP",),
+    overwrite=True,
+)
+```
 
 `UNSMRY_file.num_indexed_vectors(keys=(), only_new=False, start=0, stop=None, step=1)`
 streams grouped NUM-indexed vectors as `(day, key_groups)`, where:
