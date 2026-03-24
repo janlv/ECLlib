@@ -58,7 +58,8 @@ See the [user manual](docs/user-manual.md) for an overview of the core, I/O, and
 ## Quick start
 
 ```python
-from ECLlib import BlockSpec, UNRST_file, RFT_file
+import numpy as np
+from ECLlib import UNRST_file, RFT_file
 
 unrst = UNRST_file('rootname')
 rft = RFT_file('rootname')
@@ -71,12 +72,15 @@ for block in unrst.blocks():
 welldata = rft.blockdata('TIME', 'WELLETC')
 print(next(welldata))
 
-# Write an augmented restart file
-unrst.augment(
-    'rootname_augmented.UNRST',
-    lambda step, section: [BlockSpec('XTEST', [float(step)], 'float')],
-    steps=(1, 2, 3),
+# Append one new block to the current last section
+unrst.append_blocks(
+    step=int(unrst.end_step()),
+    keys=('XTEST',),
+    blocks=(np.array([1.0], dtype=np.float32),),
 )
+
+# Merge donor keys into a new file
+unrst.merge_keys_from('rootname_donor.UNRST', keys=('XTEST',))
 ```
 
 See `src/ECLlib/__init__.py` for a full overview of the public API. The project is licensed under the MIT License and versioned via git tags managed by `setuptools_scm`.

@@ -8,12 +8,103 @@ from struct import pack, unpack, error as struct_error
 from numpy import (array as nparray, asarray, char as npchar, cumsum, dtype as npdtype,
     frombuffer, ndarray, split as npsplit)
 
-from ...core import BlockSpec, File, DTYPE
+from ...core import File, DTYPE
 from ...config import DEBUG, ENDIAN
 from ...utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all,
     index_limits, match_in_wildlist, nth, pad, pairwise, slice_range, string_split, take)
 
 __all__ = ["unfmt_header", "unfmt_block", "unfmt_file", "ENDSOL"]
+
+_BLOCK_TYPES = {
+    "int": b"INTE",
+    "float": b"REAL",
+    "double": b"DOUB",
+    "bool": b"LOGI",
+    "char": b"CHAR",
+    "mess": b"MESS",
+}
+_NUMPY_DTYPES = {
+    "int": "i4",
+    "float": "f4",
+    "double": "f8",
+    "bool": bool,
+}
+_CHAR_SIZE = DTYPE[b"CHAR"].size
+
+
+#---------------------------------------------------------------------------------------------------
+def normalize_block_key(key):
+#---------------------------------------------------------------------------------------------------
+    """Return a stripped Eclipse block keyword after validation."""
+    if not isinstance(key, str):
+        raise TypeError("Block keyword must be a string")
+    key = key.strip()
+    if not key:
+        raise ValueError("Block keyword must not be empty")
+    if len(key) > 8:
+        raise ValueError(f"Block keyword must be 1-8 characters, got {key!r}")
+    return key
+
+
+#---------------------------------------------------------------------------------------------------
+def _flatten_array(array):
+#---------------------------------------------------------------------------------------------------
+    """Return a one-dimensional array using Eclipse/Fortran ordering."""
+    if array.ndim == 0:
+        return array.reshape(1)
+    if array.ndim > 1:
+        return array.ravel(order="F")
+    return array
+
+
+#---------------------------------------------------------------------------------------------------
+def _flatten_values(values):
+#---------------------------------------------------------------------------------------------------
+    """Return flattened Python values using Eclipse/Fortran ordering."""
+    array = asarray(values)
+    if array.ndim == 0:
+        return (array.item(),)
+    return tuple(array.ravel(order="F").tolist())
+
+
+#---------------------------------------------------------------------------------------------------
+def _encode_char(value):
+#---------------------------------------------------------------------------------------------------
+    """Encode a character payload entry to the fixed Eclipse CHAR width."""
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+    elif type(value).__name__ == "bytes_":
+        raw = bytes(value)
+    elif isinstance(value, str):
+        raw = value.encode("utf-8")
+    elif type(value).__name__ == "str_":
+        raw = str(value).encode("utf-8")
+    else:
+        raise TypeError(
+            "CHAR blocks only accept str/bytes values; "
+            f"got {type(value).__name__}"
+        )
+    if len(raw) > _CHAR_SIZE:
+        raise ValueError(
+            f"CHAR values must be <= {_CHAR_SIZE} bytes; got {len(raw)} for {raw!r}"
+        )
+    return raw
+
+
+#---------------------------------------------------------------------------------------------------
+def _normalize_block_array(data, dtype):
+#---------------------------------------------------------------------------------------------------
+    """Return payload data normalized for low-level block serialization."""
+    if dtype not in _BLOCK_TYPES:
+        raise ValueError(f"Unsupported block dtype {dtype!r}. Valid values: {tuple(_BLOCK_TYPES)}")
+    if dtype == "mess":
+        if asarray(data).size:
+            raise ValueError("MESS blocks must use an empty payload")
+        return asarray([], dtype="S1")
+    if dtype == "char":
+        encoded = [_encode_char(value) for value in _flatten_values(data)]
+        return asarray(encoded, dtype=f"S{_CHAR_SIZE}")
+    return _flatten_array(asarray(data, dtype=_NUMPY_DTYPES[dtype]))
 
 #==================================================================================================
 class unfmt_header:                                                                  # unfmt_header
@@ -188,23 +279,9 @@ class unfmt_block:                                                              
             print(f'Creating {self}')
 
     @classmethod
-    #----------------------------------------------------------------------------------------------
-    def from_spec(cls, spec:BlockSpec):                                               # unfmt_block
-    #----------------------------------------------------------------------------------------------
-        """Create an unfmt_block instance from a :class:`BlockSpec`."""
-        dtype_map = {
-            'int':b'INTE', 'float':b'REAL', 'double':b'DOUB',
-            'bool':b'LOGI', 'char':b'CHAR', 'mess':b'MESS'
-        }
-        dtype = dtype_map[spec.dtype]
-        data = spec.array()
-        header = unfmt_header(ensure_bytestring(spec.key.ljust(8)[:8]), int(data.size), dtype)
-        return cls(header, data)
-
-    @classmethod
-    #----------------------------------------------------------------------------------------------
-    def from_data(cls, key:str, data, _dtype):                                        # unfmt_block
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def from_data(cls, key:str, data, dtype):                                          # unfmt_block
+    #-----------------------------------------------------------------------------------------------
         """
         Create an unfmt_block instance from data.
 
@@ -214,7 +291,7 @@ class unfmt_block:                                                              
             Block identifier (padded/truncated to 8 bytes).
         data : array_like
             Input data. Multi-dimensional arrays flattened in Fortran order.
-        _dtype : str
+        dtype : str
             Data type: 'int', 'float', 'double', 'bool', 'char', or 'mess'.
 
         Returns
@@ -225,10 +302,13 @@ class unfmt_block:                                                              
         Raises
         ------
         ValueError
-            If _dtype is invalid.
+            If dtype is invalid or incompatible with the payload.
         """
-
-        return cls.from_spec(BlockSpec(key=key, data=data, dtype=_dtype))
+        key = normalize_block_key(key)
+        data = _normalize_block_array(data, dtype)
+        block_type = _BLOCK_TYPES[dtype]
+        header = unfmt_header(ensure_bytestring(key.ljust(8)[:8]), int(data.size), block_type)
+        return cls(header, data)
 
     #----------------------------------------------------------------------------------------------
     def binarydata(self):                                                             # unfmt_block
@@ -238,6 +318,15 @@ class unfmt_block:                                                              
         if self._data is not None:
             return self._data[sl]
         return self.read_file(sl)
+
+    #-----------------------------------------------------------------------------------------------
+    def renamed_bytes(self, key):                                                      # unfmt_block
+    #-----------------------------------------------------------------------------------------------
+        """Return serialized bytes for the current block under a new keyword name."""
+        key = normalize_block_key(key)
+        data = bytearray(self.as_bytes() if isinstance(self._data, ndarray) else self.binarydata())
+        data[4:12] = ensure_bytestring(key.ljust(8)[:8])
+        return bytes(data)
 
 
     #----------------------------------------------------------------------------------------------

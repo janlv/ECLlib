@@ -14,7 +14,7 @@ from numpy import (
     meshgrid,
     roll as nproll,
     stack,
-    trapz,
+    trapezoid,
     where,
 )
 
@@ -76,7 +76,7 @@ def bounding_box(pos: Iterable[Sequence[int]]) -> list[tuple[int, int]]:
 
 def cumtrapz(y: array, x: array, *args, **kwargs) -> array:
     """A NumPy based cumulative trapezoidal integration."""
-    return array([trapz(y[:i], x[:i], *args, **kwargs) for i in range(1, len(x) + 1)])
+    return array([trapezoid(y[:i], x[:i], *args, **kwargs) for i in range(1, len(x) + 1)])
 
 
 def pad_zero(lists: Iterable[Sequence[str]]) -> list[list[str]]:

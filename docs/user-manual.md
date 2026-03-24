@@ -19,7 +19,6 @@ Import the package to expose the public API defined in `src/ECLlib/__init__.py`:
 
 ```python
 from ECLlib import (
-    BlockSpec,
     File,
     UNRST_file,
     DATA_file,
@@ -68,17 +67,15 @@ helpers that are reused across the code base:
 - `head()`, `tail()`, and `last_line()` are provided through `ECLlib.utils.file_ops` and
   remain available because `File` exposes them via attribute forwarding.
 
-### `BlockSpec`
+### `unfmt_block.from_data()`
 
-`BlockSpec` is the user-facing payload description for one structured Eclipse block.
-Use it together with `unfmt_block.from_spec()` or higher-level helpers such as
-`UNRST_file.insert_blocks()` or `UNRST_file.augment()` when you need to create or
-replace binary data blocks.
+`unfmt_block.from_data()` is the canonical constructor for one structured Eclipse
+block. Use it when you need to create or replace binary data blocks directly.
 
 ```python
-from ECLlib import BlockSpec
+from ECLlib import unfmt_block
 
-spec = BlockSpec("TEMP", [50.0, 51.0], "float")
+block = unfmt_block.from_data("TEMP", [50.0, 51.0], "float")
 ```
 
 ### `Restart`
@@ -160,39 +157,39 @@ directory to a new grid resolution, keeping backups under `GSG_backup`.
 - Specialised helpers per file type—for example `INIT_file.cell_ijk()` converts cell
   numbers to `(i, j, k)` indices, and `UNRST_file.celldata()` aggregates per-cell time
   series.
-- `UNRST_file.insert_blocks(outfile, blocks, target=..., ...)` copies an existing
-  unified restart file and inserts static `BlockSpec` payloads before `ENDSOL`. Use
-  `target="last"` for the final section, `target="all"` for every section, or step
-  numbers for selected sections.
-- `UNRST_file.augment(outfile, block_provider, ...)` copies an existing unified restart
-  file and inserts `BlockSpec` payloads immediately before each selected `ENDSOL`.
-  This is the advanced variant when inserted blocks depend on the current `step` or
-  `section`.
+- `UNRST_file.append_blocks(step=..., keys=..., blocks=..., dtypes=None, ...)` updates
+  the current file in place by appending one row of new blocks immediately before the
+  trailing end marker of the current last section. It is intentionally limited to the
+  last section.
+- `UNRST_file.merge_keys_from(donor, keys=..., name=None, rename=None, ...)` writes a
+  new UNRST file using the host sections from the current file and appending selected
+  donor solution blocks immediately before each host end marker. The merge is done
+  section-by-section in file order, so the caller is responsible for giving host and
+  donor files with matching section order. When `name` is omitted, the output defaults
+  to `<host_stem>_MERGED.UNRST`.
 
-Static insert example:
+Donor merge example:
 
 ```python
 from ECLlib import UNRST_file
 
-UNRST_file("CASE").insert_blocks(
-    "CASE_aug.UNRST",
-    [("XTRA", [1, 2, 3], "int")],
-    target="last",
-    overwrite=True,
+UNRST_file("CASE").merge_keys_from(
+    "CASE_DONOR.UNRST",
+    keys=("TEMP", "PRESSURE"),
+    rename={"TEMP": "TEMP_IOR"},
 )
 ```
 
-Dynamic insert example:
+In-place append example:
 
 ```python
-from ECLlib import BlockSpec, UNRST_file
+import numpy as np
+from ECLlib import UNRST_file
 
-UNRST_file("CASE").augment(
-    "CASE_temp.UNRST",
-    lambda step, _section: [BlockSpec("TEMP", [200.0 + step], "float")],
-    steps=(10, 11),
-    replace_keys=("TEMP",),
-    overwrite=True,
+UNRST_file("CASE").append_blocks(
+    step=42,
+    keys=("TEMP",),
+    blocks=(np.array([120.0, 121.0], dtype=np.float32),),
 )
 ```
 
