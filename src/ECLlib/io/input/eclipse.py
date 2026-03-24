@@ -66,6 +66,10 @@ class DATA_file(File):
             self.section_names = ()
         getter = namedtuple('getter', 'section default convert pattern')
         self._getter = {
+            'DIMENS'  : getter('RUNSPEC',  (),      self._convert_int,
+                               r'\bDIMENS\b\s+((?:\d+\s+){2}\d+)\s*/\s*'),
+            'SPECGRID': getter('GRID',     (),      self._convert_int,
+                               r'\bSPECGRID\b\s+((?:\d+\s+){2}\d+)\b[\s\S]*?/\s*'),
             'TSTEP'   : getter('SCHEDULE', (),      self._convert_float,
                                r'\bTSTEP\b\s+([0-9*.\s]+)/\s*'),
             'START'   : getter('RUNSPEC',  (0,),    self._convert_date,
@@ -257,6 +261,13 @@ class DATA_file(File):
         return self.get('START')[0]
 
     #----------------------------------------------------------------------------------------------
+    def dim(self):                                                        # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Return the grid dimensions."""
+        dim = self.get('DIMENS') or self.get('SPECGRID')
+        return tuple(dim[:3]) if dim else None
+
+    #----------------------------------------------------------------------------------------------
     def timesteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
     #----------------------------------------------------------------------------------------------
         """Return timestep information for the schedule.
@@ -353,7 +364,7 @@ class DATA_file(File):
                 raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
             return failed
         names = set(g.section for g in getters)
-        self.data = self._remove_comments(self.section(*names)._matching(*keywords))
+        self.data = self._remove_comments(self.section(*names, raise_error=raise_error)._matching(*keywords))
         error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.path}'
         if not self.data:
             if raise_error:
@@ -493,6 +504,13 @@ class DATA_file(File):
         """Convert textual values to strings."""
         ret = [v for val in values for v in val.split('\n') if v and v != '/']
         return (ret,)
+
+    #----------------------------------------------------------------------------------------------
+    def _convert_int(self, values, key):                                                # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Convert textual values to integers."""
+        values = tuple([int(n) for n in v.split()] for v in values)
+        return values or self._getter[key].default
 
     #----------------------------------------------------------------------------------------------
     def _convert_float(self, values, key):                                              # DATA_file
