@@ -7,7 +7,7 @@
 from ._version import version as __version__
 
 from .core import File, AutoRefreshIterator, Restart
-from .io.input.eclipse import DATA_file
+from .io.input.eclipse import DATA_file, ECL_input
 from .io.input.gsgfile import (
     PROP_data, read_prop_file, write_prop_file, change_resolution, read_GSG, write_GSG
 )
@@ -24,7 +24,7 @@ from .io.output.file_checker import File_checker
 __all__ = [
     "__version__",
     "File", "AutoRefreshIterator", "Restart",
-    "DATA_file",
+    "DATA_file", "ECL_input",
     "PROP_data", "read_prop_file", "write_prop_file", "change_resolution", "read_GSG", "write_GSG",
     "AFI_file", "IXF_file", "IX_input",
     "EGRID_file", "FUNRST_file", "INIT_file", "MSG_file", "PRTX_file", "PRT_file",

@@ -1,6 +1,6 @@
 """Input file handlers."""
 
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from itertools import accumulate, chain, repeat
 from operator import itemgetter
@@ -12,12 +12,13 @@ from ...core import File, Restart
 from ..output.unrst_file import UNRST_file
 from ...utils import decode, flat_list, grouper, list2text, remove_chars, split_by_words
 
-__all__ = ["DATA_file"]
+__all__ = ["DATA_file", "ECL_input"]
 
 #==================================================================================================
 class DATA_file(File):
 #==================================================================================================
     """Loader for Eclipse DATA files."""
+    well_control_kw = ('WCONPROD', 'WCONHIST', 'WCONINJE', 'WCONINJH')
     # Sections
     section_names = ('RUNSPEC','GRID','EDIT','PROPS' ,'REGIONS', 'SOLUTION', 'SUMMARY',
                      'SCHEDULE','OPTIMIZE')
@@ -62,6 +63,9 @@ class DATA_file(File):
         self.data = None
         self._checked = False
         self._added_files = ()
+        self._wells_by_type = None
+        self._section_cache = {}
+        self._section_pos = None
         if not sections:
             self.section_names = ()
         getter = namedtuple('getter', 'section default convert pattern')
@@ -79,7 +83,15 @@ class DATA_file(File):
             'RESTART' : getter('SOLUTION', ('', 0), self._convert_file,
                                r"\bRESTART\b\s+('*[\w./\\-]+'*\s+[0-9]+)\s*/"),
             'WELSPECS': getter('SCHEDULE', (),      self._convert_string,
-                               r'\bWELSPECS\b((\s+\'*[\w/-]+?.*/\s*)+/)')}
+                               r'\bWELSPECS\b((\s+\'*[\w/-]+?.*/\s*)+/)'),
+            'WCONPROD': getter('SCHEDULE', (),      self._convert_string,
+                               r'\bWCONPROD\b\s+((?:^(?!/).*\n)+)^/\s*$'),
+            'WCONHIST': getter('SCHEDULE', (),      self._convert_string,
+                               r'\bWCONHIST\b\s+((?:^(?!/).*\n)+)^/\s*$'),
+            'WCONINJE': getter('SCHEDULE', (),      self._convert_string,
+                               r'\bWCONINJE\b\s+((?:^(?!/).*\n)+)^/\s*$'),
+            'WCONINJH': getter('SCHEDULE', (),      self._convert_string,
+                               r'\bWCONINJH\b\s+((?:^(?!/).*\n)+)^/\s*$')}
         if check:
             self.check()
 
@@ -250,6 +262,7 @@ class DATA_file(File):
         # Added files must be an iterator to avoid an infinite recursive
         # loop when self._added_files is called in _included_file_data
         self._added_files = iter(files)
+        self._clear_cache()
         # Disable check to avoid check to consume the above iterator
         self._checked = True
         return self
@@ -266,6 +279,29 @@ class DATA_file(File):
         """Return the grid dimensions."""
         dim = self.get('DIMENS') or self.get('SPECGRID')
         return tuple(dim[:3]) if dim else None
+
+    #----------------------------------------------------------------------------------------------
+    def wells_by_type(self):                                              # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Return wells grouped as producers or injectors."""
+        if self._wells_by_type is not None:
+            return {well_type:list(names) for well_type, names in self._wells_by_type.items()}
+        grouped = defaultdict(list)
+        well_types = {}
+        records = self.get(*self.well_control_kw)
+        if not any(records) and (sch_file := self.with_suffix('.SCH', ignore_case=True, exists=True)):
+            records = DATA_file(sch_file, sections=False).get(*self.well_control_kw)
+        for keyword, control_records in zip(self.well_control_kw, records):
+            well_type = 'PRODUCER' if keyword in ('WCONPROD', 'WCONHIST') else 'INJECTOR'
+            for record in control_records:
+                wellname = self._first_record_field(record)
+                if wellname.startswith('*') or wellname.endswith('*'):
+                    raise SystemError(f'ERROR Well templates/lists are not supported in {self}')
+                well_types[wellname] = well_type
+        for wellname, well_type in well_types.items():
+            grouped[well_type].append(wellname)
+        self._wells_by_type = dict(grouped)
+        return {well_type:list(names) for well_type, names in self._wells_by_type.items()}
 
     #----------------------------------------------------------------------------------------------
     def timesteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
@@ -334,11 +370,7 @@ class DATA_file(File):
             sch_file = self.with_suffix('.SCH', ignore_case=True, exists=True)
             if sch_file:
                 welspecs = DATA_file(sch_file, sections=False).get('WELSPECS')
-        # The wellname is the first value, but it might contain spaces. If so, it is quoted
-        # and we need to check if the first char is a quote or not. If the line starts with
-        # a quote, we split on quote+space, otherwise we just split on space
-        splits = (w.split("' ") if w.startswith("'") else w.split() for w in welspecs if w)
-        return tuple(set(s[0].replace("'","") for s in splits))
+        return tuple(set(self._first_record_field(record) for record in welspecs if record))
 
     #----------------------------------------------------------------------------------------------
     def get(self, *keywords, raise_error=False, pos=False):                             # DATA_file
@@ -350,13 +382,47 @@ class DATA_file(File):
             raise_error: Whether to raise if a keyword is missing.
             pos: Whether to return positions in addition to values.
         """
-        #print('get', keywords)
-        #FAIL = len(keywords)*((),)
         keywords = [key.upper() for key in keywords]
         getters = [self._getter.get(key) for key in keywords]
         failed = [g.default for g in getters]
         failed = failed[0] if len(failed) == 1 else failed
-        #print(FAIL)
+        if not self.exists(raise_error=raise_error):
+            return failed
+        if missing:=[k for g,k in zip(getters, keywords) if not g]:
+            if raise_error:
+                raise SystemError(f'ERROR Missing get-pattern for {list2text(missing)} in DATA_file')
+            return failed
+        names = tuple(g.section for g in getters)
+        self.data = self._section_text(*names, raise_error=raise_error)
+        if not self.data:
+            error_msg = f'ERROR Keyword {list2text(keywords)} not found in {self.path}'
+            if raise_error:
+                raise SystemError(error_msg)
+            return failed
+        result = ()
+        for keyword, getter in zip(keywords, getters):
+            val_span = tuple((m.group(1), m.span()) for m in finditer(getter.pattern, self.data,
+                                                                       flags=MULTILINE))
+            if not val_span:
+                result += (getter.default,)
+                continue
+            values, span = zip(*val_span)
+            values = getter.convert(values, keyword)
+            if pos:
+                values = (tuple(zip(v,repeat(p))) for v,p in zip(values, span))
+            result += (flat_list(values),)
+        if len(result) == 1:
+            return result[0]
+        return result
+
+    #----------------------------------------------------------------------------------------------
+    def get_old(self, *keywords, raise_error=False, pos=False):                         # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Return keyword data using the original uncached implementation."""
+        keywords = [key.upper() for key in keywords]
+        getters = [self._getter.get(key) for key in keywords]
+        failed = [g.default for g in getters]
+        failed = failed[0] if len(failed) == 1 else failed
         if not self.exists(raise_error=raise_error):
             return failed
         if missing:=[k for g,k in zip(getters, keywords) if not g]:
@@ -372,9 +438,8 @@ class DATA_file(File):
             return failed
         result = ()
         for keyword, getter in zip(keywords, getters):
-            # match_list = re_compile(getter.pattern).finditer(self.data)
-            # val_span = tuple((m.group(1), m.span()) for m in match_list) 
-            val_span = tuple((m.group(1), m.span()) for m in finditer(getter.pattern, self.data)) 
+            val_span = tuple((m.group(1), m.span()) for m in finditer(getter.pattern, self.data,
+                                                                       flags=MULTILINE))
             if not val_span:
                 result += (getter.default,)
                 continue
@@ -409,11 +474,12 @@ class DATA_file(File):
     def section_positions(self, *sections):                                             # DATA_file
     #----------------------------------------------------------------------------------------------
         """Return start offsets for each section."""
-        data = self.data or self.binarydata()
-        sec_pos = {sec.upper().decode():(a,b) for sec,a,b in split_by_words(data, self.section_names)}
+        if self._section_pos is None:
+            data = self.binarydata()
+            self._section_pos = {sec.upper().decode():(a,b) for sec,a,b in split_by_words(data, self.section_names)}
         if not sections:
-            return sec_pos
-        return  {sec:pos for sec in sections if (pos := sec_pos.get(sec))}
+            return dict(self._section_pos)
+        return {sec:pos for sec in sections if (pos := self._section_pos.get(sec))}
 
     #----------------------------------------------------------------------------------------------
     def section(self, *sections, raise_error=True):                                     # DATA_file
@@ -452,6 +518,7 @@ class DATA_file(File):
         out = self.data[:pos[0]] + new_string + self.data[pos[1]:]
         with open(self.path, 'w', encoding='utf-8') as f:
             f.write(out)
+        self._clear_cache()
 
     #----------------------------------------------------------------------------------------------
     def _remove_comments(self, data=None):                                              # DATA_file
@@ -469,6 +536,22 @@ class DATA_file(File):
         return text+'\n' if text else ''
 
     #----------------------------------------------------------------------------------------------
+    def _remove_comments_bytes(self, data=None):                                        # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Strip comment lines from the file and keep the result as bytes.
+
+        Args:
+            data: Optional iterable of binary blobs to process.
+        """
+        if data is None:
+            data = (self.binarydata(),)
+        elif isinstance(data, (bytes, bytearray)):
+            data = (data,)
+        lines = (line for chunk in data for line in bytes(chunk).split(b'\n'))
+        text = (line.split(b'--')[0].strip() for line in lines)
+        return b'\n'.join(line for line in text if line)
+
+    #----------------------------------------------------------------------------------------------
     def _matching(self, *keys):                                                         # DATA_file
     #----------------------------------------------------------------------------------------------
         """Yield matches for the provided patterns.
@@ -477,13 +560,57 @@ class DATA_file(File):
             *keys: Keyword names used to filter the DATA file.
         """
         #print('_matching', keys)
-        self.data = self.data or self.binarydata()
+        self.data = self.data if isinstance(self.data, (bytes, bytearray)) else self.binarydata()
         keys = [key.encode() for key in keys]
         if keys == [] or any(key in self.data for key in keys):
             yield self.data
         for file, data in self._included_file_data(self.data):
             if keys == [] or any(key in data for key in keys):
                 yield data
+
+    #----------------------------------------------------------------------------------------------
+    def _clear_cache(self):                                                             # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Reset cached text, section metadata, and derived well classifications."""
+        self._section_cache = {}
+        self._section_pos = None
+        self._wells_by_type = None
+
+    #----------------------------------------------------------------------------------------------
+    def _section_text(self, *sections, raise_error=True):                               # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Return cleaned text for the requested sections and their includes."""
+        if not self._checked:
+            self.check()
+        key = tuple(sorted(set(sections)))
+        if key in self._section_cache:
+            return self._section_cache[key]
+        if not self.section_names:
+            data = self.binarydata()
+        else:
+            sec_pos = self.section_positions(*key)
+            if not sec_pos:
+                if raise_error:
+                    raise SystemError(f'ERROR Section {list2text(key)} not found in {self}')
+                return ''
+            data = b''.join(self.binarydata()[a:b] for a,b in sorted(sec_pos.values()))
+        text = self._remove_comments(chain((data,), (chunk for _, chunk in self._included_file_data(data))))
+        self._section_cache[key] = text
+        return text
+
+    #----------------------------------------------------------------------------------------------
+    def _first_record_field(self, record):                                              # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Return the first field from an Eclipse record, preserving quoted names."""
+        record = bytes(record).strip() if not isinstance(record, str) else record.encode().strip()
+        if not record:
+            return ''
+        if record[0] in (ord("'"), ord('"')):
+            end = record.find(record[:1], 1)
+            if end < 0:
+                raise SystemError(f'ERROR Unterminated quoted string in {self}')
+            return decode(record[1:end])
+        return decode(record.split(None, 1)[0].rstrip(b'/'))
 
     #----------------------------------------------------------------------------------------------
     def _days(self, time_pos, start=None):                                              # DATA_file
@@ -551,3 +678,59 @@ class DATA_file(File):
         if key == 'RESTART' and files:
             files[0][0] = files[0][0].with_suffix('.UNRST')
         return files or self._getter[key].default
+
+
+#==================================================================================================
+class ECL_input:                                                                        # ECL_input
+#==================================================================================================
+    """Thin Eclipse-side metadata wrapper around :class:`DATA_file`."""
+
+    #----------------------------------------------------------------------------------------------
+    def __init__(self, case, check=False, **kwargs):                                    # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Initialize the ECL_input."""
+        self.data = DATA_file(case, check=check, **kwargs)
+        self.path = self.data.path
+
+    #----------------------------------------------------------------------------------------------
+    def __str__(self):                                                                  # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Return a human-readable representation."""
+        return str(self.data)
+
+    #----------------------------------------------------------------------------------------------
+    def __contains__(self, key):                                                       # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Return whether the value exists."""
+        return key in self.data
+
+    #----------------------------------------------------------------------------------------------
+    def check(self, *args, **kwargs):                                                  # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Delegate deck validation to :class:`DATA_file`."""
+        return self.data.check(*args, **kwargs)
+
+    #----------------------------------------------------------------------------------------------
+    def include_files(self):                                                           # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Return INCLUDE statements discovered in the deck."""
+        return self.data.include_files()
+
+    #----------------------------------------------------------------------------------------------
+    def including(self, *files):                                                       # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Add extra include files and return ``self``."""
+        self.data.including(*files)
+        return self
+
+    #----------------------------------------------------------------------------------------------
+    def dim(self):                                                                     # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Return the grid dimensions."""
+        return self.data.dim()
+
+    #----------------------------------------------------------------------------------------------
+    def wells_by_type(self):                                                           # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Return wells grouped by normalized Eclipse control type."""
+        return self.data.wells_by_type()
