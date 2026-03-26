@@ -1,0 +1,42 @@
+START
+#DATE  "01-Jan-2019"   
+
+WellDef "INJECTOR" {
+    WellToCellConnections [
+           Cell    Status       Completion    PenetrationDirection    Skin    WellBoreRadius
+        (1 1 3)      OPEN    "COMPLETION1"                       K       0               0.3
+        (1 1 4)      OPEN    "COMPLETION1"                       K       0               0.3
+        (1 1 5)      OPEN    "COMPLETION1"                       K       0               0.3
+        ]
+
+    # Simple placeholder wellbore model: one segment exchanging heat with an
+    # average surrounding temperature between surface and reservoir.
+    SegmentNodes [
+        Index    TrueVerticalDepth    MeasuredDepth
+            1                3810             3810
+    ]
+
+    SegmentPipes [
+        Index
+            1
+    ]
+
+    SegmentConductiveHeatTransfer [
+        SegmentNode    ConnectedEntityType    ContactArea    HeatTransferCoef    Temperature
+                 1              EXTERNAL         7200.0               10.0         158.0
+    ]
+
+    ResVolConditions {
+        Method=RESERVOIR
+        UseWellboreEnthalpy=TRUE
+    }
+}
+
+WellDef "PRODUCER" {
+    WellToCellConnections [
+             Cell    Status       Completion    PenetrationDirection    Skin    WellBoreRadius
+        (25 25 1)      OPEN    "COMPLETION1"                       K       0               0.3
+        (25 25 2)      OPEN    "COMPLETION1"                       K       0               0.3
+        (25 25 3)      OPEN    "COMPLETION1"                       K       0               0.3
+          ]
+}

@@ -1,0 +1,43 @@
+MODEL_DEFINITION
+
+StructuredInfo "CoarseGrid" {
+    NumberCellsInI=25
+    NumberCellsInJ=25
+    NumberCellsInK=5
+}
+
+StraightPillarGrid "CoarseGrid" {
+	DeltaX = [ 25*25 ]	
+	DeltaY = [ 25*25 ]
+	DeltaZ = [ 5*10 ]
+	OriginX = 0
+	OriginY = 0
+	OriginZ= 3770
+}
+
+RegionFamily "Facies" [
+    RegionNames    RegionIndices
+   "Clean sand"                1
+   "Shaly sand"                2
+]
+
+BoxPropertyEdit "my_regions" [
+    I1    I2    J1    J2    K1    K2            Grid    Property    Expression
+     1    25     1    25     1     2    "CoarseGrid"    "Facies"           "1"
+     1    25     1    25     3     5    "CoarseGrid"    "Facies"           "2"
+]
+
+CellPropertyEdit "Properties" [
+    Family            Name      Property      Expression
+  "Facies"    "Clean sand"    "POROSITY"           "0.2"
+  "Facies"    "Clean sand"      "PERM_I"           "100"
+  "Facies"    "Shaly sand"    "POROSITY"          "0.12"
+  "Facies"    "Shaly sand"      "PERM_I"            "50"
+ RESERVOIR       RESERVOIR      "PERM_J"        "PERM_I"
+ RESERVOIR       RESERVOIR      "PERM_K"    "0.2*PERM_I"
+]
+
+GridReport {
+  FileFormat="EGRID"
+  On=True
+}

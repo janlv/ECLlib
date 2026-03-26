@@ -1,0 +1,28 @@
+CustomControl "Flow_script" {
+    StopOnScriptError=True
+    VerbosityLevel=3
+    ExecutionPosition=ALL_POSITIONS
+    InitialScript=@{
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()/'python311_pkgs'))
+from pyFlow import FlowSim
+from pyFlow.integrations.intersect import Bindings
+
+
+def on_step(out):
+    return f"Species min/max | {out.min_max('species', prec=3)}"
+
+
+bindings = Bindings.from_namespace(globals(), cwd=Path.cwd())
+sim = FlowSim(Path.cwd() / 'Flow_calculation.yaml', root=bindings.root)
+live = sim.integration.ix(bindings, on_step=on_step)
+
+}@ 
+# InitialScript ends
+
+Script=@{
+live.step()
+}@
+}

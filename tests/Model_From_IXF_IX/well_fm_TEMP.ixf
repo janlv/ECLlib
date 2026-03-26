@@ -1,0 +1,60 @@
+START
+#DATE  "01-Jan-2019"    
+
+FluidEnthalpy "INJECTOR_WATER_TOPSIDE_10C_ENTHALPY" {
+    DataType=PRESSURE_TEMPERATURE
+    Pressure=14.7
+    Temperature=50
+}
+
+FluidSourceExternal "TRACERS_IW1_WATER_TRACER_SOURCE" {
+    Enthalpy=FluidEnthalpy('INJECTOR_WATER_TOPSIDE_10C_ENTHALPY')
+    Phase=WATER
+    Composition=[
+    data property
+        1.0 TRACER_CONCENTRATION["CL"]
+    ]
+    AvailableRate=DoubleProperty(1e+20 WATER_FLOW_RATE)
+}
+
+
+Well "INJECTOR" {
+    Enthalpy=FluidEnthalpy('INJECTOR_WATER_TOPSIDE_10C_ENTHALPY')
+    Status=OPEN
+    Type=WATER_INJECTOR
+    InjectionStream=FluidSourceExternal('TRACERS_IW1_WATER_TRACER_SOURCE')
+    Constraints=[
+       data                     property    
+       1000         WATER_INJECTION_RATE    
+        6000         BOTTOM_HOLE_PRESSURE    
+    ]
+}
+
+Well "PRODUCER" {
+    Status=OPEN
+    Type=PRODUCER
+    Constraints=[
+        data                     property    
+          1000    LIQUID_PRODUCTION_RATE    
+          2000    BOTTOM_HOLE_PRESSURE  
+    ]
+}
+
+DATE  "01-Feb-2019"  
+DATE  "01-Mar-2019"  
+DATE  "01-Apr-2019"  
+DATE  "01-May-2019"  
+DATE  "01-Jun-2019"  
+DATE  "01-Jul-2019"  
+DATE  "01-Aug-2019"  
+DATE  "01-Sep-2019"  
+DATE  "01-Oct-2019"  
+DATE  "01-Nov-2019"  
+DATE  "01-Dec-2019"  
+DATE  "01-Jan-2020"  
+DATE  "01-Jun-2020"  
+DATE  "01-Jan-2021"  
+DATE  "01-Jun-2021"  
+DATE  "01-Jan-2022"  
+
+END_INPUT

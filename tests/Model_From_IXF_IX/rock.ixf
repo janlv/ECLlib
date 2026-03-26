@@ -1,0 +1,71 @@
+MODEL_DEFINITION
+
+RockCompressibility "RockModel" {
+    PoreVolCompressibility=4e-06
+    RefPressure=5500
+}
+
+TwoPhaseSaturationFunction "Clean_sand_kr" {
+    OilWaterFunction [
+        WaterSaturation    WaterRelPerm    OilRelPerm    CapPressure
+                    0.2               0           0.9              0
+                   0.22               0       0.81297              0
+                 0.2925      0.00019531       0.54462              0
+                  0.365        0.003125       0.34297              0
+                 0.4375         0.01582       0.19848              0
+                   0.51            0.05       0.10162              0
+                 0.5825         0.12207      0.042871              0
+                  0.655         0.25313      0.012703              0
+                 0.7275         0.46895     0.0015878              0
+                    0.8             0.8             0              0
+                      1               1             0              0
+     ]
+
+    GasOilFunction [
+        GasSaturation    GasRelPerm    OilRelPerm    CapPressure
+                    0             0           0.9              0
+                 0.05             0       0.69323              0
+              0.11875      3.05E-06       0.46441              0
+               0.1875    0.00019531       0.29246              0
+              0.25625     0.0022247       0.16925              0
+                0.325        0.0125      0.086654              0
+              0.39375      0.047684      0.036557              0
+               0.4625       0.14238      0.010832              0
+              0.53125       0.35904      0.001354              0
+                  0.6           0.8             0              0
+                  0.8           0.9             0              0
+     ]
+
+}
+
+TwoPhaseSaturationFunction "Shaly_sand_kr" {
+    OilWaterFunction [
+        WaterSaturation    WaterRelPerm    OilRelPerm    CapPressure
+                    0.3               0           0.8              0
+                   0.35               0       0.56187              0
+                    0.4       0.0001709       0.37641              0
+                   0.45       0.0027344       0.23704              0
+                    0.5        0.013843       0.13717              0
+                   0.55         0.04375      0.070233              0
+                    0.6         0.10681       0.02963              0
+                   0.65         0.22148     0.0087791              0
+                    0.7         0.41033     0.0010974              0
+                   0.75             0.7             0              0
+                      1               1             0              0
+     ]
+
+    GasOilFunction [
+             GasSaturation    GasRelPerm    OilRelPerm    CapPressure
+                         0             0           0.8              0
+                       0.1             0       0.37641              0
+                   0.14375      2.67E-06       0.25216              0
+                    0.1875     0.0001709        0.1588              0
+                   0.23125     0.0019466      0.091896              0
+                     0.275      0.010938      0.047051              0
+                   0.31875      0.041723       0.01985              0
+                    0.3625       0.12458     0.0058813              0
+                   0.40625       0.31416    0.00073517              0
+                      0.45           0.7             0              0
+                       0.7           0.8             0              0
+          ]
+}

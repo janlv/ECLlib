@@ -1,0 +1,233 @@
+RUNSPEC
+TITLE
+First-pass OPM Flow conversion of tests/Model_From_IXF_TEMP
+
+-- Preserved from the INTERSECT case:
+-- - Cartesian grid geometry
+-- - Facies-driven porosity, permeability, and saturation regions
+-- - Initial pressure/saturation state from Model_From_IXF step 0
+-- - Injector/producer completions and schedule dates
+-- - CL tracer initialized at 1.0 and injected at 0.5
+--
+-- Intentionally omitted in this first runnable Flow deck:
+-- - INTERSECT compositional EOS model
+-- - INTERSECT thermal model and well enthalpy controls
+-- - pyFlow CustomControl coupling
+
+DIMENS
+   25   25    5  /
+
+OIL
+WATER
+GAS
+
+TRACERS
+0 1 0 0 /
+
+FIELD
+
+TABDIMS
+    1    1   50    2    2   20  /
+
+REGDIMS
+    1    1    0    0  /
+
+WELLDIMS
+    2    6    2    2  /
+
+START
+    1 'JAN' 2019  /
+
+UNIFOUT
+UNIFIN
+
+GRID
+INIT
+
+DXV
+   25*25  /
+
+DYV
+   25*25  /
+
+DZV
+   5*10  /
+
+TOPS
+   625*3770  /
+
+PORO
+   1250*0.20  1875*0.12  /
+
+PERMX
+   1250*100  1875*50  /
+
+PERMY
+   1250*100  1875*50  /
+
+PERMZ
+   1250*20  1875*10  /
+
+PROPS
+SWOF
+    0.20           0.0           0.90           0.0
+    0.22           0.0        0.81297           0.0
+  0.2925    0.00019531        0.54462           0.0
+   0.365      0.003125        0.34297           0.0
+  0.4375       0.01582        0.19848           0.0
+    0.51          0.05        0.10162           0.0
+  0.5825       0.12207       0.042871           0.0
+   0.655       0.25313       0.012703           0.0
+  0.7275       0.46895      0.0015878           0.0
+    0.80           0.8           0.0           0.0
+    1.00           1.00           0.0           0.0  /
+
+SGOF
+    0.00           0.0           0.90           0.0
+    0.05           0.0        0.69323           0.0
+ 0.11875      3.05E-06        0.46441           0.0
+  0.1875    0.00019531        0.29246           0.0
+ 0.25625     0.0022247        0.16925           0.0
+   0.325        0.0125       0.086654           0.0
+ 0.39375       0.047684       0.036557           0.0
+  0.4625        0.14238       0.010832           0.0
+ 0.53125        0.35904       0.001354           0.0
+    0.60           0.80           0.0           0.0
+    0.80           0.90           0.0           0.0  /
+
+PVTW
+   4000  1.1030  3.4E-06  0.35  0.0  /
+
+PVCDO
+   4000  1.0440  1.0E-05  0.50  0.0  /
+
+PVDG
+    14.7   178.10   0.012
+  1000.0     3.60   0.014
+  2000.0     1.80   0.016
+  3000.0     1.20   0.017
+  4000.0     0.895  0.018
+  6000.0     0.598  0.020  /
+
+DENSITY
+   49.10   65.021   0.060  /
+
+ROCK
+   5500  4.0E-06  /
+
+TRACER
+   'CL'  WAT  'KG'  /
+/
+
+SOLUTION
+PRESSURE
+   625*3988.5166015625  625*3991.79736328125  625*3995.078369140625
+   625*3998.359375      625*4002.057373046875  /
+
+SWAT
+   1250*0.20  1250*0.30  625*1.0  /
+
+SGAS
+   625*0.47102466225624084  625*0.4708694815635681
+   625*0.4111877679824829   625*0.41105249524116516
+   625*0.0  /
+
+TBLKFCL
+   3125*1.0  /
+
+SUMMARY
+FPR
+
+WBHP
+   'INJECTOR'  /
+
+WBHP
+   'PRODUCER'  /
+
+WWIR
+   'INJECTOR'  /
+
+WWPR
+   'PRODUCER'  /
+
+WOPR
+   'PRODUCER'  /
+
+WGPR
+   'PRODUCER'  /
+
+RUNSUM
+SEPARATE
+
+SCHEDULE
+RPTRST
+BASIC=2
+ALLPROPS=2
+FLOWS
+/
+
+RPTSCHED
+PRES
+SGAS
+SOIL
+SWAT
+'WELLS=2'
+/
+
+TUNING
+   1*  5  /
+/
+/
+
+WELSPECS
+   'INJECTOR'  'FIELD'   1   1   3810  'WATER'  /
+   'PRODUCER'  'FIELD'  25  25   3810  'OIL'    /
+/
+
+COMPDAT
+   'INJECTOR'   1   1   3   5  'OPEN'  0  0  0.30  0  0  0  'Z'  /
+   'PRODUCER'  25  25   1   3  'OPEN'  0  0  0.30  0  0  0  'Z'  /
+/
+
+WRFTPLT
+   'INJECTOR'  NO  REPT  /
+   'PRODUCER'  NO  REPT  /
+/
+
+COMPORD
+   'INJECTOR'  INPUT  /
+   'PRODUCER'  INPUT  /
+/
+
+WCONINJE
+   'INJECTOR'  'WATER'  'OPEN'  'RATE'  1000  1*  6000  /
+/
+
+WCONPROD
+   'PRODUCER'  'OPEN'  'LRAT'  3*  1000  1*  2000  /
+/
+
+WTRACER
+   'INJECTOR'  'CL'  1.0  /
+/
+
+DATES
+    1 'FEB' 2019  /
+    1 'MAR' 2019  /
+    1 'APR' 2019  /
+    1 'MAY' 2019  /
+    1 'JUN' 2019  /
+    1 'JUL' 2019  /
+    1 'AUG' 2019  /
+    1 'SEP' 2019  /
+    1 'OCT' 2019  /
+    1 'NOV' 2019  /
+    1 'DEC' 2019  /
+    1 'JAN' 2020  /
+    1 'JUN' 2020  /
+    1 'JAN' 2021  /
+    1 'JUN' 2021  /
+    1 'JAN' 2022  /
+/
+
+END

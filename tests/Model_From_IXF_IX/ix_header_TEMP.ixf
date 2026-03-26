@@ -1,0 +1,25 @@
+MODEL_DEFINITION
+
+Units {
+    UnitSystem=ECLIPSE_FIELD
+}
+
+Simulation {
+    StartDay=1
+    StartMonth=JANUARY
+    StartYear=2019
+    PhasesPresent=[GAS  OIL  WATER]
+    ThermalModel=THERMAL
+}
+
+AllWellCalculationOptions {
+    InjectionStreamFlash=FLUID_MODEL
+}
+
+TimeStepSizingControls {
+    MaxTimeStep=5
+}
+
+Convergence {
+    MaxWellPressureChange=5
+}

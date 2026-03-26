@@ -1,0 +1,12 @@
+MODEL_DEFINITION
+
+Units {
+    UnitSystem=ECLIPSE_FIELD
+}
+
+Simulation {
+    StartDay=1
+    StartMonth=JANUARY
+    StartYear=2019
+    PhasesPresent=[GAS  OIL  WATER]
+}

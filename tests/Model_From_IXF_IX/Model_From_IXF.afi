@@ -1,0 +1,23 @@
+SIMULATION ix "res1" {
+  # INCLUDE "ix_header.ixf" 
+  INCLUDE "ix_header_TEMP.ixf" 
+  # INCLUDE "grid.ixf" 
+  INCLUDE "grid_TEMP.ixf" 
+  # INCLUDE "fluid.ixf" 
+  INCLUDE "fluid_TEMP.ixf" 
+  # INCLUDE "equil.ixf" 
+  INCLUDE "equil_TEMP.ixf" 
+  INCLUDE "rock.ixf" 
+  # INCLUDE "region.ixf" 
+  INCLUDE "region_TEMP.ixf" 
+  # INCLUDE "well_ix.ixf"
+  INCLUDE "well_ix_TEMP.ixf"
+  EXTENSION "EGRIDReport"
+}
+SIMULATION fm {
+  INCLUDE "report.ixf"
+  # INCLUDE "well_fm.ixf"
+  INCLUDE "well_fm_TEMP.ixf"
+  INCLUDE "Flow_calculation.ixf"
+  EXTENSION "custom_scripts"
+}

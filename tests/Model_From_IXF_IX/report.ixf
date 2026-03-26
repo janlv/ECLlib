@@ -1,0 +1,120 @@
+MODEL_DEFINITION
+
+EclReports {
+    MaxWells=2
+    MaxGroups=4
+    MaxConnections=10
+}
+
+Initial3DReport "InitialReport" {
+    On=TRUE
+    FileFormat=BINARY
+    VerbosityLevel=2
+    WriteNNCs=YES
+}
+
+Initial3DReport "InitialReport" [
+    SelectedProperties    ReportLabels
+              POROSITY         "PORO"
+                PERM_I         "PERMX"
+                PERM_J         "PERMY"
+                PERM_K         "PERMZ"
+           USER_REGION        "Facies"
+]
+
+Recurrent3DReport "RestartReport" {
+    On=TRUE
+    FileFormat=BINARY
+    Unified=TRUE
+    Frequency=CONVERGED_TIMESTEPS
+    WriteFlows=Yes
+}
+
+Recurrent3DReport "RestartReport" [
+    SelectedProperties    ReportLabels
+              PRESSURE      "PRESSURE"
+        OIL_SATURATION          "SOIL"
+      WATER_SATURATION          "SWAT"
+        GAS_SATURATION          "SGAS"
+SOLUTION_GAS_OIL_RATIO            "RS"
+   VAPOR_OIL_GAS_RATIO            "RV"   
+GAS_FORMATION_VOLUME_FACTOR       "BG"
+WATER_FORMATION_VOLUME_FACTOR     "BW"
+OIL_FORMATION_VOLUME_FACTOR       "BO"
+RES_PORE_VOLUME                "RPORV"
+TRACER_CONCENTRATION["CL"]        "TR"
+PRESSURE                    "PRESSURE"
+TEMPERATURE                     "TEMP"
+]
+
+RFTPLTReport "RFTPLTReport" [
+    WellNames    WellRFTFlags    WellPLTFlags    WellSegmentFlags
+          "*"         "False"          "True"             "False"
+]
+
+RFTPLTReport "RFTPLTReport" {
+    Frequency=CONVERGED_TIMESTEPS
+    Period=1
+    On="True"
+    FileFormat=BINARY
+    Units=ECLIPSE_FIELD
+}
+
+XYPlotSummaryReport "SummaryReport" {
+    On=TRUE
+    FileFormat=BINARY
+    Unified=TRUE
+    OutputRSM=TRUE
+    
+    WellProperties "AllWellProperties" {
+        WellNames=["*"]
+    }
+    
+    WellProperties "AllWellProperties" [
+        SelectedProperties    ReportLabels
+      BOTTOM_HOLE_PRESSURE          "WBHP"
+             GAS_OIL_RATIO          "WGOR"
+       GAS_PRODUCTION_RATE          "WGPR"
+       GAS_PRODUCTION_CUML          "WGPT"
+       OIL_PRODUCTION_RATE          "WOPR"
+       OIL_PRODUCTION_CUML          "WOPT"
+                 WATER_CUT          "WWCT"
+      WATER_INJECTION_RATE          "WWIR"
+      WATER_INJECTION_CUML          "WWIT"
+     WATER_PRODUCTION_RATE          "WWPR"
+     WATER_PRODUCTION_CUML          "WWPT"
+     ]
+    
+	FieldProperties "Reservoir" [
+     SelectedProperties    ReportLabels
+               PRESSURE           "FPR"
+    OIL_PRODUCTION_RATE          "FOPR"
+    OIL_PRODUCTION_CUML          "FOPT"
+              WATER_CUT          "FWCT"
+   WATER_INJECTION_RATE          "FWIR"
+   WATER_INJECTION_CUML          "FWIT"
+  WATER_PRODUCTION_RATE          "FWPR"
+  WATER_PRODUCTION_CUML          "FWPT"
+ 	]
+
+    SimulationEngineProperties "SimulationEngine" [
+        SelectedProperties    ReportLabels
+           TIMESTEP_LENGTH      "TIMESTEP"
+              ELAPSED_TIME       "ELAPSED"
+            NUMBER_LINEARS      "MLINEARS"
+            NUMBER_NEWTONS        "NEWTON"
+      TOTAL_NUMBER_NEWTONS      "MSUMNEWT"
+                  CPU_TIME        "TCPUTS"
+     ]
+
+    WellToCellConnectionProperties "AllConnectionProperties" {
+        WellNames=["*"]
+        Cells=[UNSET]
+    }
+
+    WellToCellConnectionProperties "AllConnectionProperties" [
+        SelectedProperties              ReportLabels
+        WATER_RES_VOLUME_FLOW_RATE      "CWVFR"
+    ]
+
+}

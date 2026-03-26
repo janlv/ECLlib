@@ -1,0 +1,31 @@
+MODEL_DEFINITION
+
+Equilibrium "InitCondition" {
+    DataType=DATUM_PLUS_COMP
+    DatumDepth=3810
+    DatumPressure=4000
+    WOCDepth=3810
+    GOCDepth=3000
+    FluidModel="Ekofisk_CorrectedPR"
+    FluidType=BUBBLE_POINT
+    NumberOfPressureDepthTableNodes=50
+    CompositionDepthTable "ZMFVD" {
+        CompositionType=TOTAL
+        Depth=[3000 3770 3820]
+        Composition=[
+            0.614088 0.12742 0.10007 0.11371 0.044712
+            0.614088 0.12742 0.10007 0.11371 0.044712
+            0.614088 0.12742 0.10007 0.11371 0.044712
+        ]
+    }
+    TemperatureDepthTable [
+        Depth    Temperature
+         3000         266
+         3775         266
+         3785         266
+         3795         266
+         3805         266
+         3815         266
+         3820         266
+    ]
+}

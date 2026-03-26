@@ -1,0 +1,16 @@
+INFO 2026-03-24 15:18:29,476 svg-1300.ad.norceresearch.no Version 2024.1.0
+INFO 2026-03-24 15:18:29,476 svg-1300.ad.norceresearch.no Operation: ix
+INFO 2026-03-24 15:18:29,524 svg-1300.ad.norceresearch.no Workflow starting task: Model_From_IXF
+INFO 2026-03-24 15:18:29,527 svg-1300.ad.norceresearch.no IX Simulation overriding MPI unspecified
+INFO 2026-03-24 15:18:29,537 svg-1300.ad.norceresearch.no I_MPI_ROOT Detected, using Intel MPI path /opt/ecl/tools/linux_x86_64/intel/mpi
+INFO 2026-03-24 15:18:29,813 svg-1300.ad.norceresearch.no Submission Command: "mpirun" -np 1 -envall -wdir "/home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP" /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ix.exe Model_From_IXF.afi
+INFO 2026-03-24 15:18:29,813 svg-1300.ad.norceresearch.no Launching: "mpirun" -np 1 -envall -wdir "/home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP" /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ix.exe Model_From_IXF.afi
+INFO 2026-03-24 15:19:48,659 svg-1300.ad.norceresearch.no Intersect has finished
+INFO 2026-03-24 15:19:48,717 svg-1300.ad.norceresearch.no Workflow starting task: Model_From_IXF summary conversion
+INFO 2026-03-24 15:19:48,717 svg-1300.ad.norceresearch.no Creating temp conversion directory convert_20260324141948_942f0952
+INFO 2026-03-24 15:19:48,717 svg-1300.ad.norceresearch.no Submission Command: /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ConvertSummaryData2DataBase.exe Model_From_IXF.afi convert_20260324141948_942f0952
+INFO 2026-03-24 15:19:48,717 svg-1300.ad.norceresearch.no Launching: /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ConvertSummaryData2DataBase.exe Model_From_IXF.afi convert_20260324141948_942f0952
+INFO 2026-03-24 15:19:50,733 svg-1300.ad.norceresearch.no Conversion has finished
+INFO 2026-03-24 15:19:50,759 svg-1300.ad.norceresearch.no Removing temp conversion directory convert_20260324141948_942f0952
+INFO 2026-03-24 15:19:50,765 svg-1300.ad.norceresearch.no Workflow has finished
+INFO 2026-03-24 15:19:50,765 svg-1300.ad.norceresearch.no Session in progress.

@@ -28,3 +28,4 @@ htmlcov/
 
 # Jupyter
 *.ipynb_checkpoints/
+tests/EKOFISK_HAUKAAS_2014/

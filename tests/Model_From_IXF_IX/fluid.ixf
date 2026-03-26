@@ -1,0 +1,63 @@
+MODEL_DEFINITION
+
+BlackOilFluidModel "BlackOilModel" {
+    GasSurfaceDensity=0.06054
+    OilSurfaceDensity=49.1
+    UndersaturatedGasTable "UndersaturatedGasTable" [
+        Pressure    FormationVolumeFactor    Viscosity
+            14.7                  166.666        0.008
+           264.7                   12.093       0.0096
+           514.7                    6.274       0.0112
+          1014.7                    3.197        0.014
+          2014.7                    1.614       0.0189
+          2514.7                    1.294       0.0208
+          3014.7                     1.08       0.0228
+          4014.7                    0.811       0.0268
+          5014.7                    0.649       0.0309
+          9014.7                    0.386        0.047
+     ]
+
+    OilTable "OilTable1" [
+        SubTableIndex    SolutionGOR    Pressure    FormationVolumeFactor    Viscosity
+                    0          0.001        14.7                    1.062         1.04
+                    1         0.0905       264.7                     1.15        0.975
+                    2           0.18       514.7                    1.207         0.91
+                    3          0.371      1014.7                    1.295         0.83
+                    4          0.636      2014.7                    1.435        0.695
+                    5          0.775      2514.7                      1.5        0.641
+                    6           0.93      3014.7                    1.565        0.594
+                    7           1.27      4014.7                    1.695         0.51
+                    8          1.618      5014.7                    1.827        0.449
+                    9          2.301      7014.7                    2.092        0.326
+                   10          2.984      9014.7                    2.357        0.203
+                   10          2.984     12014.7                    2.259        0.254
+                   10          2.984     15014.7                    2.165        0.317
+     ]
+
+    OilTable "OilTable1" {
+        OilSurfaceDensity=49.1
+    }
+
+    WaterCompressibilities {
+        SurfaceDensity=64.79
+        RefPressure=4014.7
+        FormationVolumeFactor=1.029
+        Viscosity=0.31
+        Compressibility=3.13e-06
+        ViscosityCompressibility=0
+    }
+}
+
+TracerComponentTable {
+    TracerName=["CL"]
+    ComponentName=["WATER"]
+    InitializationMethod=[DEPTH_TABLE]
+}
+
+TracerConcentrationDepthTables "CL" {
+TracerConcentrationDepthTable "0" [
+    Depth Concentration
+    1000      1
+    6000      1
+]
+}

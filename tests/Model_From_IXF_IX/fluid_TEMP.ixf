@@ -1,0 +1,109 @@
+MODEL_DEFINITION
+
+PostInitializationFlash {
+    FlashType=DEFAULT_FLASH
+    WaterSaturationAdjustment=NO_ADJUSTMENT
+}
+
+FluidFlowGrid {
+    Type=DECK
+    InternalInitializer="True"
+    EnumerationInitialization="False"
+}
+
+CompositionalFluidModel "Ekofisk_CorrectedPR" {
+    StandardPressure=14.696
+    StandardTemperature=60.0000195313
+    ComponentProperties [
+        ComponentName    MolecularWeight      TCrit    PCrit            VCrit     ZCrit    AcentricFactor    Parachor
+               "C1N2"              16.12    -117.97    665.8    1.97944436774    0.3594            0.0119        76.8
+               "C2C3"               35.7     136.93    703.6     2.9937625811     0.329            0.1257       119.1
+               "C4F1"              79.48     448.73    468.9    4.90859182279    0.2361            0.2619       251.1
+               "F2F3"             180.89     813.93    289.6    10.8171573172    0.2292            0.5357       520.2
+               "F4F5"             408.17    1149.53    159.6    26.6180528892     0.246            1.0469       944.4
+    ]
+
+    WaterThermalModel {
+    }
+
+    WaterCompressibilities {
+        SurfaceDensity=65.021
+        RefPressure=14.7
+        FormationVolumeFactor=1.07
+        Viscosity=0.35
+        Compressibility=3.4e-06
+    }
+
+    EnthalpyVaporLiquidHeatCapacity [
+        LiquidHeatCapacityCoef1    LiquidHeatCapacityCoef2    VaporHeatCapacityCoef1    VaporHeatCapacityCoef2    VaporizationHeat    RefTemperature
+                 0.50157638                       0                 0.50157638                       0                   0       60.0000195313
+                 0.50157638                       0                 0.50157638                       0                   0       60.0000195313
+                 0.50157638                       0                 0.50157638                       0                   0       60.0000195313
+                 0.50157638                       0                 0.50157638                       0                   0       60.0000195313
+                 0.50157638                       0                 0.50157638                       0                   0       60.0000195313
+    ]
+
+    DensityLiquid {
+    }
+
+    LiquidCompressibility [
+          RefMassDensity    Compressibility    RefPressure    ThermalExpansivity1    RefTemperature
+                    49.1            1e-05           14.7               0.00038       60.0000195313
+                    49.1            1e-05           14.7               0.00038       60.0000195313
+                    49.1            1e-05           14.7               0.00038       60.0000195313
+                    49.1            1e-05           14.7               0.00038       60.0000195313
+                    49.1            1e-05           14.7               0.00038       60.0000195313
+    ]
+
+    DensityVapor {
+    }
+
+    VaporZFactor {
+        ZFactor=[0.96 0.96 0.96 0.96 0.96]
+    }
+
+    KValueCrookston {
+        A=[1e+06 1e+06 0 0 0]
+        B=[0 0 777800 3110000 0]
+        C=[0 0 0 0 0]
+        D=[0 0 8331 13620 0]
+        E=[-459.67 -459.67 -459.67 -459.67 -459.67]
+    }
+
+    ViscosityLBC "OilAndGasViscosityLBC" {
+    }
+
+    OilViscosityModel="OilAndGasViscosityLBC"
+    GasViscosityModel="OilAndGasViscosityLBC"
+
+    BinaryInteractionCoef {
+        Elements=[0.0099 0.0127 0.0105 0.0267 0.0118 0 0.138 0.0118 0 0]
+    }
+
+    EquationOfState {
+        Formulation=CORRECTED_PENG_ROBINSON
+    }
+
+    EquationOfState [
+        OmegaA0    OmegaB0    VolumeShift
+         0.5051     0.0778        -0.1592
+         0.4303     0.0796        -0.1003
+         0.4262     0.0749        -0.0037
+         0.4415     0.0759         0.1142
+         0.4382     0.0766         0.1707
+    ]
+}
+
+TracerComponentTable {
+    TracerName=["CL"]
+    ComponentName=["WATER"]
+    InitializationMethod=[DEPTH_TABLE]
+}
+
+TracerConcentrationDepthTables "CL" {
+TracerConcentrationDepthTable "0" [
+    Depth Concentration
+    1000      1
+    6000      1
+]
+}

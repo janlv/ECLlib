@@ -1,0 +1,476 @@
+
+
+
+ ########  #          ######   #           #
+ #         #         #      #   #         # 
+ #####     #         #      #    #   #   #  
+ #         #         #      #     # # # #   
+ #         #######    ######       #   #    
+
+Flow is a simulator for fully implicit three-phase black-oil flow, and is part of OPM.
+For more information visit: https://opm-project.org 
+
+Flow Version     =  2025.10 (Ubuntu 24.04.3 LTS: 2025.10-1~noble)
+Machine name     =  svg-1300.ad.norceresearch.no (Number of logical cores: 24, Memory size: 63973.25 MB) 
+Operating system =  Linux x86_64 (Kernel: 6.8.0-90-generic, #91-Ubuntu SMP PREEMPT_DYNAMIC Tue Nov 18 14:14:30 UTC 2025 )
+Build time       =  
+User             =  javi
+Simulation started on 24-03-2026 at 15:58:41 hrs
+Using 1 MPI processes with 2 OMP threads on each 
+Parameters used by Flow:
+# [known parameters which were specified at run-time]
+EclDeckFileName="/home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA" # default: ""
+# [parameters which were specified at compile-time]
+AcceleratorMode="none"
+ActionParsingStrictness="normal"
+AddCorners="0"
+AllowDistributedWells="0"
+AllowSplittingInactiveWells="1"
+AlternativeWellRateInit="1"
+CheckGroupConstraintsInnerWellIterations="1"
+CheckSatfuncConsistency="1"
+ContinueOnConvergenceError="0"
+ConvergenceMonitoring="0"
+ConvergenceMonitoringCutOff="6"
+ConvergenceMonitoringDecayFactor="0.75"
+CprReuseInterval="30"
+CprReuseSetup="4"
+CprWeightsThreadParallel="0"
+DbhpMaxRel="1"
+DebugEmitCellPartition="0"
+DebugVerbosityLevel="1"
+DpMaxRel="0.3"
+DsMax="0.2"
+DwellFractionMax="0.2"
+EclOutputDoublePrecision="0"
+EclOutputInterval="-1"
+EdgeConformal="0"
+EdgeWeightsMethod="transmissibility"
+EnableAdaptiveTimeStepping="1"
+EnableAsyncEclOutput="1"
+EnableAsyncVtkOutput="1"
+EnableDriftCompensation="0"
+EnableDryRun="auto"
+EnableEclOutput="1"
+EnableEsmry="0"
+EnableGravity="1"
+EnableGridAdaptation="0"
+EnableIntensiveQuantityCache="1"
+EnableLoggingFalloutWarning="0"
+EnableOpmRstFile="0"
+EnableStorageCache="1"
+EnableTerminalOutput="1"
+EnableThermodynamicHints="0"
+EnableTuning="0"
+EnableVtkOutput="0"
+EnableWellOperabilityCheck="1"
+EnableWellOperabilityCheckIter="0"
+EnableWriteAllSolutions="0"
+EndTime="1e+100"
+ExplicitRockCompaction="0"
+ExternalPartition=""
+ForceDisableFluidInPlaceOutput="0"
+ForceDisableResvFluidInPlaceOutput="0"
+FullTimeStepInitially="0"
+GpuAwareMpi="0"
+GpuDeviceId="0"
+HyNeConfigFile="hybridNewtonConfig.json"
+IgnoreKeywords=""
+IluFillinLevel="0"
+IluRedblack="0"
+IluRelaxation="0.9"
+IluReorderSpheres="0"
+ImbalanceTol="1.1"
+InitialTimeStepInDays="1"
+InitialTimeStepSize="86400"
+InjMultDampMult="0.9"
+InjMultMinDampFactor="0.05"
+InjMultOscThreshold="0.1"
+InputSkipMode="100"
+LinearSolver="cprw"
+LinearSolverAccelerator="cpu"
+LinearSolverIgnoreConvergenceFailure="0"
+LinearSolverMaxIter="200"
+LinearSolverPrintJsonDefinition="1"
+LinearSolverReduction="0.01"
+LinearSolverRestart="40"
+LinearSolverVerbosity="0"
+LoadFile=""
+LoadStep="-1"
+LocalDomainsOrderingMeasure="maxpressure"
+LocalDomainsPartitionWellNeighborLevels="1"
+LocalDomainsPartitioningImbalance="1.03"
+LocalDomainsPartitioningMethod="zoltan"
+LocalSolveApproach="gauss-seidel"
+LocalToleranceScalingCnv="0.1"
+LocalToleranceScalingMb="1"
+LocalWellSolveControlSwitching="1"
+MatrixAddWellContributions="0"
+MaxInnerIterMsWells="100"
+MaxInnerIterWells="50"
+MaxLocalSolveIterations="20"
+MaxNewtonIterationsWithInnerWellIterations="8"
+MaxPressureChangeMsWells="1e+06"
+MaxResidualAllowed="1e+07"
+MaxSinglePrecisionDays="20"
+MaxTemperatureChange="5"
+MaxTimeStepDivisions="10"
+MaxTimeStepSize="inf"
+MaxWellStatusSwitchForWells="99"
+MaxWellStatusSwitchInInnerIterWells="99"
+MaxWelleqIter="30"
+MaximumNumberOfGroupSwitches="3"
+MaximumNumberOfWellSwitches="3"
+MaximumWaterSaturation="1"
+MetisParams="default"
+MiluVariant="ilu"
+MinStrictCnvIter="-1"
+MinStrictMbIter="-1"
+MinTimeStepBasedOnNewtonIterations="0"
+MinTimeStepBeforeShuttingProblematicWellsInDays="0.01"
+MinTimeStepSize="0"
+NetworkMaxOuterIterations="10"
+NetworkMaxPressureUpdateInBars="5"
+NetworkMaxStrictOuterIterations="10"
+NetworkMaxSubIterations="20"
+NetworkPressureUpdateDampingFactor="0.1"
+NewtonMaxError="1e+100"
+NewtonMaxIterations="20"
+NewtonMaxRelax="0.5"
+NewtonMinIterations="2"
+NewtonRelaxationType="dampen"
+NewtonTargetIterations="10"
+NewtonTolerance="0.01"
+NewtonVerbose="1"
+NewtonWriteConvergence="0"
+NlddLocalLinearSolver="ilu0"
+NlddLocalLinearSolverMaxIter="200"
+NlddLocalLinearSolverReduction="0.01"
+NlddNumInitialNewtonIter="1"
+NlddRelativeMobilityChangeTol="0.1"
+NonlinearSolver="newton"
+NumLocalDomains="0"
+NumOverlap="1"
+NumPressurePointsEquil="2000"
+NumSatfuncConsistencySamplePoints="5"
+NupcolGroupRateTolerance="0.001"
+OpenclIluParallel="1"
+OpenclPlatformId="0"
+OutputDir=""
+OutputExtraConvergenceInfo="none"
+OutputInterval="1"
+OutputMode="all"
+OwnerCellsFirst="1"
+ParameterFile=""
+ParsingStrictness="normal"
+PartitionMethod="zoltanwell"
+PreSolveNetwork="1"
+PredeterminedTimeStepsFile=""
+PressureMax="1e+99"
+PressureMin="-1e+99"
+PressureScale="1"
+PriVarOscilationThreshold="1e-05"
+PrintParameters="2"
+ProjectSaturations="0"
+RegularizationFactorWells="100"
+RelaxedLinearSolverReduction="0.01"
+RelaxedMaxPvFraction="0.03"
+RelaxedPressureTolMsw="10000"
+RelaxedWellFlowTol="0.001"
+RestartTime="-1e+35"
+RestartWritingInterval="16777215"
+SaveFile=""
+SaveStep=""
+ScaleLinearSystem="0"
+SchedRestart="0"
+SerialPartitioning="0"
+ShutUnsolvableWells="1"
+Slave="0"
+SolveWelleqInitially="1"
+SolverContinueOnConvergenceFailure="0"
+SolverGrowthFactor="2"
+SolverMaxGrowth="3"
+SolverMaxRestarts="10"
+SolverMaxTimeStepInDays="365"
+SolverMinTimeStep="1e-12"
+SolverRestartFactor="0.33"
+SolverVerbosity="1"
+StrictInnerIterWells="40"
+StrictOuterIterWells="6"
+TemperatureMax="1e+09"
+TemperatureMin="0"
+ThreadsPerProcess="2"
+TimeStepAfterEventInDays="-1"
+TimeStepControl="pid+newtoniteration"
+TimeStepControlDecayDampingFactor="1"
+TimeStepControlDecayRate="0.75"
+TimeStepControlFileName="timesteps"
+TimeStepControlGrowthDampingFactor="3.2"
+TimeStepControlGrowthRate="1.25"
+TimeStepControlMaxReductionTimeStep="0.1"
+TimeStepControlParameters="0.125;0.25;0.125;0.75;0.25"
+TimeStepControlRejectCompletedStep="0"
+TimeStepControlSafetyFactor="0.8"
+TimeStepControlTargetIterations="30"
+TimeStepControlTargetNewtonIterations="8"
+TimeStepControlTolerance="0.1"
+TimeStepControlToleranceTestVersion="standard"
+TimeStepVerbosity="1"
+ToleranceCnv="0.01"
+ToleranceCnvEnergy="0.01"
+ToleranceCnvEnergyRelaxed="1"
+ToleranceCnvRelaxed="1"
+ToleranceEnergyBalance="1e-07"
+ToleranceEnergyBalanceRelaxed="1e-06"
+ToleranceMb="1e-07"
+ToleranceMbRelaxed="1e-06"
+TolerancePressureMsWells="1000"
+ToleranceWellControl="1e-07"
+ToleranceWells="0.0001"
+UpdateEquationsScaling="0"
+UseAverageDensityMsWells="0"
+UseGmres="0"
+UseHyNe="0"
+UseImplicitIpr="1"
+UseMultisegmentWell="1"
+UseUpdateStabilization="1"
+VerifyGpuAwareMpi="0"
+VtkWriteAverageMolarMasses="0"
+VtkWriteDensities="1"
+VtkWriteDiffusionCoefficients="0"
+VtkWriteDofIndex="0"
+VtkWriteEffectiveDiffusionCoefficients="0"
+VtkWriteExtrusionFactor="0"
+VtkWriteFilterVelocities="0"
+VtkWriteFugacities="0"
+VtkWriteFugacityCoeffs="0"
+VtkWriteGasDissolutionFactor="0"
+VtkWriteGasFormationVolumeFactor="0"
+VtkWriteGasSaturationPressure="0"
+VtkWriteIntrinsicPermeabilities="0"
+VtkWriteMassFractions="0"
+VtkWriteMobilities="0"
+VtkWriteMolarities="0"
+VtkWriteMoleFractions="1"
+VtkWriteOilFormationVolumeFactor="0"
+VtkWriteOilSaturationPressure="0"
+VtkWriteOilVaporizationFactor="0"
+VtkWritePorosity="1"
+VtkWritePotentialGradients="0"
+VtkWritePressures="1"
+VtkWritePrimaryVars="0"
+VtkWritePrimaryVarsMeaning="0"
+VtkWriteProcessRank="0"
+VtkWriteRelativePermeabilities="1"
+VtkWriteSaturatedGasOilVaporizationFactor="0"
+VtkWriteSaturatedOilGasDissolutionFactor="0"
+VtkWriteSaturationRatios="0"
+VtkWriteSaturations="1"
+VtkWriteTemperature="1"
+VtkWriteTortuosities="0"
+VtkWriteTotalMassFractions="0"
+VtkWriteTotalMoleFractions="0"
+VtkWriteTracerConcentration="0"
+VtkWriteViscosities="0"
+VtkWriteWaterFormationVolumeFactor="0"
+WaterOnlyThreshold="1"
+WellGroupConstraintsMaxIterations="1"
+ZoltanImbalanceTol="1.1"
+ZoltanParams="graph"
+ZoltanPhgEdgeSizeThreshold="0.35"
+
+Reading deck file '/home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA'
+    0 Reading RUNSPEC  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 1
+    1 Reading TITLE    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 2
+    2 Reading DIMENS   in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 17
+    3 Reading OIL      in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 20
+    4 Reading WATER    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 21
+    5 Reading GAS      in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 22
+    6 Reading TRACERS  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 24
+    7 Reading FIELD    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 27
+    8 Reading TABDIMS  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 29
+    9 Reading REGDIMS  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 32
+   10 Reading WELLDIMS in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 35
+   11 Reading START    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 38
+   12 Reading UNIFOUT  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 41
+   13 Reading UNIFIN   in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 42
+   14 Reading GRID     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 44
+   15 Reading INIT     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 45
+   16 Reading DXV      in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 47
+   17 Reading DYV      in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 50
+   18 Reading DZV      in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 53
+   19 Reading TOPS     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 56
+   20 Reading PORO     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 59
+   21 Reading PERMX    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 62
+   22 Reading PERMY    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 65
+   23 Reading PERMZ    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 68
+   24 Reading PROPS    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 71
+   25 Reading SWOF     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 72
+   26 Reading SGOF     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 85
+   27 Reading PVTW     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 98
+   28 Reading PVCDO    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 101
+   29 Reading PVDG     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 104
+   30 Reading DENSITY  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 112
+   31 Reading ROCK     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 115
+   32 Reading TRACER   in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 118
+   33 Reading SOLUTION in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 122
+   34 Reading PRESSURE in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 123
+   35 Reading SWAT     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 127
+   36 Reading SGAS     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 130
+   37 Reading TBLKFCL  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 135
+   38 Reading SUMMARY  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 138
+   39 Reading FPR      in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 139
+   40 Reading WBHP     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 141
+   41 Reading WBHP     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 144
+   42 Reading WWIR     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 147
+   43 Reading WWPR     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 150
+   44 Reading WOPR     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 153
+   45 Reading WGPR     in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 156
+   46 Reading RUNSUM   in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 159
+   47 Reading SEPARATE in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 160
+   48 Reading SCHEDULE in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 162
+   49 Reading RPTRST   in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 163
+   50 Reading RPTSCHED in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 169
+   51 Reading TUNING   in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 177
+   52 Reading WELSPECS in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 182
+   53 Reading COMPDAT  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 187
+   54 Reading WRFTPLT  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 192
+   55 Reading COMPORD  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 197
+   56 Reading WCONINJE in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 202
+   57 Reading WCONPROD in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 206
+   58 Reading WTRACER  in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 210
+   59 Reading DATES    in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 214
+The ALL CAPS case: MODEL_FROM_IXF_OPM will be used when writing output files from this simulation.
+
+Creating grid from keywords DX, DY, DZ and TOPS
+
+Initializing tracers from TRACER in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 118
+Non-default tracer unit [KG] from TRACER in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 118
+Loading tracer concentration from TBLKFCL in /home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 135
+3 fluid phases are active
+
+Processing dynamic information from
+/home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP/opm_flow/Model_From_IXF_OPM.DATA line 162
+Initializing report step 0/16 at 2019-01-01 0 DAYS line 162
+Processing keyword RPTRST at line 163
+Processing keyword RPTSCHED at line 169
+Processing keyword TUNING at line 177
+Processing keyword WELSPECS at line 182
+Wells parented directly to 'FIELD'; this is allowed but discouraged.
+Wells entered with 'FIELD' parent group:
+* INJECTOR
+ * PRODUCER
+Processing keyword COMPDAT at line 187
+Processing keyword WRFTPLT at line 192
+Processing keyword COMPORD at line 197
+Processing keyword WCONINJE at line 202
+Processing keyword WCONPROD at line 206
+Processing keyword WTRACER at line 210
+Complete report step 1 (31 DAYS) at 2019-02-01 (0 DAYS)
+
+Initializing report step 2/16 at 2019-02-01 (0 DAYS) line 214
+Complete report step 2 (28 DAYS) at 2019-03-01 (31 DAYS)
+
+Initializing report step 3/16 at 2019-03-01 (31 DAYS) line 214
+Complete report step 3 (31 DAYS) at 2019-04-01 (59 DAYS)
+
+Initializing report step 4/16 at 2019-04-01 (59 DAYS) line 214
+Complete report step 4 (30 DAYS) at 2019-05-01 (90 DAYS)
+
+Initializing report step 5/16 at 2019-05-01 (90 DAYS) line 214
+Complete report step 5 (31 DAYS) at 2019-06-01 (120 DAYS)
+Report limit reached, see PRT-file for remaining Schedule initialization.
+
+Initializing report step 6/16 at 2019-06-01 (120 DAYS) line 214
+Complete report step 6 (30 DAYS) at 2019-07-01 (151 DAYS)
+
+Initializing report step 7/16 at 2019-07-01 (151 DAYS) line 214
+Complete report step 7 (31 DAYS) at 2019-08-01 (181 DAYS)
+
+Initializing report step 8/16 at 2019-08-01 (181 DAYS) line 214
+Complete report step 8 (31 DAYS) at 2019-09-01 (212 DAYS)
+
+Initializing report step 9/16 at 2019-09-01 (212 DAYS) line 214
+Complete report step 9 (30 DAYS) at 2019-10-01 (243 DAYS)
+
+Initializing report step 10/16 at 2019-10-01 (243 DAYS) line 214
+Complete report step 10 (31 DAYS) at 2019-11-01 (273 DAYS)
+
+Initializing report step 11/16 at 2019-11-01 (273 DAYS) line 214
+Complete report step 11 (30 DAYS) at 2019-12-01 (304 DAYS)
+
+Initializing report step 12/16 at 2019-12-01 (304 DAYS) line 214
+Complete report step 12 (31 DAYS) at 2020-01-01 (334 DAYS)
+
+Initializing report step 13/16 at 2020-01-01 (334 DAYS) line 214
+Complete report step 13 (152 DAYS) at 2020-06-01 (365 DAYS)
+
+Initializing report step 14/16 at 2020-06-01 (365 DAYS) line 214
+Complete report step 14 (214 DAYS) at 2021-01-01 (517 DAYS)
+
+Initializing report step 15/16 at 2021-01-01 (517 DAYS) line 214
+Complete report step 15 (151 DAYS) at 2021-06-01 (731 DAYS)
+
+Initializing report step 16/16 at 2021-06-01 (731 DAYS) line 214
+Complete report step 16 (214 DAYS) at 2022-01-01 (882 DAYS)
+
+
+Processing grid
+Total number of active cells: 3125 / total pore volume: 528757 RB
+
+Property tree for linear solvers:
+{
+    "maxiter": "20",
+    "tol": "0.0050000000000000001",
+    "verbosity": "0",
+    "solver": "bicgstab",
+    "preconditioner": {
+        "type": "cprw",
+        "use_well_weights": "false",
+        "add_wells": "true",
+        "weight_type": "trueimpes",
+        "pre_smooth": "0",
+        "post_smooth": "1",
+        "finesmoother": {
+            "type": "paroverilu0",
+            "relaxation": "1"
+        },
+        "verbosity": "0",
+        "coarsesolver": {
+            "maxiter": "1",
+            "tol": "0.10000000000000001",
+            "solver": "loopsolver",
+            "verbosity": "0",
+            "preconditioner": {
+                "type": "amg",
+                "alpha": "0.33333333333300003",
+                "relaxation": "1",
+                "iterations": "1",
+                "coarsenTarget": "1200",
+                "pre_smooth": "1",
+                "post_smooth": "1",
+                "beta": "0",
+                "smoother": "ilu0",
+                "verbosity": "0",
+                "maxlevel": "15",
+                "skip_isolated": "0",
+                "accumulate": "1",
+                "prolongationdamping": "1",
+                "maxdistance": "2",
+                "maxconnectivity": "15",
+                "maxaggsize": "6",
+                "minaggsize": "4"
+            }
+        }
+    }
+}
+
+
+The deck has TUNING in the SCHEDULE section, but it is ignored due
+to the flag --enable-tuning=false. Set this flag to true to activate it.
+Manually tuning the simulator with the TUNING keyword may increase run time.
+It is recommended using the simulator's default tuning (--enable-tuning=false).
+
+
+================ Starting main simulation loop ===============
+

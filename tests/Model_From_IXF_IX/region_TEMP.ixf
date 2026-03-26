@@ -1,0 +1,18 @@
+MODEL_DEFINITION
+
+RockRegionMapping [
+  RegionFamilyNames     RegionNames          ModelNames                    MappingTypes
+           "Facies"    "Clean sand"    "Clean_sand_kr"    DRAINAGE_SATURATION_FUNCTION
+           "Facies"    "Shaly sand"    "Shaly_sand_kr"    DRAINAGE_SATURATION_FUNCTION
+          RESERVOIR       RESERVOIR         "RockModel"                  ROCK_MECHANICS
+ ]
+
+FluidRegionMapping [
+    RegionFamilyNames    RegionNames              ModelNames       MappingTypes
+            RESERVOIR      RESERVOIR    "Ekofisk_CorrectedPR"    FLUID_PVT_MODEL
+]
+
+EquilibriumRegionMapping [
+    RegionFamilyNames    RegionNames         ModelNames             MappingTypes
+            RESERVOIR      RESERVOIR    "InitCondition"    EQUILIBRIUM_EQL_MODEL
+]

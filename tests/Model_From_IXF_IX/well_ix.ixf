@@ -1,0 +1,20 @@
+START
+#DATE  "01-Jan-2019"   
+
+WellDef "INJECTOR" {
+    WellToCellConnections [
+           Cell    Status       Completion    PenetrationDirection    Skin    WellBoreRadius
+        (1 1 3)      OPEN    "COMPLETION1"                       K       0               0.3
+        (1 1 4)      OPEN    "COMPLETION1"                       K       0               0.3
+        (1 1 5)      OPEN    "COMPLETION1"                       K       0               0.3
+        ]
+}
+
+WellDef "PRODUCER" {
+    WellToCellConnections [
+             Cell    Status       Completion    PenetrationDirection    Skin    WellBoreRadius
+        (25 25 1)      OPEN    "COMPLETION1"                       K       0               0.3
+        (25 25 2)      OPEN    "COMPLETION1"                       K       0               0.3
+        (25 25 3)      OPEN    "COMPLETION1"                       K       0               0.3
+          ]
+}

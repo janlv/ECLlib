@@ -1,0 +1,14 @@
+MODEL_DEFINITION
+
+Equilibrium "InitCondition" {
+	DataType=DATUM_PLUS_COMP
+    DatumDepth=3810
+    DatumPressure=4000
+    WOCDepth=3810
+    GOCDepth=3000
+    SolutionGORDepthTable [
+        Depth    SolutionGOR    
+         3533         1.0    
+         4000         1.0    
+    ]
+}

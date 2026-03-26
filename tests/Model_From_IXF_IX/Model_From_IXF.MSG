@@ -1,0 +1,368 @@
+<ix>
+<message date="1/1/2019" time="">
+ Sections will report the elapsed time (E), CPU time (C), memory usage (M) and peak memory usage during the simulation (P).
+</message>
+<message date="1/1/2019" time="">
+ Loading extension: EGRIDReport
+</message>
+<message date="1/1/2019" time="">
+ Loading extension: custom_scripts
+</message>
+<message date="1/1/2019" time="">
+ Use of property aliases is enabled. There are 1039 such aliases which can be used in place of fully qualified property identifiers. Refer to Appendix &apos;Property identifiers&apos; in the Intersect User Guide for details.
+</message>
+<message date="1/1/2019" time="">
+ Checking for licenses.
+</message>
+<message date="1/1/2019" time="">
+ Successfully checked out 1 license of feature ix_fm.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;ix_header_TEMP.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;grid_TEMP.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;fluid_TEMP.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;equil_TEMP.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;rock.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;region_TEMP.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;well_ix_TEMP.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;report.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;well_fm_TEMP.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Running simulation using: &apos;Flow_calculation.ixf&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Field Management FluidSystem FluidType is set to COMPOSITIONAL
+</message>
+<warning date="1/1/2019" time="">
+ Unit system will be defaulted to ECLIPSE_FIELD.
+</warning>
+<warning date="1/1/2019" time="">
+ Compositional thermal mode requires a ViscosityMixingRule to be defined for the VAPOR phase. A ViscosityMixingRule with MixingRule=LINEAR will be used.
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component C1N2 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component C2C3 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component C4F1 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component F2F3 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component F4F5 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Vapor and liquid molar enthalpies are the same for all components.
+</warning>
+<message date="1/1/2019" time="">
+ LBC viscosity correlation for OilAndGasViscosityLBC uses default EOS VCrit values.
+</message>
+<message date="1/1/2019" time="">
+ Performing internal adjacency calculation for grid CoarseGrid.
+</message>
+<message date="1/1/2019" time="">
+ Cell volume not provided as a cell property. Calculating from geometry.
+</message>
+<message date="1/1/2019" time="">
+ Cell center coordinate not provided as a cell property for 3 axis directions. Recalculating all cell center coordinates from geometry.
+</message>
+<message date="1/1/2019" time="">
+ Using depth calc method: top_depth = min(top), bottom_depth = max(bottom)
+</message>
+<message date="1/1/2019" time="">
+ Pore volume not provided as a cell property. Calculating from cell volume and porosity.
+</message>
+<message date="1/1/2019" time="">
+ Rock volume not provided as a cell property. Calculating rock volume using cell geometry.
+</message>
+<message date="1/1/2019" time="">
+ Calculating transmissibilities.
+</message>
+<message date="1/1/2019" time="">
+ Processing minimum pore volume thresholds for a second time.
+</message>
+<message date="1/1/2019" time="">
+ Reordering local cells by global cell ID.
+</message>
+<message date="1/1/2019" time="">
+ Validating node &apos;Equilibrium[&apos;RESERVOIR&apos;]&apos; created from node &apos;Equilibrium[&apos;InitCondition&apos;]&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Rock models will be associated with reservoir cells using the RegionFamily ROCKMODEL_REGION.
+</message>
+<message date="1/1/2019" time="">
+ Fluid models will be associated with reservoir cells using the RegionFamily FLUIDMODEL_REGION.
+</message>
+<message date="1/1/2019" time="">
+ Equilibration models will be associated with reservoir cells using the RegionFamily EQUILMODEL_REGION.
+</message>
+<message date="1/1/2019" time="">
+ EnthalpyAqueous: Steam table lookup is used to calculate aqueous enthalpy for fluid model &apos;Ekofisk_CorrectedPR&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Successfully loaded the grid.
+</message>
+<message date="1/1/2019" time="">
+ The selected restart bulk data file format is HDF5.
+</message>
+<message date="1/1/2019" time="">
+ PostInitializationFlash field EnumeratedTotalCompositionAdjustment is unset. Internally the value NO_ADJUSTMENT will be used.
+</message>
+<message date="1/1/2019" time="">
+ For the equilibrium model &apos;RESERVOIR&apos; a gas oil contact is not present. The fluids at a depth of 3810 ft have a saturation pressure of 14.6959 psi.
+</message>
+<message date="1/1/2019" time="">
+ The oil gas transition adjustment will not be applied to the equilibrium model &apos;RESERVOIR&apos; since the GOC is not within the reservoir.
+</message>
+<message date="1/1/2019" time="">
+ Performing postinitialization flash to ensure that the initial solution is in thermodynamic equilibrium.
+</message>
+<message date="1/1/2019" time="">
+ Checking for licenses.
+</message>
+<message date="1/1/2019" time="">
+ Successfully checked out 1 license of feature ix_base.
+</message>
+<message date="1/1/2019" time="">
+ Checking for licenses.
+</message>
+<message date="1/1/2019" time="">
+ Successfully checked out 1 license of feature ix_hot.
+</message>
+<message date="1/1/2019" time="">
+ Total number of time steps = 0, nonlinear iterations = 0, linear iterations = 0 
+
+</message>
+<message date="1/1/2019" time="">
+ FluidSystem can be omitted in a single reservoir simulation.
+</message>
+<warning date="1/1/2019" time="">
+ Compositional thermal mode requires a ViscosityMixingRule to be defined for the VAPOR phase. A ViscosityMixingRule with MixingRule=LINEAR will be used.
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component C1N2 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component C2C3 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component C4F1 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component F2F3 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Heat of vaporization (= 0 Btu/lb-mole) for component F4F5 is near zero or negative
+</warning>
+<warning date="1/1/2019" time="">
+ Vapor and liquid molar enthalpies are the same for all components.
+</warning>
+<message date="1/1/2019" time="">
+ LBC viscosity correlation for OilAndGasViscosityLBC uses default EOS VCrit values.
+</message>
+<message date="1/1/2019" time="">
+ Well &apos;INJECTOR&apos; has been assigned fluid model &apos;Ekofisk_CorrectedPR&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Well &apos;PRODUCER&apos; has been assigned fluid model &apos;Ekofisk_CorrectedPR&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Well &apos;INJECTOR&apos; has been assigned separator &apos;Default&apos;.
+</message>
+<message date="1/1/2019" time="">
+ Well &apos;PRODUCER&apos; has been assigned separator &apos;Default&apos;.
+</message>
+<message date="1/1/2019" time="">
+ 3D reports output have been activated.
+</message>
+<message date="1/1/2019" time="">
+ Group hierarchy:
+  FM_FIELD
+
+</message>
+<message date="1/1/2019" time="">
+ Nonlinear system failed to converge at Newton 15 time 0 d (time step 1, total Newton 15).
+</message>
+<message date="1/1/2019" time="">
+ Cutting time step from 1 d to 0.125 d.
+</message>
+<warning date="1/1/2019" time="">
+ RSSP_KValueFlash: Further flash check messages will be suppressed.
+</warning>
+<message date="1/1/2019" time="">
+ Nonlinear system failed to converge at Newton 15 time 0 d (time step 1, total Newton 30).
+</message>
+<message date="1/1/2019" time="">
+ Cutting time step from 0.125 d to 0.015625 d.
+</message>
+<message date="1/1/2019" time="0.01562500000000">
+ Creating cell-selection based region family: Res_grid.
+The property used for reporting this cell-selection is CELL_SELECTION[1].
+</message>
+<comment date="1/2/2019" time="31.00000000000000">
+          
+</comment>
+<message date="1/2/2019" time="31.00000000000000">
+ Total number of time steps = 20, nonlinear iterations = 172, linear iterations = 624, tracer iterations = 60
+
+</message>
+<comment date="1/3/2019" time="59.00000000000000">
+          
+</comment>
+<message date="1/3/2019" time="59.00000000000000">
+ Total number of time steps = 26, nonlinear iterations = 194, linear iterations = 707, tracer iterations = 90
+
+</message>
+<comment date="1/4/2019" time="90.00000000000000">
+          
+</comment>
+<message date="1/4/2019" time="90.00000000000000">
+ Total number of time steps = 33, nonlinear iterations = 213, linear iterations = 777, tracer iterations = 125
+
+</message>
+<comment date="1/5/2019" time="120.00000000000000">
+          
+</comment>
+<message date="1/5/2019" time="120.00000000000000">
+ Total number of time steps = 40, nonlinear iterations = 231, linear iterations = 848, tracer iterations = 160
+
+</message>
+<comment date="1/6/2019" time="151.00000000000000">
+          
+</comment>
+<message date="1/6/2019" time="151.00000000000000">
+ Total number of time steps = 47, nonlinear iterations = 246, linear iterations = 892, tracer iterations = 195
+
+</message>
+<comment date="1/7/2019" time="181.00000000000000">
+          
+</comment>
+<message date="1/7/2019" time="181.00000000000000">
+ Total number of time steps = 53, nonlinear iterations = 258, linear iterations = 922, tracer iterations = 225
+
+</message>
+<comment date="1/8/2019" time="212.00000000000000">
+          
+</comment>
+<message date="1/8/2019" time="212.00000000000000">
+ Total number of time steps = 60, nonlinear iterations = 269, linear iterations = 951, tracer iterations = 260
+
+</message>
+<comment date="1/9/2019" time="243.00000000000000">
+          
+</comment>
+<message date="1/9/2019" time="243.00000000000000">
+ Total number of time steps = 67, nonlinear iterations = 276, linear iterations = 972, tracer iterations = 295
+
+</message>
+<comment date="1/10/2019" time="273.00000000000000">
+          
+</comment>
+<message date="1/10/2019" time="273.00000000000000">
+ Total number of time steps = 74, nonlinear iterations = 283, linear iterations = 993, tracer iterations = 330
+
+</message>
+<comment date="1/11/2019" time="304.00000000000000">
+          
+</comment>
+<message date="1/11/2019" time="304.00000000000000">
+ Total number of time steps = 81, nonlinear iterations = 290, linear iterations = 1014, tracer iterations = 365
+
+</message>
+<comment date="1/12/2019" time="334.00000000000000">
+          
+</comment>
+<message date="1/12/2019" time="334.00000000000000">
+ Total number of time steps = 87, nonlinear iterations = 296, linear iterations = 1032, tracer iterations = 395
+
+</message>
+<comment date="1/1/2020" time="365.00000000000000">
+          
+</comment>
+<message date="1/1/2020" time="365.00000000000000">
+ Total number of time steps = 94, nonlinear iterations = 303, linear iterations = 1053, tracer iterations = 430
+
+</message>
+<comment date="1/6/2020" time="517.00000000000000">
+          
+</comment>
+<message date="1/6/2020" time="517.00000000000000">
+ Total number of time steps = 125, nonlinear iterations = 334, linear iterations = 1146, tracer iterations = 585
+
+</message>
+<comment date="1/1/2021" time="731.00000000000000">
+          
+</comment>
+<message date="1/1/2021" time="731.00000000000000">
+ Total number of time steps = 168, nonlinear iterations = 377, linear iterations = 1275, tracer iterations = 800
+
+</message>
+<comment date="1/6/2021" time="882.00000000000000">
+          
+</comment>
+<message date="1/6/2021" time="882.00000000000000">
+ Total number of time steps = 199, nonlinear iterations = 408, linear iterations = 1368, tracer iterations = 955
+
+</message>
+<comment date="1/1/2022" time="1096.00000000000000">
+          
+</comment>
+<message date="1/1/2022" time="1096.00000000000000">
+ Total number of time steps = 242, nonlinear iterations = 451, linear iterations = 1497, tracer iterations = 1170
+
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ Total number of time steps = 242, nonlinear iterations = 451, linear iterations = 1497, tracer iterations = 1170
+
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ For reports on component CPU time in addition to component elapsed time set Simulation:ProcessInformation &gt; 1.
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ For more frequent reports on component CPU and memory set Simulation:ProcessInformation &gt; 2.
+
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ Checked in license feature ix_base 
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ Checked in license feature ix_hot 
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ Time stepping stats: number of Chop = 1, HRep = 14, MIF = 18, MxMIF = 189, Rep = 14, SCT = 2, TTE = 4, total = 242.
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ Total FM coupled newtons 770
+</message>
+<message date="1/1/2022" time="1096.00000000000000">
+ Group hierarchy:
+  FM_FIELD
+
+</message>
+<message date="1/1/2019" time="">
+ Checked in license feature ix_fm 
+</message>
+<message date="1/1/2019" time="">
+ Run finished normally.
+</message>
+</ix>

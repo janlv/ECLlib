@@ -1,0 +1,18 @@
+<rte>
+<comment source="slbrun" date="" time="">Version 2024.1.0</comment>
+<comment source="slbrun" date="" time="">Operation: ix</comment>
+<comment source="slbrun" date="" time="">Workflow starting task: Model_From_IXF</comment>
+<comment source="slbrun" date="" time="">IX Simulation overriding MPI unspecified</comment>
+<comment source="slbrun" date="" time="">I_MPI_ROOT Detected, using Intel MPI path /opt/ecl/tools/linux_x86_64/intel/mpi</comment>
+<comment source="slbrun" date="" time="">Submission Command: "mpirun" -np 1 -envall -wdir "/home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP" /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ix.exe Model_From_IXF.afi</comment>
+<comment source="slbrun" date="" time="">Launching: "mpirun" -np 1 -envall -wdir "/home/AD.NORCERESEARCH.NO/javi/github/pyFlow/tests/Model_From_IXF_TEMP" /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ix.exe Model_From_IXF.afi</comment>
+<comment source="slbrun" date="" time="">Intersect has finished</comment>
+<comment source="slbrun" date="" time="">Workflow starting task: Model_From_IXF summary conversion</comment>
+<comment source="slbrun" date="" time="">Creating temp conversion directory convert_20260324141948_942f0952</comment>
+<comment source="slbrun" date="" time="">Submission Command: /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ConvertSummaryData2DataBase.exe Model_From_IXF.afi convert_20260324141948_942f0952</comment>
+<comment source="slbrun" date="" time="">Launching: /opt/ecl/2024.2/ix/linux_x86_64_ilmpi/ConvertSummaryData2DataBase.exe Model_From_IXF.afi convert_20260324141948_942f0952</comment>
+<comment source="slbrun" date="" time="">Conversion has finished</comment>
+<comment source="slbrun" date="" time="">Removing temp conversion directory convert_20260324141948_942f0952</comment>
+<comment source="slbrun" date="" time="">Workflow has finished</comment>
+<comment source="slbrun" date="" time="">Session in progress.</comment>
+</rte>
