@@ -84,6 +84,8 @@ class DATA_file(File):
                                r"\bRESTART\b\s+('*[\w./\\-]+'*\s+[0-9]+)\s*/"),
             'WELSPECS': getter('SCHEDULE', (),      self._convert_string,
                                r'\bWELSPECS\b((\s+\'*[\w/-]+?.*/\s*)+/)'),
+            'COMPDAT' : getter('SCHEDULE', (),      self._convert_string,
+                               r'\bCOMPDAT\b\s+((?:^(?!/).*\n)+)^/\s*$'),
             'WCONPROD': getter('SCHEDULE', (),      self._convert_string,
                                r'\bWCONPROD\b\s+((?:^(?!/).*\n)+)^/\s*$'),
             'WCONHIST': getter('SCHEDULE', (),      self._convert_string,
@@ -302,6 +304,40 @@ class DATA_file(File):
             grouped[well_type].append(wellname)
         self._wells_by_type = dict(grouped)
         return {well_type:list(names) for well_type, names in self._wells_by_type.items()}
+
+    #----------------------------------------------------------------------------------------------
+    def wellpos_by_name(self, ijk=False, wellnames=None):                              # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Return COMPDAT completion-cell positions keyed by well name."""
+        wellnames = tuple(wellnames or self.welspecs())
+        name_pos = {name:[] for name in wellnames}
+        if not name_pos:
+            return {}
+        records = self.get('COMPDAT')
+        if not records and (sch_file := self.with_suffix('.SCH', ignore_case=True, exists=True)):
+            records = DATA_file(sch_file, sections=False).get('COMPDAT')
+        for record in records:
+            fields = self._record_fields(record)
+            if len(fields) < 5:
+                raise SystemError(f'ERROR Explicit COMPDAT I/J/K1/K2 are required in {self}')
+            wellname = fields[0]
+            if wellname.startswith('*') or wellname.endswith('*'):
+                raise SystemError(f'ERROR Well templates/lists are not supported in {self}')
+            if wellname not in name_pos:
+                continue
+            if any('*' in field for field in fields[1:5]):
+                raise SystemError(f'ERROR Explicit COMPDAT I/J/K1/K2 are required in {self}')
+            try:
+                i, j, k1, k2 = (int(field) for field in fields[1:5])
+            except ValueError as error:
+                raise SystemError(f'ERROR Invalid COMPDAT I/J/K1/K2 in {self}') from error
+            if k2 < k1:
+                raise SystemError(f'ERROR Invalid COMPDAT K-range in {self}')
+            name_pos[wellname].extend((i-1, j-1, k-1) for k in range(k1, k2+1))
+        name_pos = {name:tuple(pos) for name, pos in name_pos.items()}
+        if ijk:
+            return {name:tuple(zip(*pos)) for name, pos in name_pos.items()}
+        return name_pos
 
     #----------------------------------------------------------------------------------------------
     def timesteps(self, start=None, negative_ok=False, missing_ok=False, pos=False, skiprest=False):     # DATA_file
@@ -599,18 +635,41 @@ class DATA_file(File):
         return text
 
     #----------------------------------------------------------------------------------------------
+    def _record_fields(self, record):                                                   # DATA_file
+    #----------------------------------------------------------------------------------------------
+        """Return quote-aware fields from an Eclipse record."""
+        record = bytes(record).strip() if not isinstance(record, str) else record.encode().strip()
+        fields = []
+        token = bytearray()
+        quote = None
+        for char in record:
+            if quote is not None:
+                if char == quote:
+                    quote = None
+                else:
+                    token.append(char)
+                continue
+            if char in (ord("'"), ord('"')):
+                quote = char
+                continue
+            if chr(char).isspace() or char == ord('/'):
+                if token:
+                    fields.append(decode(bytes(token)))
+                    token.clear()
+                continue
+            token.append(char)
+        if quote is not None:
+            raise SystemError(f'ERROR Unterminated quoted string in {self}')
+        if token:
+            fields.append(decode(bytes(token)))
+        return tuple(fields)
+
+    #----------------------------------------------------------------------------------------------
     def _first_record_field(self, record):                                              # DATA_file
     #----------------------------------------------------------------------------------------------
         """Return the first field from an Eclipse record, preserving quoted names."""
-        record = bytes(record).strip() if not isinstance(record, str) else record.encode().strip()
-        if not record:
-            return ''
-        if record[0] in (ord("'"), ord('"')):
-            end = record.find(record[:1], 1)
-            if end < 0:
-                raise SystemError(f'ERROR Unterminated quoted string in {self}')
-            return decode(record[1:end])
-        return decode(record.split(None, 1)[0].rstrip(b'/'))
+        fields = self._record_fields(record)
+        return fields[0] if fields else ''
 
     #----------------------------------------------------------------------------------------------
     def _days(self, time_pos, start=None):                                              # DATA_file
@@ -734,3 +793,9 @@ class ECL_input:                                                                
     #----------------------------------------------------------------------------------------------
         """Return wells grouped by normalized Eclipse control type."""
         return self.data.wells_by_type()
+
+    #----------------------------------------------------------------------------------------------
+    def wellpos_by_name(self, ijk=False, wellnames=None):                              # ECL_input
+    #----------------------------------------------------------------------------------------------
+        """Return COMPDAT completion-cell positions keyed by well name."""
+        return self.data.wellpos_by_name(ijk=ijk, wellnames=wellnames)

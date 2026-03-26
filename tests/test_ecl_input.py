@@ -60,6 +60,18 @@ def test_ecl_input_wells_by_type_delegates_to_data_file(tmp_path):
 
 
 #---------------------------------------------------------------------------------------------------
+def test_ecl_input_wellpos_by_name_delegates_to_data_file(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Expose COMPDAT well positions through the wrapper."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'P1' 2 3 4 4 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    assert ECL_input(path).wellpos_by_name(wellnames=("P1",)) == DATA_file(path).wellpos_by_name(
+        wellnames=("P1",)
+    )
+
+
+#---------------------------------------------------------------------------------------------------
 def test_data_file_wells_by_type_reads_wconprod(tmp_path):
 #---------------------------------------------------------------------------------------------------
     """Classify producer wells from WCONPROD."""
@@ -179,6 +191,142 @@ def test_data_file_wells_by_type_omits_wellspecs_only_wells(tmp_path):
     path.write_text("SCHEDULE\nWELSPECS\n 'W1' G1 1 1 1* OIL /\n/\nEND\n", encoding="utf-8")
 
     assert DATA_file(path).wells_by_type() == {}
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_reads_compdat(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Read a single explicit COMPDAT completion."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'P1' 2 3 4 4 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name(wellnames=("P1",)) == {"P1": ((1, 2, 3),)}
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_expands_k_ranges(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Expand K1..K2 into explicit zero-based cells."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'P1' 2 3 4 6 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name(wellnames=("P1",)) == {
+        "P1": ((1, 2, 3), (1, 2, 4), (1, 2, 5))
+    }
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_preserves_quoted_names(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Keep quoted well names intact when reading COMPDAT."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'PROD A' 1 1 1 2 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name(wellnames=("PROD A",)) == {
+        "PROD A": ((0, 0, 0), (0, 0, 1))
+    }
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_reads_included_schedule(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Read COMPDAT records from included schedule files."""
+    path = tmp_path / "CASE.DATA"
+    inc = tmp_path / "SCHEDULE.INC"
+    path.write_text("SCHEDULE\nINCLUDE\n 'SCHEDULE.INC' /\nEND\n", encoding="utf-8")
+    inc.write_text("COMPDAT\n 'P1' 2 3 4 4 OPEN 1* /\n/\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name(wellnames=("P1",)) == {"P1": ((1, 2, 3),)}
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_reads_sch_fallback(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Read COMPDAT from a matching SCH file when needed."""
+    path = tmp_path / "CASE.DATA"
+    sch = tmp_path / "CASE.SCH"
+    path.write_text("RUNSPEC\nREADDATA\nEND\n", encoding="utf-8")
+    sch.write_text("COMPDAT\n 'P1' 2 3 4 4 OPEN 1* /\n/\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name(wellnames=("P1",)) == {"P1": ((1, 2, 3),)}
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_filters_and_preserves_requested_order(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Return only requested wells and keep their order."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text(
+        "SCHEDULE\n"
+        "COMPDAT\n"
+        " 'P1' 1 1 1 1 OPEN 1* /\n"
+        " 'P2' 2 2 2 2 OPEN 1* /\n"
+        "/\n"
+        "END\n",
+        encoding="utf-8",
+    )
+
+    result = DATA_file(path).wellpos_by_name(wellnames=("P2", "P1"))
+
+    assert list(result) == ["P2", "P1"]
+    assert result == {"P2": ((1, 1, 1),), "P1": ((0, 0, 0),)}
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_returns_ijk_columns(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Return transposed I/J/K arrays when requested."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'P1' 2 3 4 5 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name(ijk=True, wellnames=("P1",)) == {
+        "P1": ((1, 1), (2, 2), (3, 4))
+    }
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_keeps_missing_wells(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Return requested wells without COMPDAT as empty tuples."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'P1' 2 3 4 4 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name(wellnames=("P1", "P2")) == {
+        "P1": ((1, 2, 3),),
+        "P2": (),
+    }
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_defaults_to_welspecs(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Use WELSPECS as the default well list."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nWELSPECS\n 'W1' G1 1 1 1* OIL /\n/\nEND\n", encoding="utf-8")
+
+    assert DATA_file(path).wellpos_by_name() == {"W1": ()}
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_raises_on_templates_and_lists(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Reject COMPDAT well templates and well lists."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'INJ*' 2 3 4 4 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    with pytest.raises(SystemError, match="templates/lists are not supported"):
+        DATA_file(path).wellpos_by_name(wellnames=("P1",))
+
+
+#---------------------------------------------------------------------------------------------------
+def test_data_file_wellpos_by_name_raises_on_defaulted_coordinates(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Reject COMPDAT records without explicit I/J/K values."""
+    path = tmp_path / "CASE.DATA"
+    path.write_text("SCHEDULE\nCOMPDAT\n 'P1' 1* 3 4 4 OPEN 1* /\n/\nEND\n", encoding="utf-8")
+
+    with pytest.raises(SystemError, match="Explicit COMPDAT I/J/K1/K2 are required"):
+        DATA_file(path).wellpos_by_name(wellnames=("P1",))
 
 
 #---------------------------------------------------------------------------------------------------
