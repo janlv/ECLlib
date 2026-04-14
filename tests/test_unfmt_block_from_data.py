@@ -25,12 +25,18 @@ def test_unfmt_block_from_data_normalizes_fortran_order():
 
 
 #---------------------------------------------------------------------------------------------------
+def test_unfmt_block_from_data_truncates_long_names():
+#---------------------------------------------------------------------------------------------------
+    """Truncate long block keywords to Eclipse's 8-character limit."""
+    raw = unfmt_block.from_data("anhydrite", [1], "int").as_bytes()
+
+    assert raw[4:12] == b"anhydrit"
+
+
+#---------------------------------------------------------------------------------------------------
 def test_unfmt_block_from_data_validates_keyword_and_payload_constraints():
 #---------------------------------------------------------------------------------------------------
-    """Reject invalid block keywords and unsupported payloads."""
-    with pytest.raises(ValueError, match="1-8 characters"):
-        unfmt_block.from_data("TOO_LONG_KEY", [1], "int")
-
+    """Reject unsupported payloads."""
     with pytest.raises(ValueError, match="<= 8 bytes"):
         unfmt_block.from_data("NAME", ["123456789"], "char")
 

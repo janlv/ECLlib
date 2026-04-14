@@ -103,8 +103,10 @@ def test_unfmt_block_renamed_bytes_preserves_payload_and_dtype():
 
     assert renamed == expected
 
-    with pytest.raises(ValueError, match="1-8 characters"):
-        block.renamed_bytes("TOO_LONG9")
+    renamed_long = block.renamed_bytes("TOO_LONG9")
+    expected_long = unfmt_block.from_data("TOO_LONG9", [1.5, 2.5], "float").as_bytes()
+
+    assert renamed_long == expected_long
 
 
 #---------------------------------------------------------------------------------------------------
@@ -367,6 +369,67 @@ def test_append_blocks_updates_last_section_in_place(tmp_path):
     ]
     assert data["XAPP"] == pytest.approx([2.5, 3.5])
     assert data["FLAG"] == [True, False]
+
+
+#---------------------------------------------------------------------------------------------------
+def test_append_blocks_normalizes_long_keys_in_one_batch(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Append-time long keys should be written with plain 8-character truncation."""
+    src = tmp_path / "source.UNRST"
+    _write_unrst(src)
+
+    appended = UNRST_file(src).append_blocks(
+        step=2,
+        keys=("anhydrite", "anhydrit", "anhydrite2"),
+        blocks=(
+            np.array([1.5], dtype=np.float32),
+            np.array([2.5], dtype=np.float32),
+            np.array([3.5], dtype=np.float32),
+        ),
+    )
+
+    keys, data = _section_snapshot(appended, 2)
+
+    assert keys[-4:-1] == ["anhydrit", "anhydrit", "anhydrit"]
+    assert data["anhydrit"] == pytest.approx([3.5])
+
+
+#---------------------------------------------------------------------------------------------------
+def test_unrst_file_check_duplicate_keys_returns_empty_tuple(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Duplicate-key checker should report no conflicts for unique section keys."""
+    src = tmp_path / "source.UNRST"
+    _write_unrst(src)
+
+    assert UNRST_file(src).check_duplicate_keys(sec=0, raise_error=False) == ()
+
+
+def test_unrst_file_check_duplicate_keys_reports_truncated_duplicates(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Duplicate-key checker should report truncated duplicates once in first-seen order."""
+    src = tmp_path / "source.UNRST"
+    _write_unrst(
+        src,
+        steps=(0,),
+        solution_specs={0: (("anhydrite", [1.5], "float"), ("anhydrit", [2.5], "float"))},
+    )
+
+    assert UNRST_file(src).check_duplicate_keys(sec=0, raise_error=False) == ("anhydrit",)
+
+
+#---------------------------------------------------------------------------------------------------
+def test_unrst_file_check_duplicate_keys_raises_on_duplicates(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Duplicate-key checker should raise when requested."""
+    src = tmp_path / "source.UNRST"
+    _write_unrst(
+        src,
+        steps=(0,),
+        solution_specs={0: (("anhydrite", [1.5], "float"), ("anhydrit", [2.5], "float"))},
+    )
+
+    with pytest.raises(ValueError, match="anhydrit"):
+        UNRST_file(src).check_duplicate_keys(sec=0, raise_error=True)
 
 
 #---------------------------------------------------------------------------------------------------

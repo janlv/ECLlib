@@ -33,20 +33,6 @@ _CHAR_SIZE = DTYPE[b"CHAR"].size
 
 
 #---------------------------------------------------------------------------------------------------
-def normalize_block_key(key):
-#---------------------------------------------------------------------------------------------------
-    """Return a stripped Eclipse block keyword after validation."""
-    if not isinstance(key, str):
-        raise TypeError("Block keyword must be a string")
-    key = key.strip()
-    if not key:
-        raise ValueError("Block keyword must not be empty")
-    if len(key) > 8:
-        raise ValueError(f"Block keyword must be 1-8 characters, got {key!r}")
-    return key
-
-
-#---------------------------------------------------------------------------------------------------
 def _flatten_array(array):
 #---------------------------------------------------------------------------------------------------
     """Return a one-dimensional array using Eclipse/Fortran ordering."""
@@ -304,7 +290,7 @@ class unfmt_block:                                                              
         ValueError
             If dtype is invalid or incompatible with the payload.
         """
-        key = normalize_block_key(key)
+        key = key[:8]
         data = _normalize_block_array(data, dtype)
         block_type = _BLOCK_TYPES[dtype]
         header = unfmt_header(ensure_bytestring(key.ljust(8)[:8]), int(data.size), block_type)
@@ -323,7 +309,7 @@ class unfmt_block:                                                              
     def renamed_bytes(self, key):                                                      # unfmt_block
     #-----------------------------------------------------------------------------------------------
         """Return serialized bytes for the current block under a new keyword name."""
-        key = normalize_block_key(key)
+        key = key[:8]
         data = bytearray(self.as_bytes() if isinstance(self._data, ndarray) else self.binarydata())
         data[4:12] = ensure_bytestring(key.ljust(8)[:8])
         return bytes(data)
@@ -989,6 +975,24 @@ class unfmt_file(File):                                                         
         if missing and raise_error:
             raise ValueError(f'Missing keywords in {self}: {missing}')
         return missing
+
+    #----------------------------------------------------------------------------------------------
+    def check_duplicate_keys(self, sec=0, raise_error=True):                           # unfmt_file
+    #----------------------------------------------------------------------------------------------
+        """Return duplicate keywords from one section in first-seen order."""
+        seen = set()
+        duplicates = []
+        reported = set()
+        for key in self.section_keys(sec):
+            if key in seen and key not in reported:
+                duplicates.append(key)
+                reported.add(key)
+                continue
+            seen.add(key)
+        duplicates = tuple(duplicates)
+        if duplicates and raise_error:
+            raise ValueError(f"Duplicate keywords in {self} section {sec}: {duplicates}")
+        return duplicates
 
     #----------------------------------------------------------------------------------------------
     def find_keys(self, *keys, sec=0):                                                 # unfmt_file

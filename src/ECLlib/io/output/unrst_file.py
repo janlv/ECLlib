@@ -14,7 +14,7 @@ from numpy import array as nparray, sum as npsum
 
 from ...core import AutoRefreshIterator, File
 from ...utils import flatten, flatten_all, remove_chars
-from ..unformatted.base import unfmt_block, unfmt_file
+from ..unformatted.base import ENDSOL, unfmt_block, unfmt_file
 
 __all__ = ["UNRST_file"]
 
@@ -261,24 +261,41 @@ class UNRST_file(unfmt_file):                                                   
         keyset = tuple(keys)
         payloads = tuple(blocks)
 
-        step = int(step)
-        last_step = int(self.end_step())
-        if step != last_step:
-            raise ValueError(
-                f"UNRST_file.append_blocks() only supports the last section; "
-                f"expected step {last_step}, got {step}"
-            )
         end_marker = next(self.tail_blocks(), None)
         if end_marker is None or end_marker.key() != endblock:
             raise ValueError(f"{self} does not end with {endblock}")
 
-        payload = b"".join(
-            unfmt_block.from_data(key, block, dtype).as_bytes()
-            for key, block, dtype in _iter_block_payloads(keyset, payloads, dtypes)
+        previous_end = self.end
+        self.end = endblock
+        step = int(step)
+        try:
+            last_step = int(self.end_step())
+            if step != last_step:
+                raise ValueError(
+                    f"UNRST_file.append_blocks() only supports the last section; "
+                    f"expected step {last_step}, got {step}"
+                )
+        finally:
+            self.end = previous_end
+
+        payload_types = None if dtypes is None else tuple(dtypes)
+        # tail_blocks() yields blocks backed by a temporary mmap, so custom endblocks
+        # must be reread by file position instead of using end_marker.binarydata().
+        end_bytes = (
+            ENDSOL.as_bytes()
+            if endblock == "ENDSOL"
+            else self.binarydata(pos=(end_marker.startpos, end_marker.endpos), raise_error=True)
         )
-        payload += self.binarydata(pos=(end_marker.startpos, end_marker.endpos), raise_error=True)
-        self.resize(start=end_marker.startpos, end=end_marker.endpos)
-        self.append_bytes(payload)
+        with open(self.path, "r+b") as out:
+            out.seek(end_marker.startpos)
+            payload_iter = (
+                ((key, block, _infer_block_dtype(block)) for key, block in zip(keyset, payloads, strict=True))
+                if payload_types is None
+                else zip(keyset, payloads, payload_types, strict=True)
+            )
+            for key, block, dtype_name in payload_iter:
+                out.write(unfmt_block.from_data(key, block, dtype_name).as_bytes())
+            out.write(end_bytes)
         self.end = endblock
         return self
 
@@ -380,19 +397,6 @@ def _infer_block_dtype(payload):
     if kind in "SU":
         return "char"
     raise TypeError(f"Unable to infer block dtype from numpy dtype {payload.dtype!s}")
-
-
-#---------------------------------------------------------------------------------------------------
-def _iter_block_payloads(keys, blocks, dtypes):
-#---------------------------------------------------------------------------------------------------
-    """Yield append payloads aligned with their keys and effective dtypes."""
-    payload_types = None if dtypes is None else tuple(dtypes)
-    if payload_types is None:
-        for key, block in zip(tuple(keys), tuple(blocks), strict=True):
-            yield key, block, _infer_block_dtype(block)
-        return
-    yield from zip(tuple(keys), tuple(blocks), payload_types, strict=True)
-
 
 #---------------------------------------------------------------------------------------------------
 def _iter_host_sections(unrst, endblock):
