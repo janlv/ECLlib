@@ -16,6 +16,14 @@ def _write_blocks(path, blocks):
 
 
 #---------------------------------------------------------------------------------------------------
+def _first_block(path, *, use_mmap=True):
+#---------------------------------------------------------------------------------------------------
+    """Return the first block together with its live iterator."""
+    blocks = unfmt_file(path).blocks(use_mmap=use_mmap)
+    return blocks, next(blocks)
+
+
+#---------------------------------------------------------------------------------------------------
 def test_unfmt_block_from_data_normalizes_fortran_order():
 #---------------------------------------------------------------------------------------------------
     """Flatten multidimensional payloads using Eclipse/Fortran ordering."""
@@ -86,3 +94,52 @@ def test_unfmt_block_from_data_roundtrip_for_supported_dtypes(tmp_path):
     assert data["WORDS"] == ["AA", "BB"]
     assert data["EMPTY"] == []
     assert data["TAIL"] == [99]
+
+
+#---------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("use_mmap", [True, False])
+def test_unfmt_block_read_into_matches_numeric_data(tmp_path, use_mmap):
+#---------------------------------------------------------------------------------------------------
+    """Decode numeric payloads directly into caller-owned buffers."""
+    path = tmp_path / "numeric.bin"
+    _write_blocks(path, [("SATNUM", np.arange(6, dtype=np.int32), "int")])
+
+    blocks, block = _first_block(path, use_mmap=use_mmap)
+    out = np.empty(6, dtype=np.int32)
+    block.read_into(out)
+
+    assert np.array_equal(out, block.data())
+    assert next(blocks, None) is None
+
+
+#---------------------------------------------------------------------------------------------------
+def test_unfmt_block_read_into_handles_multi_payload_blocks(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Decode blocks spanning multiple Eclipse payload chunks without joining all bytes first."""
+    path = tmp_path / "long.bin"
+    values = np.arange(1505, dtype=np.float32)
+    _write_blocks(path, [("LONGREAL", values, "float")])
+
+    blocks, block = _first_block(path)
+    out = np.empty((5, 7, 43), dtype=np.float32, order="F")
+    block.read_into(out)
+
+    assert np.array_equal(out.ravel(order="F"), block.data())
+    assert next(blocks, None) is None
+
+
+#---------------------------------------------------------------------------------------------------
+def test_unfmt_block_read_into_decodes_logical_payloads_to_bool(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Decode logical payloads directly into boolean output arrays."""
+    path = tmp_path / "logical.bin"
+    values = np.asarray([True, False, True, True], dtype=bool)
+    _write_blocks(path, [("LOGFLAG", values, "bool")])
+
+    blocks, block = _first_block(path)
+    out = np.empty((2, 2), dtype=bool, order="F")
+    block.read_into(out)
+
+    assert out.dtype == bool
+    assert np.array_equal(out.ravel(order="F"), block.data())
+    assert next(blocks, None) is None

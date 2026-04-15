@@ -5,7 +5,7 @@ from mmap import mmap, ACCESS_READ
 from operator import sub as subtract
 from struct import pack, unpack, error as struct_error
 
-from numpy import (array as nparray, asarray, char as npchar, cumsum, dtype as npdtype,
+from numpy import (array as nparray, asarray, char as npchar, cumsum, dtype as npdtype, empty,
     frombuffer, ndarray, split as npsplit)
 
 from ...core import File, DTYPE
@@ -436,18 +436,56 @@ class unfmt_block:                                                              
         return len(sizes_pos)
 
     #----------------------------------------------------------------------------------------------
+    def read_into(self, out, *, limit=((None,),)):                                    # unfmt_block
+    #----------------------------------------------------------------------------------------------
+        """Decode numeric or logical payload data directly into one caller-owned array."""
+        if self.header.is_char() or self.header.type == b'MESS':
+            raise TypeError(f"{self.key()} does not support read_into() for {self.type()!r} data")
+
+        target = asarray(out)
+        if target.ndim > 1 and not target.flags.f_contiguous:
+            raise ValueError("read_into() requires a 1D or Fortran-contiguous output array")
+
+        expected = sum(self.header.length if None in lim else lim[1] - lim[0] for lim in limit)
+        flat = target.ravel(order="F")
+        if flat.size != expected:
+            raise ValueError(
+                f"{self.key()}: read_into() expected room for {expected} values, got {flat.size}"
+            )
+
+        dtype = npdtype(self.dtype.nptype).newbyteorder(ENDIAN)
+        start = 0
+        for sl in self.header._data_slices(limit):
+            raw = self._data[sl] if self._data is not None else self.read_file(sl)
+            values = frombuffer(raw, dtype=dtype)
+            stop = start + values.size
+            if self.header.type == b'LOGI' and flat.dtype == bool:
+                flat[start:stop] = values != 0
+            else:
+                flat[start:stop] = values
+            start = stop
+        return out
+
+    #----------------------------------------------------------------------------------------------
     def _read_data(self, limit):                                                      # unfmt_block
     #----------------------------------------------------------------------------------------------
         """Read raw data for the current block."""
-        slices = tuple(self.header._data_slices(limit))
-        if self._data is not None:
-            # File is mmap'ed
-            data = (self._data[sl] for sl in slices)
-        else:
-            # File object
-            data = (self.read_file(sl) for sl in slices)
+        if self.header.is_char() or self.header.type == b'MESS':
+            slices = tuple(self.header._data_slices(limit))
+            if self._data is not None:
+                # File is mmap'ed
+                data = (self._data[sl] for sl in slices)
+            else:
+                # File object
+                data = (self.read_file(sl) for sl in slices)
+            dtype = npdtype(self.dtype.nptype).newbyteorder(ENDIAN)
+            return frombuffer(b''.join(data), dtype=dtype)
+
         dtype = npdtype(self.dtype.nptype).newbyteorder(ENDIAN)
-        return frombuffer(b''.join(data), dtype=dtype)
+        size = sum(self.header.length if None in lim else lim[1] - lim[0] for lim in limit)
+        data = empty(size, dtype=dtype)
+        self.read_into(data, limit=limit)
+        return data
 
     #----------------------------------------------------------------------------------------------
     def data_old(self, *index, limit=((None,),), strip=False, unpack=True):           # unfmt_block
