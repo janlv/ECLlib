@@ -5,19 +5,12 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import accumulate, chain, zip_longest
-from operator import attrgetter
 from pathlib import Path
 from re import MULTILINE, findall, finditer, compile as re_compile, search as re_search
-from subprocess import Popen, STDOUT
-from time import sleep
 
 from numpy import fromstring
 
-from proclib import Process
-
 from ...core import File, Restart
-from ...config import ECL2IX_LOG
-#from .eclipse import DATA_file
 from ...utils import (
     any_cell_in_box,
     bounding_box,
@@ -34,14 +27,6 @@ __all__ = [
     "IXF_file",
     "IX_input",
 ]
-
-#--------------------------------------------------------------------------------------------------
-def Eclipse_input(path):
-#--------------------------------------------------------------------------------------------------
-    """ Return the Eclipse input file (DATA-file) based on case name """
-    # Define Eclipse input file (DATA-file) based on case name to avoid import from .eclipse
-    # which would create a circular import 
-    return File(path, suffix='.DATA', ignore_suffix_case=True)
 
 #==================================================================================================
 class AFI_file(File):                                                                    # AFI_file
@@ -347,7 +332,6 @@ class IXF_file(File):                                                           
 class IX_input:                                                                          # IX_input
 #==================================================================================================
     """High-level access to INTERSECT input decks."""
-    STAT_FILE = '.ecl2ix' # Check if ECL-input has changed and new conversion is needed
 
     @classmethod
     #----------------------------------------------------------------------------------------------
@@ -432,76 +416,6 @@ class IX_input:                                                                 
     #----------------------------------------------------------------------------------------------
         """Return all matches for the pattern."""
         return tuple(self.ifind(*args))
-
-    @classmethod
-    #----------------------------------------------------------------------------------------------
-    def need_convert(self, path):                                                        # IX_input
-    #----------------------------------------------------------------------------------------------
-        """Return whether type conversion is required."""
-        path = Path(path)
-        afi_file = AFI_file(path)
-        eclipse_inp = Eclipse_input(path)
-        if afi_file.is_file() and not eclipse_inp.is_file():
-            # No need for convert
-            return
-        if not afi_file.is_file():
-            if not eclipse_inp.is_file():
-                raise SystemError('ERROR Eclipse input is missing, unable to create Intersect input.')
-            return 'Intersect input is missing for this case, but can be created from the Eclipse input.'
-        # Check if input is complete
-        if any(file for file in afi_file.include_files() if not file.is_file()):
-            return 'Intersect input is incomplete for this case (missing include files).'
-        # Check if DATA-file has changed since last convert
-        stat_file = path.with_suffix(self.STAT_FILE)
-        mtime, size = attrgetter('st_mtime_ns', 'st_size')(eclipse_inp.stat())
-        if stat_file.is_file():
-            old_mtime, old_size = map(int, stat_file.read_text(encoding='utf-8').split())
-            if mtime > old_mtime and size > old_size:
-                return 'Intersect input exists for this case, but the Eclipse input has changed since the previous convert.'
-        else:
-            stat_file.write_text(f'{mtime} {size}', encoding='utf-8')
-            #stat_file.write_text(f'{data_file.name} {mtime} {size}')
-
-
-    @classmethod
-    #----------------------------------------------------------------------------------------------
-    def from_eclipse(self, path, progress=None, abort=None, freq=20):                    # IX_input
-    #----------------------------------------------------------------------------------------------
-        """Load data from a formatted Eclipse file."""
-        # Create IX input from Eclipse input
-        #if not DATA_file(path).is_file():
-        eclipse_inp = Eclipse_input(path)
-        if not eclipse_inp.is_file():
-            raise SystemError('ERROR Eclipse input is missing, convert aborted...')
-        path = Path(path)
-        cmd = ['eclrun', 'ecl2ix', path]
-        #msg = 'Creating Intersect input from Eclipse input'
-        # How often to check if convert is completed
-        sec = 1/freq
-        logfile = path.with_name(ECL2IX_LOG)
-        with open(logfile, 'w', encoding='utf-8') as log:
-            with Popen(cmd, stdout=log, stderr=STDOUT) as popen:
-            #popen = Popen(cmd, stdout=log, stderr=STDOUT)
-                proc = Process(pid=popen.pid)
-                i = 0
-                while (proc.is_running()):
-                    if abort and abort():
-                        proc.kill(children=True)
-                        return False
-                    if progress:
-                        i += 1
-                        progress(i)
-                        #dots = ((1+i%5)*'.').ljust(5)
-                        #print(f'\r   {msg} {dots}', end='')
-                    sleep(sec)
-                #print('\r',' '*80, end='')
-            if not AFI_file(path).is_file():
-                return False, logfile
-            # If successful, save modification time and current size of DATA_file
-            mtime, size = attrgetter('st_mtime_ns', 'st_size')(eclipse_inp.stat())
-            path.with_name(self.STAT_FILE).write_text(f'{mtime} {size}', encoding='utf-8')
-            return True, logfile
-
 
     #----------------------------------------------------------------------------------------------
     def check(self, include=True):                                                       # IX_input

@@ -132,8 +132,7 @@ files with `included_file_data()`.
   objects with helpers such as `.rows()`, `.as_dict()`, `.get()`, and `.update()`.
 - `IX_input` orchestrates an entire INTERSECT case. It aggregates the `AFI_file` and
   all referenced `IXF_file` objects, implements case validation through `check()`,
-  surfaces grid dimensions via `dim()`, and offers `from_eclipse()` to regenerate
-  INTERSECT input using `ecl2ix` when the Eclipse deck changes.
+  and surfaces grid dimensions via `dim()`.
 
 #### GSG helpers (`read_GSG`, `write_GSG`, `change_resolution`)
 
@@ -219,8 +218,10 @@ for day, key_groups in unsmry.num_indexed_vectors(keys=("CW*",), start=1):
 ```
 
 `EGRID_file` also builds on `unfmt_file` but focuses on grid geometry. It adds
-`nijk()`, `coord_zcorn()`, and `grid()` helpers and can assemble a `pyvista.UnstructuredGrid`
-for visualisation.
+`nijk()`, `coord_zcorn()`, and `grid()` helpers. `grid()` returns a NumPy array of cell
+corner coordinates with shape `(ni, nj, nk, 8, 3)`, while `cells()` returns cell centers
+with shape `(ni, nj, nk, 3)`. `unstructured_grid_args()` returns `(cells, cell_type,
+points)` arrays in VTK hexahedron order for unstructured-grid consumers.
 
 #### Formatted binaries
 
@@ -267,8 +268,7 @@ organised into thematic modules:
 - **`array_ops`** – Grid-centric NumPy helpers such as `neighbour_connections()` for
   six-face connectivity, `index_array()` for `(i, j, k)` indices, `cumtrapz()` for
   trapezoidal integration, and `run_length_encode()` to compress arrays.
-- **`conversions`** – Unit conversions (`ppm2molL()`, `molL2ppm()`) and `ceildiv()` for
-  integer ceiling division.
+- **`conversions`** – Numeric helpers such as `ceildiv()` for integer ceiling division.
 - **`file_ops`** – Filesystem utilities: `empty_folder()`, `has_write_access()`,
   `head_file()`/`tail_file()`, `read_file()`, `write_file()`, `remove_comments()`, and
   `is_file_ignore_suffix_case()` among others.
@@ -279,7 +279,7 @@ organised into thematic modules:
 - **`string_ops`** – String processing helpers including `decode()`, `float_or_str()`,
   `expand_pattern()`, `split_by_words()`, and `upper_and_lower()`.
 - **`system`** – Runtime helpers: `try_except_loop()`, `loop_until()`,
-  `kill_process()`, `safezip()`, and environment inspection utilities.
+  `safezip()`, and environment inspection utilities.
 - **`time_utils`** – Date/time helpers (`date_range()`, `dates_after()`, `day2time()`,
   `delta_timestring()`).
 

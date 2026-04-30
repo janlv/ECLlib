@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from signal import SIGTERM
 from subprocess import check_output
 from time import sleep
 from typing import Callable, Iterable
-
-from psutil import NoSuchProcess, Process, wait_procs
 
 
 def get_terminal_environment(var: str, file: str = "~/.bashrc") -> str:
@@ -62,26 +59,6 @@ def try_except_loop(*args, limit: int = 1, pause: float = 0.05, error=None, rais
             f"Unable to complete {func.__qualname__} within {limit} tries during {limit * pause} seconds: {error}"
         )
     return result
-
-
-def kill_process(pid, signal=SIGTERM, children: bool = False, timeout: int = 5, on_terminate: Callable | None = None):
-    """Terminate the process ``pid`` optionally including its children."""
-    processes: list[Process] = []
-    parent = try_except_loop(pid, func=Process, limit=10, pause=0.05, error=NoSuchProcess)
-    if parent is None:
-        return []
-    if children:
-        processes.extend(parent.children(recursive=True))
-    processes.append(parent)
-    for process in processes:
-        try:
-            process.send_signal(signal)
-        except NoSuchProcess:
-            pass
-    gone, alive = wait_procs(processes, timeout=timeout, callback=on_terminate)
-    for process in alive:
-        process.kill()
-    return gone + alive
 
 
 def loop_until(func: Callable[..., bool], *args, limit: int | None = None, pause: float | None = None,
@@ -145,7 +122,6 @@ __all__ = [
     "call_if_callable",
     "get_python_version",
     "get_terminal_environment",
-    "kill_process",
     "loop_until",
     "print_dict",
     "print_error",

@@ -11,9 +11,8 @@ marker is therefore provided lazily via ``__getattr__``.
 
 DEBUG = False
 ENDIAN = '>'  # Big-endian
-ECL2IX_LOG = 'ecl2ix.log'
 
-__all__ = ["DEBUG", "ENDIAN", "ECL2IX_LOG"] #, "ENDSOL"]
+__all__ = ["DEBUG", "ENDIAN"] #, "ENDSOL"]
 
 # if TYPE_CHECKING:  # pragma: no cover - import only needed for type checking
 #     from .io.unformatted.base import unfmt_block as _unfmt_block

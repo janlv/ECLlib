@@ -8,28 +8,27 @@ extension of the older GRID format, designed for efficiency and flexibility, and
 used for both structured and unstructured grid representations.
 """
 
-from itertools import product, repeat
-from math import hypot, prod
+from itertools import product
+from math import hypot
 
-from numpy import array as nparray, ones, zeros
-from pyvista import CellType, UnstructuredGrid
+from numpy import arange, array as nparray, concatenate, full, zeros
 
 from ..unformatted.base import unfmt_file
-from ...utils import batched, flatten
-from .unformatted_files import INIT_file
 
 __all__ = ["EGRID_file"]
 
-#==================================================================================================
+VTK_HEXAHEDRON = 12
+
+#===================================================================================================
 class EGRID_file(unfmt_file):                                                          # EGRID_file
-#==================================================================================================
+#===================================================================================================
     """Reader of Eclipse EGRID files."""
 
     start = 'FILEHEAD'
     end = 'ENDGRID'
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def __init__(self, file, **kwargs):                                                # EGRID_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
         """Initialize the EGRID_file."""
         super().__init__(file, suffix='.EGRID', **kwargs)
         self.var_pos = {'nx': ('GRIDHEAD', 1),
@@ -39,9 +38,9 @@ class EGRID_file(unfmt_file):                                                   
         self._nijk = None
         self._coord_zcorn = None
 
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def length(self):                                                                  # EGRID_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
         """Return the grid length along each axis."""
         convert = {'METRES':1.0, 'FEET':0.3048, 'CM':0.01}
         unit = next(self.blockdata('MAPUNITS'), None)
@@ -49,9 +48,9 @@ class EGRID_file(unfmt_file):                                                   
             return convert[unit]
         raise SystemError(f'ERROR Missing MAPUNITS in {self}')
 
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def axes(self):                                                                    # EGRID_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
         """Return arrays describing the grid axes."""
         ax = next(self.blockdata('MAPAXES'), None)
         origin = (ax[2], ax[3])
@@ -61,25 +60,25 @@ class EGRID_file(unfmt_file):                                                   
         norm_y = 1 / hypot(*unit_y)
         return origin, (unit_x[0]*norm_x, unit_x[1]*norm_x), (unit_y[0]*norm_y, unit_y[1]*norm_y)
 
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def nijk(self):                                                                    # EGRID_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
         """Return the grid dimensions."""
         self._nijk = self._nijk or next(self.read('nx', 'ny', 'nz'))
         return self._nijk        
 
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def coord_zcorn(self):                                                             # EGRID_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
         """Return coordinate and ZCORN arrays."""
         if self._coord_zcorn is None:
             mapped = map(nparray, next(self.blockdata('COORD', 'ZCORN')))
             self._coord_zcorn = list(mapped)
         return self._coord_zcorn
 
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def _indices(self, ijk):                                                           # EGRID_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
         """Return index arrays for the requested block."""
         nijk = self.nijk()
         # Calculate indices for grid pillars in COORD
@@ -99,9 +98,9 @@ class EGRID_file(unfmt_file):                                                   
         #              top (xyz)                   bottom (xyz)                   depths
         return nparray((pind, pind+1, pind+2)), nparray((pind+3, pind+4, pind+5)), zind
 
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def cell_corners(self, ijk_iter):                                                  # EGRID_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
         """Return cell corner coordinates."""
         #nijk = self.nijk()
         coord, zcorn = self.coord_zcorn()
@@ -121,30 +120,40 @@ class EGRID_file(unfmt_file):                                                   
             # Transpose to get coordinates last, i.e (8,3) instead of (3,8)
             yield nparray((x, y, z)).T
 
-    #----------------------------------------------------------------------------------------------
-    def grid(self, i=None, j=None, k=None, scale=(1,1,1)):                             # EGRID_file
-    #----------------------------------------------------------------------------------------------
-        """Return the structured grid as arrays."""
+    #-----------------------------------------------------------------------------------------------
+    def grid(self, i=None, j=None, k=None, scale=(1, 1, 1)):                           # EGRID_file
+    #-----------------------------------------------------------------------------------------------
+        """Return cell corner coordinates with shape ``(ni, nj, nk, 8, 3)``."""
         nijk = self.nijk()
         i = i or (0, nijk[0])
         j = j or (0, nijk[1])
         k = k or (0, nijk[2])
         dim = [b-a for a, b in (i, j, k)]
         ijk = product(range(*i), range(*j), range(*k))
-        corners = list(self.cell_corners(ijk))
-        # Create an unstructured VTK grid using pyvista 
-        # Interchange point 1(4) and 2(5) to match HEXAHEDRON cell order
-        points = nparray(corners)[:,[1,0,2,3,5,4,6,7],:] * nparray(scale)
-        ncells = prod(dim)
-        cells = nparray(list(flatten((a, *b) for a,b in zip(repeat(8), batched(range(ncells*8), 8)))))
-        cell_type = CellType.HEXAHEDRON*ones(ncells, dtype=int)
-        return UnstructuredGrid(cells, cell_type, points.reshape(-1, 3))
+        corners = nparray(list(self.cell_corners(ijk))).reshape((*dim, 8, 3))
+        return corners * nparray(scale)
 
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
     def cells(self, **kwargs):                                                         # EGRID_file
-    #----------------------------------------------------------------------------------------------
-        """Return structured grid cells."""
-        points = self.grid(**kwargs).cell_centers().points
-        dim = INIT_file(self.path).dim() + (3,)
-        return points.reshape(dim, order='C')
+    #-----------------------------------------------------------------------------------------------
+        """Return cell center coordinates with shape ``(ni, nj, nk, 3)``."""
+        return self.grid(**kwargs).mean(axis=-2)
 
+    #-----------------------------------------------------------------------------------------------
+    def unstructured_grid_args(self, i=None, j=None, k=None, scale=(1, 1, 1)):          # EGRID_file
+    #-----------------------------------------------------------------------------------------------
+        """
+        Return ``(cells, cell_type, points)`` arrays for a VTK unstructured grid.
+
+        The tuple is ordered for unstructured-grid constructors that accept VTK-style
+        ``(cells, celltypes, points)`` arguments. ``cells`` is a flattened connectivity
+        array with a leading point count of 8 for each hexahedron, ``cell_type`` contains
+        VTK hexahedron ids, and ``points`` is ordered using VTK's hexahedron corner order.
+        """
+        points = self.grid(i=i, j=j, k=k, scale=scale)[..., [1, 0, 2, 3, 5, 4, 6, 7], :]
+        points = points.reshape(-1, 8, 3)
+        ncells = points.shape[0]
+        connectivity = arange(ncells * 8, dtype=int).reshape(ncells, 8)
+        cells = concatenate((full((ncells, 1), 8, dtype=int), connectivity), axis=1).ravel()
+        cell_type = full(ncells, VTK_HEXAHEDRON, dtype=int)
+        return cells, cell_type, points.reshape(-1, 3)
