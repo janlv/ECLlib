@@ -13,7 +13,7 @@ from ...config import DEBUG, ENDIAN
 from ...utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all,
     index_limits, match_in_wildlist, nth, pad, pairwise, slice_range, string_split, take)
 
-__all__ = ["unfmt_header", "unfmt_block", "unfmt_file", "ENDSOL"]
+__all__ = ["unfmt_header", "unfmt_block", "unfmt_section_span", "unfmt_file", "ENDSOL"]
 
 _BLOCK_TYPES = {
     "int": b"INTE",
@@ -622,6 +622,50 @@ class unfmt_block:                                                              
         return self.header.as_bytes() + b''.join(self._pack_data_fast())
 
 
+#===================================================================================================
+class unfmt_section_span:                                                     # unfmt_section_span
+#===================================================================================================
+    """Raw byte span for one start/end-delimited unformatted file section."""
+
+    #-----------------------------------------------------------------------------------------------
+    def __init__(self, step, keys, blocks, start_block, end_block):          # unfmt_section_span
+    #-----------------------------------------------------------------------------------------------
+        """Initialize a section span from its boundary and selected metadata blocks."""
+        self.step = step
+        self.keys = frozenset(keys)
+        self.blocks = dict(blocks)
+        self.start_block = start_block
+        self.end_block = end_block
+        self.startpos = start_block.startpos
+        self.endpos = end_block.endpos
+
+    #-----------------------------------------------------------------------------------------------
+    def _slice_bytes(self, start, stop):                                      # unfmt_section_span
+    #-----------------------------------------------------------------------------------------------
+        """Return raw bytes for a file slice while the backing block source is open."""
+        data = self.end_block._data
+        if data is not None:
+            return data[start:stop]
+        return self.end_block.read_file(slice(start, stop))
+
+    #-----------------------------------------------------------------------------------------------
+    def section_bytes(self):                                                  # unfmt_section_span
+    #-----------------------------------------------------------------------------------------------
+        """Return raw bytes for the full section during section-span iteration."""
+        return self._slice_bytes(self.start_block.startpos, self.end_block.endpos)
+
+    #-----------------------------------------------------------------------------------------------
+    def prefix_bytes(self):                                                   # unfmt_section_span
+    #-----------------------------------------------------------------------------------------------
+        """Return raw section bytes before the terminating block during iteration."""
+        return self._slice_bytes(self.start_block.startpos, self.end_block.startpos)
+
+    #-----------------------------------------------------------------------------------------------
+    def end_bytes(self):                                                      # unfmt_section_span
+    #-----------------------------------------------------------------------------------------------
+        """Return raw bytes for the terminating block during iteration."""
+        return self.end_block.binarydata()
+
 
 #==================================================================================================
 class unfmt_file(File):                                                                # unfmt_file
@@ -1131,6 +1175,55 @@ class unfmt_file(File):                                                         
             if a == b:  # No more sections
                 break
     
+
+    #-----------------------------------------------------------------------------------------------
+    def section_spans(self, end=None, keys=(), only_new=False, **kwargs):              # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Yield raw byte spans for sections without materializing section tuples.
+
+        The returned span byte methods are intended for immediate use while the
+        iterator is active, because mmap-backed block data is closed when block
+        iteration ends.
+        """
+        self.exists(raise_error=True)
+        if not self.start:
+            raise ValueError(f"{type(self).__name__}.section_spans() requires a start keyword")
+        end = str(end or self.end).strip()
+        if not end:
+            raise ValueError(f"{type(self).__name__}.section_spans() requires an end keyword")
+
+        kwargs.setdefault("use_mmap", True)
+        keyset = set(keys)
+        section_start = None
+        step = None
+        section_keys = set()
+        selected = {}
+        for block in self.blocks(only_new=only_new, **kwargs):
+            key = block.key()
+            if key == self.start:
+                if section_start is not None:
+                    raise ValueError(f"Incomplete section: '{end}' keyword is missing")
+                section_start = block
+                values = block.data()
+                step = values[0].item() if values.size else None
+                section_keys = {key}
+                selected = {key: block} if key in keyset else {}
+                continue
+            if section_start is None:
+                continue
+
+            section_keys.add(key)
+            if key in keyset:
+                selected[key] = block
+            if key == end:
+                yield unfmt_section_span(step, section_keys, selected, section_start, block)
+                section_start = None
+                step = None
+                section_keys = set()
+                selected = {}
+        if section_start is not None:
+            raise ValueError(f"Incomplete section: '{end}' keyword is missing")
+
 
     #----------------------------------------------------------------------------------------------
     def section_data(self, start=(), end=(), rename=(), begin=0):                      # unfmt_file

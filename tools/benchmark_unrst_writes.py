@@ -57,7 +57,7 @@ def _benchmark_merge(root: Path, *, sections: int, cells: int):
     _write_unrst(donor, sections=sections, cells=cells, donor=True)
     bytes_processed = host.stat().st_size + donor.stat().st_size
     start = perf_counter()
-    UNRST_file(host).merge_keys_from(donor, keys=("KEY1", "KEY2"), name=out, overwrite=True)
+    UNRST_file(host).merge_keys_from_file(donor, keys=("KEY1", "KEY2"), name=out, overwrite=True)
     elapsed = perf_counter() - start
     return elapsed, bytes_processed, out.stat().st_size
 

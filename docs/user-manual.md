@@ -5,6 +5,9 @@ core abstractions, I/O helpers, and utility modules. All examples assume Python 
 (as required by the project) and that the package has been installed into an active
 virtual environment.
 
+For command-line restart merging and records text insertion, see the
+[UNRST tool guide](unrst-tool.md).
+
 ## Overview
 
 ECLlib is a toolkit for reading, writing, and analysing Eclipse and Intersect simulator
@@ -160,22 +163,38 @@ directory to a new grid resolution, keeping backups under `GSG_backup`.
   the current file in place by appending one row of new blocks immediately before the
   trailing end marker of the current last section. It is intentionally limited to the
   last section.
-- `UNRST_file.merge_keys_from(donor, keys=..., name=None, rename=None, ...)` writes a
+- `UNRST_file.merge_keys_from_file(donor, keys=..., name=None, rename=None, ...)` writes a
   new UNRST file using the host sections from the current file and appending selected
   donor solution blocks immediately before each host end marker. The merge is done
   section-by-section in file order, so the caller is responsible for giving host and
   donor files with matching section order. When `name` is omitted, the output defaults
   to `<host_stem>_MERGED.UNRST`.
+- `UNRST_file.merge_keys_from_blocks(keys=..., rows=..., name=None, ...)` writes a new
+  UNRST file from generated serialized blocks. Each row is `(time, block_row)`, where
+  `time` is matched to one host section by `DOUBHEAD[0]`, and `block_row[j]` is written
+  using `keys[j]`.
 
 Donor merge example:
 
 ```python
 from ECLlib import UNRST_file
 
-UNRST_file("CASE").merge_keys_from(
-    "CASE_DONOR.UNRST",
+UNRST_file("CASE").merge_keys_from_file(
+    "CASE_DONOR",
     keys=("TEMP", "PRESSURE"),
     rename={"TEMP": "TEMP_IOR"},
+)
+```
+
+Generated block merge example:
+
+```python
+from ECLlib import UNRST_file, unfmt_block
+
+UNRST_file("CASE").merge_keys_from_blocks(
+    keys=("WATER_SA",),
+    rows=((0.0, (unfmt_block.from_data("WATER_SA", [0.1, 0.2], "float").as_bytes(),)),),
+    name="CASE_RECORDS",
 )
 ```
 

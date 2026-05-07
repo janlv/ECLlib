@@ -8,7 +8,14 @@ from pathlib import Path
 from ECLlib import UNRST_file, unfmt_block
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "unrst_tool.py"
+ROOT = Path(__file__).resolve().parents[1]
+
+
+#---------------------------------------------------------------------------------------------------
+def _cli_args(*args):
+#---------------------------------------------------------------------------------------------------
+    """Return command arguments for running the installed UNRST CLI module."""
+    return [sys.executable, "-m", "ecllib_tools.unrst_tool", *map(str, args)]
 
 
 #---------------------------------------------------------------------------------------------------
@@ -38,6 +45,13 @@ def _section_keys(unrst: UNRST_file, index: int):
 
 
 #---------------------------------------------------------------------------------------------------
+def _stdout_pairs(result):
+#---------------------------------------------------------------------------------------------------
+    """Return CLI summary output as a key-value dictionary."""
+    return dict(line.split("=", 1) for line in result.stdout.strip().splitlines())
+
+
+#---------------------------------------------------------------------------------------------------
 def test_unrst_tool_inspect_and_merge(tmp_path):
 #---------------------------------------------------------------------------------------------------
     """The CLI script should inspect files and merge donor keys into a new output."""
@@ -54,10 +68,10 @@ def test_unrst_tool_inspect_and_merge(tmp_path):
     )
 
     inspect = subprocess.run(
-        [sys.executable, str(SCRIPT), "inspect", str(src), "--steps", "1"],
+        _cli_args("inspect", src, "--steps", "1"),
         capture_output=True,
         check=True,
-        cwd=SCRIPT.parents[1],
+        cwd=ROOT,
         text=True,
     )
     assert "sections=2" in inspect.stdout
@@ -65,24 +79,20 @@ def test_unrst_tool_inspect_and_merge(tmp_path):
     assert "TEMP" in inspect.stdout
 
     merge = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "merge",
-            str(src),
-            str(donor),
-            "KEY1",
-            "KEY2",
-            "--output",
-            str(out),
-            "--overwrite",
-        ],
+        _cli_args("merge", src, donor, "KEY1", "KEY2", "-o", out, "--overwrite"),
         capture_output=True,
         check=True,
-        cwd=SCRIPT.parents[1],
+        cwd=ROOT,
         text=True,
     )
-    assert "wrote=" in merge.stdout
+    summary = _stdout_pairs(merge)
+    assert summary == {
+        "wrote": str(out),
+        "mode": "donor",
+        "source": str(donor),
+        "keys": "KEY1,KEY2",
+        "sections": "2",
+    }
 
     assert _section_keys(UNRST_file(out), 1) == [
         "SEQNUM",

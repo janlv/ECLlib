@@ -16,6 +16,9 @@ dependencies = [
 # and commit history, ensuring accurate versioning for the project.
 dynamic = ["version"]
 
+[project.scripts]
+ecl-unrst = "ecllib_tools.unrst_tool:main"
+
 [build-system]
 requires = ["setuptools>=61.2.0", "wheel", "setuptools_scm"]
 # The build backend is set to setuptools.build_meta, which is the default for setuptools.

@@ -9,51 +9,62 @@ ECLlib is a Python toolkit for reading, writing, and analysing files produced by
 
 ## Installation
 
-The project requires Python 3.10 or newer. The supplied installation scripts create an isolated virtual environment (`venv`), activate it, and install ECLlib together with its dependencies via `pip install .`.
+The project requires Python 3.10 or newer. See [INSTALL.md](INSTALL.md) for Linux,
+macOS, and Windows setup instructions. Installing ECLlib also installs the `ecl-unrst`
+command-line tool.
 
-### Linux and macOS
+## `ecl-unrst` command-line tool
 
-1. **Make the script executable** (first run only):
-   ```bash
-   chmod +x install.sh
-   ```
-2. **Run the installation** from the project root:
-   ```bash
-   ./install.sh
-   ```
+`ecl-unrst` is the installed command for one-off unified restart (`.UNRST`) workflows.
+Use it from a terminal after installing ECLlib and activating the environment:
 
-The script determines the package name from `pyproject.toml`, provisions a `.venv_ECLlib` directory, activates the environment, and installs the project in editable mode.
+```bash
+ecl-unrst --help
+```
 
-### Windows
+Common commands:
 
-1. Open *Command Prompt* or *PowerShell*.
-2. Change into the project root if required using `cd`.
-3. Run the installer:
-   ```bat
-   install.bat
-   ```
+| Command | Purpose |
+| --- | --- |
+| `ecl-unrst inspect CASE` | Print the `SEQNUM` sections and keys in `CASE.UNRST`. |
+| `ecl-unrst merge CASE DONOR SWAT SGAS -o CASE_MERGED` | Write a new UNRST file by copying `SWAT` and `SGAS` from `DONOR.UNRST` into matching sections of `CASE.UNRST`. |
+| `ecl-unrst merge CASE records.txt -o CASE_RECORDS` | Write a new UNRST file by reading extra keys from records text input and matching rows by `DOUBHEAD` simulation time. |
 
-The batch script mirrors the UNIX workflow by creating a `.venv_ECLlib` environment, activating it for the duration of the session, and installing the project with `pip install .`.
+`merge` always writes a new output file. It does not modify the input UNRST file. Use
+`-o` or `--output` to choose the output path, and add `--overwrite` only when replacing
+an existing output file is intended.
 
-### After installation
+`inspect` is read-only. It prints the resolved UNRST path, the number of `SEQNUM`
+sections, and the keys in each selected section. Use `--steps` to inspect only selected
+report steps:
 
-- **Reactivate the environment** whenever you return to the project:
-  - Linux/macOS:
-    ```bash
-    source .venv_ECLlib/bin/activate
-    ```
-  - Windows:
-    ```bat
-    call .venv_ECLlib\Scripts\activate.bat
-    ```
-- **Deactivate the environment** when you are done:
-  ```bash
-  deactivate
-  ```
+```bash
+ecl-unrst inspect CASE --steps 0 10 20
+```
+
+After a successful merge, the CLI prints a short summary:
+
+```text
+wrote=CASE_RECORDS.UNRST
+mode=records
+source=records.txt
+keys=WATER_SA,OIL_SATU
+sections=12
+```
+
+A records text format template is available at
+`examples/format_templates/records.txt`. Use it as a reference for preparing the
+file passed to `merge`. The file may have any name if it follows that format.
+
+Use the CLI for manual file operations. Use the Python API, for example
+`UNRST_file("CASE").merge_keys_from_file(...)`, when the same operation belongs inside
+a script, GUI, or larger workflow. See the [UNRST tool guide](docs/unrst-tool.md) for
+the full CLI and Python API details.
 
 ## Documentation
 
 See the [user manual](docs/user-manual.md) for an overview of the core, I/O, and utility APIs.
+For command-line restart workflows, see the [UNRST tool guide](docs/unrst-tool.md).
 
 ## Quick start
 
@@ -80,7 +91,7 @@ unrst.append_blocks(
 )
 
 # Merge donor keys into a new file
-unrst.merge_keys_from('rootname_donor.UNRST', keys=('XTEST',))
+unrst.merge_keys_from_file('rootname_donor', keys=('XTEST',))
 ```
 
 See `src/ECLlib/__init__.py` for a full overview of the public API. The project is licensed under the MIT License and versioned via git tags managed by `setuptools_scm`.

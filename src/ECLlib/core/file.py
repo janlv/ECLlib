@@ -371,15 +371,14 @@ class File:                                                                     
         """Return the first bytes of the file."""
         return next(head_file(self.path, **kwargs), "")
 
-    #----------------------------------------------------------------------------------------------
-    def lines(self):                                                                         # File
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def lines(self):                                                                          # File
+    #-----------------------------------------------------------------------------------------------
         """Iterate over the file lines."""
-        if self.is_file():
-            with open(self.path, "r", encoding="utf-8") as file:
-                while line := file.readline():
-                    yield line
-        return ()
+        if not self.is_file():
+            return
+        with self.path.open("r", encoding="utf-8") as file:
+            yield from file
 
     #----------------------------------------------------------------------------------------------
     def line_matching(self, word):                                                           # File

@@ -15,12 +15,15 @@ echo "🔌 Activating virtual environment ..."
 source "$VENV_DIR/bin/activate"
 
 echo
-echo "📦 Installing local project with pip install ."
-pip install .
+echo "📦 Installing ECLlib and ecl-unrst CLI in editable mode ..."
+python -m pip install --upgrade pip
+python -m pip install -e .
 
 echo
 echo "✅ Done! Environment is ready in: $VENV_DIR"
 echo "💡 To activate it later, run:"
 echo "    source $VENV_DIR/bin/activate"
+echo "💡 To verify the CLI after activation, run:"
+echo "    ecl-unrst --help"
 echo "💡 To deactivate the environment, just run:"
 echo "    deactivate"

@@ -18,12 +18,15 @@ python -m venv "!VENV_DIR!"
 echo 🔌 Activating virtual environment ...
 call "!VENV_DIR!\Scripts\activate.bat"
 
-echo 📦 Installing local project ...
-pip install .
+echo 📦 Installing ECLlib and ecl-unrst CLI in editable mode ...
+python -m pip install --upgrade pip
+python -m pip install -e .
 
 echo.
 echo ✅ Done! Virtual environment created in !VENV_DIR!
 echo 💡 To activate it later, run:
 echo     call !VENV_DIR!\Scripts\activate.bat
+echo 💡 To verify the CLI after activation, run:
+echo     ecl-unrst --help
 echo 💡 To deactivate the environment, just run:
 echo     deactivate

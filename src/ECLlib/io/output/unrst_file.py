@@ -18,7 +18,6 @@ from ..unformatted.base import ENDSOL, unfmt_block, unfmt_file
 
 __all__ = ["UNRST_file"]
 
-
 #===================================================================================================
 class UNRST_file(unfmt_file):                                                          # UNRST_file
 #===================================================================================================
@@ -222,8 +221,8 @@ class UNRST_file(unfmt_file):                                                   
         return next(i for i, val in enumerate(data_func()) if val >= stop)
 
     #-----------------------------------------------------------------------------------------------
-    def merge_keys_from(self, donor, *, keys, name=None, rename=None,                 # UNRST_file
-                        overwrite=False):
+    def merge_keys_from_file(self, donor, *, keys, name=None, rename=None,              # UNRST_file
+                             overwrite=False):
     #-----------------------------------------------------------------------------------------------
         """Write a merged UNRST file that appends selected donor keys to each matching section."""
         self.exists(raise_error=True)
@@ -234,7 +233,7 @@ class UNRST_file(unfmt_file):                                                   
         outfile = File(name or self.path.parent / f"{self.path.stem}_MERGED.UNRST", suffix=".UNRST")
         if outfile.path in {self.path, donor_file.path}:
             raise ValueError(
-                "UNRST_file.merge_keys_from() does not support writing to the host or donor path"
+                "UNRST_file.merge_keys_from_file() does not support writing to the host or donor path"
             )
         if outfile.exists() and not overwrite:
             raise FileExistsError(f"{outfile} already exists; pass overwrite=True to replace it")
@@ -251,6 +250,64 @@ class UNRST_file(unfmt_file):                                                   
             outfile.delete()
             raise
         return UNRST_file(outfile.path, end=host_endblock)
+
+    #-----------------------------------------------------------------------------------------------
+    def merge_keys_from_blocks(self, *, keys, rows, name=None,                          # UNRST_file
+                               overwrite=False, tolerance=1e-6, endblock=None):
+    #-----------------------------------------------------------------------------------------------
+        """Write a UNRST copy with serialized key blocks matched by DOUBHEAD time."""
+        self.exists(raise_error=True)
+        if tolerance <= 0:
+            raise ValueError("tolerance must be positive")
+        out = File(name or self.path.parent / f"{self.path.stem}_BLOCKS.UNRST", suffix=".UNRST")
+        if out.path == self.path:
+            raise ValueError("UNRST_file.merge_keys_from_blocks() output must differ from input")
+        if out.exists() and not overwrite:
+            raise FileExistsError(f"{out} already exists; pass overwrite=True to replace it")
+
+        key_tuple, keyset = _prepare_merge_keys(keys)
+        row_iter = iter(rows)
+        endblock = str(endblock or self.end_key() or self.end).strip()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        row_index = 0
+        previous_time = None
+        matched_time = None
+        try:
+            pending = _next_merge_row(row_iter, key_tuple, row_index, previous_time, tolerance)
+            with open(out.path, "wb") as file:
+                for span in self.section_spans(end=endblock, keys=("DOUBHEAD",), use_mmap=True):
+                    if "DOUBHEAD" not in span.blocks:
+                        raise ValueError(f"Section {span.step} is missing DOUBHEAD")
+                    day = float(span.blocks["DOUBHEAD"].data()[0])
+                    if matched_time is not None and abs(day - matched_time) <= tolerance:
+                        raise ValueError(f"TIME = {matched_time:g} d matches multiple SEQNUM sections")
+                    if pending is None:
+                        file.write(span.section_bytes())
+                        continue
+                    time, block_row = pending
+                    if time < day - tolerance:
+                        raise ValueError(f"No UNRST section matches TIME record(s): {time:g}")
+                    if abs(time - day) > tolerance:
+                        file.write(span.section_bytes())
+                        continue
+                    if duplicates := sorted(span.keys & keyset):
+                        raise ValueError(
+                            f"SEQNUM {span.step} already contains target key(s): {', '.join(duplicates)}"
+                        )
+                    file.write(span.prefix_bytes())
+                    for data in block_row:
+                        file.write(data)
+                    file.write(span.end_bytes())
+                    matched_time = time
+                    previous_time = time
+                    row_index += 1
+                    pending = _next_merge_row(row_iter, key_tuple, row_index, previous_time, tolerance)
+                if pending is not None:
+                    raise ValueError(f"No UNRST section matches TIME record(s): {pending[0]:g}")
+        except Exception:
+            out.delete()
+            raise
+        return UNRST_file(out.path, end=endblock)
 
     #-----------------------------------------------------------------------------------------------
     def append_blocks(self, *, step, keys, blocks, dtypes=None, endblock="ENDSOL"):    # UNRST_file
@@ -397,6 +454,44 @@ def _infer_block_dtype(payload):
     if kind in "SU":
         return "char"
     raise TypeError(f"Unable to infer block dtype from numpy dtype {payload.dtype!s}")
+
+
+#---------------------------------------------------------------------------------------------------
+def _prepare_merge_keys(keys):
+#---------------------------------------------------------------------------------------------------
+    """Return normalized unique merge keys and their lookup set."""
+    key_tuple = tuple(str(key).strip()[:8] for key in keys)
+    if not key_tuple:
+        raise ValueError("At least one merge key is required")
+    if any(not key for key in key_tuple):
+        raise ValueError("Empty merge key")
+    if len(set(key_tuple)) != len(key_tuple):
+        raise ValueError("Duplicate merge key(s)")
+    return key_tuple, frozenset(key_tuple)
+
+
+#---------------------------------------------------------------------------------------------------
+def _next_merge_row(row_iter, keys, index, previous_time, tolerance):
+#---------------------------------------------------------------------------------------------------
+    """Return the next validated ``(time, block_row)`` merge row, or ``None``."""
+    try:
+        item = next(row_iter)
+    except StopIteration:
+        return None
+    try:
+        time, row = item
+    except (TypeError, ValueError) as error:
+        raise ValueError("merge_keys_from_blocks() rows must yield (time, block_row)") from error
+    time = float(time)
+    if previous_time is not None and time <= previous_time + tolerance:
+        raise ValueError(
+            f"Rows must be ordered by increasing TIME; TIME = {time:g} d follows TIME = {previous_time:g} d"
+        )
+    block_row = tuple(bytes(data) for data in row)
+    if len(block_row) != len(keys):
+        raise ValueError(f"Block row {index} has {len(block_row)} blocks; expected {len(keys)}")
+    return time, block_row
+
 
 #---------------------------------------------------------------------------------------------------
 def _iter_host_sections(unrst, endblock):
