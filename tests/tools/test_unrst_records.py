@@ -11,7 +11,7 @@ import pytest
 from ECLlib.config import ENDIAN
 from ECLlib import UNRST_file, unfmt_block
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 RECORDS_TXT = ROOT / "examples" / "format_templates" / "records.txt"
 
 from ecllib_tools import unrst_records_txt

@@ -8,7 +8,7 @@ from pathlib import Path
 from ECLlib import UNRST_file, unfmt_block
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 #---------------------------------------------------------------------------------------------------
