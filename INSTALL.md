@@ -6,7 +6,8 @@ the `ecl-unrst` command available in the same virtual environment.
 ## Requirements
 
 - Python 3.10 or newer.
-- A local checkout of this repository.
+- A local checkout or ZIP download of this repository.
+- Git, if you want to clone instead of downloading a ZIP file.
 
 Verify Python:
 
@@ -17,6 +18,25 @@ python --version
 On Windows, `py --version` may be the right command if Python was installed with the
 Python Launcher.
 
+## Get The Repository
+
+With Git over HTTPS:
+
+```bash
+git clone https://github.com/janlv/ECLlib.git
+cd ECLlib
+```
+
+With Git over SSH:
+
+```bash
+git clone git@github.com:janlv/ECLlib.git
+cd ECLlib
+```
+
+Without Git, download the repository ZIP from GitHub, unpack it, and open a terminal in
+the unpacked `ECLlib` folder.
+
 ## Linux And macOS
 
 From the ECLlib repository root:
@@ -25,8 +45,11 @@ From the ECLlib repository root:
 python -m venv .venv_ECLlib
 source .venv_ECLlib/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e .
+python -m pip install .
 ```
+
+Do not forget the final `.` in `python -m pip install .`; it tells pip to install the
+current ECLlib folder.
 
 Verify the Python package:
 
@@ -58,8 +81,11 @@ Open PowerShell in the ECLlib repository root:
 py -m venv .venv_ECLlib
 .\.venv_ECLlib\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e .
+python -m pip install .
 ```
+
+Do not forget the final `.` in `python -m pip install .`; it tells pip to install the
+current ECLlib folder.
 
 If PowerShell blocks activation because script execution is restricted, use Command
 Prompt instead:
@@ -68,7 +94,7 @@ Prompt instead:
 py -m venv .venv_ECLlib
 call .venv_ECLlib\Scripts\activate.bat
 python -m pip install --upgrade pip
-python -m pip install -e .
+python -m pip install .
 ```
 
 Verify the Python package:
@@ -143,7 +169,7 @@ deactivate
 
 ## Installer Scripts
 
-The repository also includes installer scripts that run the same editable installation
+The repository also includes installer scripts that run the same local installation
 workflow and install the `ecl-unrst` command into `.venv_ECLlib`.
 
 Linux and macOS:

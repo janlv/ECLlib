@@ -18,9 +18,10 @@ python -m venv "!VENV_DIR!"
 echo 🔌 Activating virtual environment ...
 call "!VENV_DIR!\Scripts\activate.bat"
 
-echo 📦 Installing ECLlib and ecl-unrst CLI in editable mode ...
+echo 📦 Installing ECLlib and ecl-unrst CLI ...
 python -m pip install --upgrade pip
-python -m pip install -e .
+echo    Do not forget the final "." if you run this command manually.
+python -m pip install .
 
 echo.
 echo ✅ Done! Virtual environment created in !VENV_DIR!

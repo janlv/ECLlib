@@ -15,9 +15,10 @@ echo "🔌 Activating virtual environment ..."
 source "$VENV_DIR/bin/activate"
 
 echo
-echo "📦 Installing ECLlib and ecl-unrst CLI in editable mode ..."
+echo "📦 Installing ECLlib and ecl-unrst CLI ..."
 python -m pip install --upgrade pip
-python -m pip install -e .
+echo "   Do not forget the final '.' if you run this command manually."
+python -m pip install .
 
 echo
 echo "✅ Done! Environment is ready in: $VENV_DIR"

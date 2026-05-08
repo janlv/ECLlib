@@ -9,9 +9,35 @@ ECLlib is a Python toolkit for reading, writing, and analysing files produced by
 
 ## Installation
 
-The project requires Python 3.10 or newer. See [INSTALL.md](INSTALL.md) for Linux,
-macOS, and Windows setup instructions. Installing ECLlib also installs the `ecl-unrst`
-command-line tool.
+The project requires Python 3.10 or newer. Installing ECLlib also installs the
+`ecl-unrst` command-line tool.
+
+See [INSTALL.md](INSTALL.md) for complete clone, download, Linux/macOS, and Windows
+installation instructions.
+
+Quick Linux/macOS path from a local checkout:
+
+```bash
+cd ECLlib
+chmod +x install.sh
+./install.sh
+source .venv_ECLlib/bin/activate
+```
+
+Quick Windows Command Prompt path from a local checkout:
+
+```bat
+cd ECLlib
+install.bat
+call .venv_ECLlib\Scripts\activate.bat
+```
+
+Verify:
+
+```bash
+python -c "import ECLlib; print(ECLlib.__version__)"
+ecl-unrst --help
+```
 
 ## `ecl-unrst` command-line tool
 
