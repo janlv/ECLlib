@@ -1,0 +1,63 @@
+name: Installer Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  install:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        python-version:
+          - "3.10"
+          - "3.12"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Run Windows installer
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: cmd /c install.bat
+
+      - name: Run macOS and Linux installer
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x install.sh
+          ./install.sh
+
+      - name: Verify Windows install
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          .venv_ECLlib\Scripts\python.exe -c "import ECLlib; print(ECLlib.__version__)" && ^
+          .venv_ECLlib\Scripts\python.exe -m pip show ECLlib && ^
+          .venv_ECLlib\Scripts\ecl-unrst.exe --help
+
+      - name: Verify macOS and Linux install
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          .venv_ECLlib/bin/python -c "import ECLlib; print(ECLlib.__version__)"
+          .venv_ECLlib/bin/python -m pip show ECLlib
+          .venv_ECLlib/bin/ecl-unrst --help
