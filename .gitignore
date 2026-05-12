@@ -28,4 +28,6 @@ htmlcov/
 
 # Jupyter
 *.ipynb_checkpoints/
-tests/EKOFISK_HAUKAAS_2014/
+
+# Local case data
+# Keep large/local case data outside the repository working tree.

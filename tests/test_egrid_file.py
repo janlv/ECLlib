@@ -17,7 +17,20 @@ from ECLlib.utils import batched, flatten
 ROOT = Path(__file__).resolve().parents[1]
 OPM_EGRID = Path("tests/Model_From_IXF_OPM/MODEL_FROM_IXF_OPM.EGRID")
 IX_EGRID = Path("tests/Model_From_IXF_IX/Model_From_IXF.EGRID")
-EKOFISK_EGRID = Path("tests/EKOFISK_HAUKAAS_2014/EKOFISK_HAUKAAS_2014.EGRID")
+EKOFISK_CASE_ENV = "ECLLIB_EKOFISK_CASE_DIR"
+
+
+#---------------------------------------------------------------------------------------------------
+def _local_ekofisk_egrid():
+#---------------------------------------------------------------------------------------------------
+    """Return the optional local Ekofisk EGRID fixture path."""
+    case_dir = os.environ.get(EKOFISK_CASE_ENV)
+    if not case_dir:
+        pytest.skip(f"Set {EKOFISK_CASE_ENV} to run local Ekofisk EGRID checks")
+    path = Path(case_dir) / "EKOFISK_HAUKAAS_2014.EGRID"
+    if not path.exists():
+        pytest.skip(f"Local Ekofisk EGRID file not available: {path}")
+    return path
 
 
 #---------------------------------------------------------------------------------------------------
@@ -92,13 +105,28 @@ def test_egrid_cells_are_corner_means():
     (
         (OPM_EGRID, {}),
         (IX_EGRID, {}),
-        (EKOFISK_EGRID, {"i": (0, 2), "j": (0, 3), "k": (0, 2)}),
     ),
 )
 def test_egrid_grid_matches_legacy_pyvista_geometry(path, kwargs):
 #---------------------------------------------------------------------------------------------------
     """Match the previous PyVista point geometry when converted to VTK point order."""
     egrid = EGRID_file(path)
+
+    grid = egrid.grid(**kwargs)
+    legacy, dim = _legacy_pyvista_grid(egrid, **kwargs)
+    legacy_points = legacy.points.reshape((*dim, 8, 3))
+    grid_vtk_order = grid[..., [1, 0, 2, 3, 5, 4, 6, 7], :]
+
+    np.testing.assert_allclose(grid_vtk_order, legacy_points)
+    np.testing.assert_allclose(grid.mean(axis=-2).reshape(-1, 3), legacy.cell_centers().points)
+
+
+#---------------------------------------------------------------------------------------------------
+def test_local_ekofisk_egrid_matches_legacy_pyvista_geometry():
+#---------------------------------------------------------------------------------------------------
+    """Optionally compare local Ekofisk EGRID geometry without bundling the case data."""
+    egrid = EGRID_file(_local_ekofisk_egrid())
+    kwargs = {"i": (0, 2), "j": (0, 3), "k": (0, 2)}
 
     grid = egrid.grid(**kwargs)
     legacy, dim = _legacy_pyvista_grid(egrid, **kwargs)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import numpy as np
 
@@ -15,6 +16,9 @@ from ._gsg_binary import (
     read_index_records,
     read_keyword,
     read_struct,
+    write_header,
+    write_index_records,
+    write_keyword,
 )
 
 __all__ = [
@@ -37,6 +41,8 @@ _ENCODINGS = {
     0: "full",
     1: "rle",
 }
+_DTYPE_CODES = {dtype: code for code, dtype in _GSG_DTYPES.items()}
+_ENCODING_CODES = {encoding: code for code, encoding in _ENCODINGS.items()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +71,23 @@ class GSGProperty:                                                              
     encoding: str
     size: int
     values: np.ndarray
+
+    @classmethod
+    #-----------------------------------------------------------------------------------------------
+    def from_array(cls, name, alias, values, role="g", dtype=None, encoding="full"):   # GSGProperty
+    #-----------------------------------------------------------------------------------------------
+        """Create a property definition from array-like values."""
+        names = _as_text_tuple(name, "name")
+        roles = _as_text_tuple(role, "role")
+        if len(roles) == 1 and len(names) > 1:
+            roles = len(names) * roles
+        if len(roles) != len(names):
+            raise ValueError("role must be one value or match the number of names")
+
+        dtype = _property_dtype(values, dtype)
+        array = np.asarray(values, dtype=dtype)
+        encoding = _normalize_encoding(encoding)
+        return cls(names, roles, str(alias), dtype, encoding, int(array.size), array)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,10 +142,235 @@ def _entry_from_record(record):
     return GSGIndexEntry(*record)
 
 
+#---------------------------------------------------------------------------------------------------
+def _as_text_tuple(value, label):
+#---------------------------------------------------------------------------------------------------
+    """Return a non-empty tuple of strings."""
+    if isinstance(value, str):
+        values = (value,)
+    else:
+        values = tuple(str(item) for item in value)
+    if not values or any(not item for item in values):
+        raise ValueError(f"{label} must contain at least one non-empty value")
+    return values
+
+
+#---------------------------------------------------------------------------------------------------
+def _property_dtype(values, dtype=None):
+#---------------------------------------------------------------------------------------------------
+    """Return a supported little-endian GSG property dtype."""
+    if dtype is not None:
+        candidate = np.dtype(dtype)
+    else:
+        array = np.asarray(values)
+        if np.issubdtype(array.dtype, np.integer):
+            candidate = np.dtype("int32")
+        elif np.issubdtype(array.dtype, np.floating):
+            candidate = np.dtype("float32")
+        else:
+            raise TypeError(f"Unsupported property value dtype {array.dtype}")
+    candidate = candidate.newbyteorder("<")
+    if candidate not in _DTYPE_CODES:
+        raise TypeError(f"Unsupported GSG property dtype {candidate}")
+    return candidate
+
+
+#---------------------------------------------------------------------------------------------------
+def _normalize_encoding(encoding):
+#---------------------------------------------------------------------------------------------------
+    """Return a supported property encoding name."""
+    encoding = str(encoding).lower()
+    if encoding not in _ENCODING_CODES:
+        raise ValueError(f"Unsupported GSG property encoding {encoding!r}")
+    return encoding
+
+
+#---------------------------------------------------------------------------------------------------
+def _normalize_property(property_):
+#---------------------------------------------------------------------------------------------------
+    """Return a validated GSGProperty instance."""
+    if not isinstance(property_, GSGProperty):
+        raise TypeError(f"Expected GSGProperty, got {type(property_).__name__}")
+    dtype = _property_dtype(property_.values, property_.dtype)
+    encoding = _normalize_encoding(property_.encoding)
+    names = _as_text_tuple(property_.names, "names")
+    roles = _as_text_tuple(property_.roles, "roles")
+    if len(roles) == 1 and len(names) > 1:
+        roles = len(names) * roles
+    if len(roles) != len(names):
+        raise ValueError(f"{property_.alias}: roles must match names")
+    values = np.asarray(property_.values)
+    size = int(property_.size or values.size)
+    return GSGProperty(names, roles, property_.alias, dtype, encoding, size, values)
+
+
+#---------------------------------------------------------------------------------------------------
+def _flatten_property_values(property_):
+#---------------------------------------------------------------------------------------------------
+    """Return property values flattened in GSG/Fortran order."""
+    values = np.asarray(property_.values)
+    if values.dtype.names:
+        return values
+    return np.asarray(values, dtype=property_.dtype).ravel(order="F")
+
+
+#---------------------------------------------------------------------------------------------------
+def _rle_pairs(values):
+#---------------------------------------------------------------------------------------------------
+    """Return run-length encoded ``(count, value)`` pairs for one-dimensional values."""
+    values = np.asarray(values)
+    if values.size == 0:
+        return np.empty(0, dtype=[("count", "<i4"), ("value", values.dtype)])
+    starts = np.empty(values.size, dtype=bool)
+    starts[0] = True
+    starts[1:] = values[1:] != values[:-1]
+    indices = np.flatnonzero(starts)
+    counts = np.diff(np.append(indices, values.size))
+    if counts.max(initial=0) > np.iinfo(np.int32).max:
+        raise ValueError("RLE run length exceeds int32 range")
+    pairs = np.empty(indices.size, dtype=[("count", "<i4"), ("value", values.dtype)])
+    pairs["count"] = counts.astype("<i4")
+    pairs["value"] = values[indices]
+    return pairs
+
+
+#---------------------------------------------------------------------------------------------------
+def _write_prop_file(path, *properties, creator="PetrelForIx", version="2022.9.0", overwrite=False):
+#---------------------------------------------------------------------------------------------------
+    """Write a PROP GSG file and return the output path."""
+    output_path = Path(path)
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(output_path)
+    if not properties:
+        raise ValueError("At least one GSGProperty is required")
+
+    normalized = tuple(_normalize_property(property_) for property_ in properties)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with NamedTemporaryFile(
+            "wb",
+            dir=output_path.parent,
+            prefix=f".{output_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as file_obj:
+            temp_path = Path(file_obj.name)
+            _write_prop_payload(file_obj, normalized, creator, version)
+        _validate_written_properties(temp_path, normalized)
+        temp_path.replace(output_path)
+    except Exception:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+    return output_path
+
+
+#---------------------------------------------------------------------------------------------------
+def _write_prop_payload(file_obj, properties, creator, version):
+#---------------------------------------------------------------------------------------------------
+    """Write the complete PROP GSG payload to an open binary file object."""
+    write_header(file_obj, creator, version)
+    records = []
+    for number, property_ in enumerate(properties, start=1):
+        start = file_obj.tell()
+        records.append(("PROP", _ENCODING_CODES[property_.encoding], _data_position("PROP", start)))
+        write_keyword(file_obj, "PROP", "2i", (_ENCODING_CODES[property_.encoding], number))
+        dtype_code = _DTYPE_CODES[property_.dtype]
+        write_keyword(file_obj, property_.alias, "4sqi", (b"ca  ", dtype_code, property_.size))
+        _write_property_values(file_obj, property_)
+
+    case_start = file_obj.tell()
+    records.append(("CASE_PROPS", 0, _data_position("CASE_PROPS", case_start)))
+    row_count = sum(len(property_.names) for property_ in properties)
+    write_keyword(file_obj, "CASE_PROPS", "i4s2i", (0, b"s   ", 0, row_count))
+    for number, property_ in enumerate(properties, start=1):
+        for name, role in zip(property_.names, property_.roles):
+            file_obj.write(
+                np.asarray([(b"ca  s   ", 0)], dtype=[("token", "S8"), ("value", "<i4")]).tobytes()
+            )
+            write_keyword(file_obj, name, "4s2i", (_token4(role, "role"), 1, number))
+
+    index_pos = file_obj.tell()
+    write_index_records(file_obj, records, index_pos)
+
+
+#---------------------------------------------------------------------------------------------------
+def _data_position(keyword, block_start):
+#---------------------------------------------------------------------------------------------------
+    """Return the index data-position value for a keyword block."""
+    return block_start + 4 + len(keyword.encode("utf-8")) + 4
+
+
+#---------------------------------------------------------------------------------------------------
+def _token4(value, label):
+#---------------------------------------------------------------------------------------------------
+    """Return a four-byte padded GSG token."""
+    raw = str(value).encode("utf-8")
+    if len(raw) > 4:
+        raise ValueError(f"{label} token must be at most 4 bytes, got {value!r}")
+    return raw.ljust(4, b" ")
+
+
+#---------------------------------------------------------------------------------------------------
+def _write_property_values(file_obj, property_):
+#---------------------------------------------------------------------------------------------------
+    """Write full or RLE property values."""
+    values = _flatten_property_values(property_)
+    if property_.encoding == "full":
+        if values.size != property_.size:
+            raise ValueError(f"{property_.alias}: expected {property_.size} values, got {values.size}")
+        file_obj.write(np.asarray(values, dtype=property_.dtype).tobytes())
+        return
+
+    pairs = _property_rle_pairs(property_, values)
+    file_obj.write(np.asarray((1,), dtype="<i4").tobytes())
+    file_obj.write(pairs.tobytes())
+
+
+#---------------------------------------------------------------------------------------------------
+def _property_rle_pairs(property_, values):
+#---------------------------------------------------------------------------------------------------
+    """Return normalized RLE pairs for a property."""
+    pair_dtype = np.dtype([("count", "<i4"), ("value", property_.dtype)])
+    if values.dtype.names:
+        if not {"count", "value"}.issubset(values.dtype.names):
+            raise ValueError(f"{property_.alias}: RLE pairs require count and value fields")
+        pairs = np.empty(values.size, dtype=pair_dtype)
+        pairs["count"] = values["count"]
+        pairs["value"] = values["value"]
+    else:
+        if values.size != property_.size:
+            raise ValueError(f"{property_.alias}: expected {property_.size} values, got {values.size}")
+        pairs = _rle_pairs(np.asarray(values, dtype=property_.dtype)).astype(pair_dtype, copy=False)
+    if pairs["count"].sum(dtype=np.int64) != property_.size:
+        raise ValueError(f"{property_.alias}: RLE counts do not expand to {property_.size} values")
+    return pairs
+
+
+#---------------------------------------------------------------------------------------------------
+def _validate_written_properties(path, expected):
+#---------------------------------------------------------------------------------------------------
+    """Validate that a written PROP file can be read back."""
+    actual = tuple(GSGFile(path).properties())
+    if len(actual) != len(expected):
+        raise GSGFormatError(f"Expected {len(expected)} properties, got {len(actual)}")
+    for expected_property, actual_property in zip(expected, actual):
+        if (
+            actual_property.alias != expected_property.alias
+            or actual_property.names != expected_property.names
+            or actual_property.roles != expected_property.roles
+            or actual_property.dtype != expected_property.dtype
+            or actual_property.encoding != expected_property.encoding
+            or actual_property.size != expected_property.size
+        ):
+            raise GSGFormatError(f"Written property metadata mismatch for {expected_property.alias}")
+
+
 #===================================================================================================
 class GSGFile:                                                                             # GSGFile
 #===================================================================================================
-    """Read-only parser for Petrel/INTERSECT ``.GSG`` files."""
+    """Read Petrel/INTERSECT ``.GSG`` files and write PROP-style GSG files."""
 
     #-----------------------------------------------------------------------------------------------
     def __init__(self, path):                                                            # GSGFile
@@ -166,6 +414,78 @@ class GSGFile:                                                                  
                 yield entry
 
     #-----------------------------------------------------------------------------------------------
+    def read(                                                                              # GSGFile
+        self,
+        *,
+        kind=None,
+        name=None,
+        expand=True,
+        shape="auto",
+        read_areal=True,
+        read_pillars=False,
+        read_faults=False,
+    ):
+    #-----------------------------------------------------------------------------------------------
+        """Read GSG content using a format-aware convenience API."""
+        read_kind = self.format.casefold() if kind is None else str(kind).casefold()
+        if name is not None:
+            if read_kind not in {"prop", "properties"}:
+                raise GSGFormatError("name can only be used when reading PROP properties")
+            if shape == "auto":
+                try:
+                    shape = self.dim()
+                except GSGMetadataError:
+                    shape = None
+            return self.property(name, expand=expand, shape=shape)
+        if read_kind in {"prop", "properties"}:
+            if shape == "auto":
+                try:
+                    shape = self.dim()
+                except GSGMetadataError:
+                    shape = None
+            return tuple(self.properties(expand=expand, shape=shape))
+        if read_kind in {"axes", "grid"}:
+            return self.grid(
+                read_areal=read_areal,
+                read_pillars=read_pillars,
+                read_faults=read_faults,
+            )
+        if read_kind == "index":
+            return self.index()
+        if read_kind == "blocks":
+            return tuple(self.blocks())
+        raise ValueError(f"Unsupported GSG read kind {kind!r}")
+
+    #-----------------------------------------------------------------------------------------------
+    def dim(self):                                                                       # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Return grid dimensions from AXES metadata or the adjacent INTERSECT case."""
+        if self.format == "AXES":
+            return self.grid(read_areal=False, read_pillars=False).dimensions
+
+        afi_files = tuple(self.path.parent.glob("*.afi"))
+        matches = tuple(
+            path for path in afi_files
+            if self.path.stem == path.stem or self.path.stem.startswith(f"{path.stem}_")
+        )
+        if matches:
+            afi_files = (max(matches, key=lambda path: len(path.stem)),)
+        if len(afi_files) != 1:
+            raise GSGMetadataError(
+                f"Expected one matching AFI file beside {self.path}, found {len(afi_files)}"
+            )
+
+        from .intersect import IX_input
+
+        try:
+            dimensions = IX_input(afi_files[0]).dim()
+        except Exception as exc:
+            raise GSGMetadataError(f"Could not read grid dimensions from {afi_files[0]}") from exc
+        if not dimensions:
+            raise GSGMetadataError(f"Could not read grid dimensions from {afi_files[0]}")
+        return tuple(int(value) for value in dimensions)
+
+    #-----------------------------------------------------------------------------------------------
     def properties(self, expand=True, shape=None):                                       # GSGFile
     #-----------------------------------------------------------------------------------------------
         """Yield decoded PROP records as :class:`GSGProperty` objects."""
@@ -189,6 +509,25 @@ class GSGFile:                                                                  
             if any(name.casefold() == target for name in names):
                 return prop
         raise KeyError(alias_or_name)
+
+    @staticmethod
+    #-----------------------------------------------------------------------------------------------
+    def write_prop(                                                                       # GSGFile
+        path,
+        *properties,
+        creator="PetrelForIx",
+        version="2022.9.0",
+        overwrite=False,
+    ):
+    #-----------------------------------------------------------------------------------------------
+        """Write a PROP GSG file and return the output path."""
+        return _write_prop_file(
+            path,
+            *properties,
+            creator=creator,
+            version=version,
+            overwrite=overwrite,
+        )
 
     #-----------------------------------------------------------------------------------------------
     def grid(self, read_areal=True, read_pillars=False, read_faults=False):              # GSGFile

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from os import SEEK_END
-from struct import calcsize, unpack
+from struct import calcsize, pack, unpack
 
 GSG_MAGIC = b"GSG000"
 _HEADER_START = 28
@@ -47,6 +47,22 @@ def read_struct(file_obj, fmt):
 
 
 #---------------------------------------------------------------------------------------------------
+def pack_keyword(keyword, fmt="", values=()):
+#---------------------------------------------------------------------------------------------------
+    """Return a packed GSG keyword record."""
+    raw_keyword = keyword.encode("utf-8")
+    payload = pack("<" + fmt, *values) if fmt else b""
+    return pack("<i", len(raw_keyword)) + raw_keyword + payload
+
+
+#---------------------------------------------------------------------------------------------------
+def write_keyword(file_obj, keyword, fmt="", values=()):
+#---------------------------------------------------------------------------------------------------
+    """Write one GSG keyword record."""
+    return file_obj.write(pack_keyword(keyword, fmt, values))
+
+
+#---------------------------------------------------------------------------------------------------
 def read_keyword(file_obj, fmt="", offset=None):
 #---------------------------------------------------------------------------------------------------
     """Read a GSG keyword record and return key, payload, block start, and payload start."""
@@ -79,6 +95,30 @@ def read_header(file_obj):
     creator, _, _, _ = read_keyword(file_obj, offset=_HEADER_START)
     version, _, _, _ = read_keyword(file_obj, "4i")
     return creator, version, file_obj.tell()
+
+
+#---------------------------------------------------------------------------------------------------
+def write_header(file_obj, creator="PetrelForIx", version="2022.9.0"):
+#---------------------------------------------------------------------------------------------------
+    """Write a compact modern GSG header."""
+    raw_creator = creator.encode("utf-8")
+    raw_version = version.encode("utf-8")
+    header = (
+        1,
+        1,
+        len(raw_creator),
+        raw_creator,
+        len(raw_version),
+        raw_version,
+        0,
+        0,
+        0,
+        1,
+    )
+    return file_obj.write(
+        b"GSG000_b\r\n1\n2\r34\x01\x02\x03\x04"
+        + pack(f"<3i{len(raw_creator)}si{len(raw_version)}s4i", *header)
+    )
 
 
 #---------------------------------------------------------------------------------------------------
@@ -126,3 +166,16 @@ def read_index_records(file_obj):
             )
         indexed.append((entry_key, value, data_pos, block_start, block_end))
     return tuple(indexed)
+
+
+#---------------------------------------------------------------------------------------------------
+def write_index_records(file_obj, records, index_pos):
+#---------------------------------------------------------------------------------------------------
+    """Write ordered GSG index records and the footer index position."""
+    write_keyword(file_obj, "INDEX", "2i", (0, len(records)))
+    for key, value, data_pos in records:
+        if key == "CASE_PROPS":
+            write_keyword(file_obj, key, "iqq", (value, data_pos, index_pos))
+        else:
+            write_keyword(file_obj, key, "iq", (value, data_pos))
+    file_obj.write(pack("<q", index_pos))

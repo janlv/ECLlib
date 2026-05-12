@@ -1,12 +1,13 @@
+import os
 from pathlib import Path
 from struct import pack
 
 import numpy as np
 import pytest
 
-from ECLlib.io.input.gsgfile import GSGFile, UnsupportedGSGBlock
+from ECLlib.io.input.gsgfile import GSGFile, GSGProperty, UnsupportedGSGBlock
 
-SAMPLE_DIR = Path("/home/AD.NORCERESEARCH.NO/javi/ekofisk/input/IORSIM_BASECASE_SURF_RES")
+GSG_SAMPLE_DIR_ENV = "ECLLIB_GSG_SAMPLE_DIR"
 _MAGIC = b"GSG000_b\r\n1\n2\r34\x01\x02\x03\x04"
 _DTYPES = {
     0: np.dtype("<i4"),
@@ -18,6 +19,46 @@ _STRUCT_FORMATS = {
     1: "f",
     2: "d",
 }
+
+
+#---------------------------------------------------------------------------------------------------
+def _sample_dir():
+#---------------------------------------------------------------------------------------------------
+    """Return the optional local GSG sample directory."""
+    sample_dir = os.environ.get(GSG_SAMPLE_DIR_ENV)
+    if not sample_dir:
+        pytest.skip(f"Set {GSG_SAMPLE_DIR_ENV} to run local GSG integration checks")
+    path = Path(sample_dir)
+    if not path.exists():
+        pytest.skip(f"Sample GSG directory not available: {path}")
+    return path
+
+
+#---------------------------------------------------------------------------------------------------
+def _sample_files(format_=None):
+#---------------------------------------------------------------------------------------------------
+    """Return optional local sample GSG files, filtered by first indexed keyword."""
+    files = sorted(_sample_dir().glob("*.GSG"))
+    if not files:
+        pytest.skip(f"No GSG files found in {_sample_dir()}")
+    if format_ is None:
+        return files
+
+    matched = tuple(path for path in files if GSGFile(path).format == format_)
+    if not matched:
+        pytest.skip(f"No {format_} GSG files found in {_sample_dir()}")
+    return matched
+
+
+#---------------------------------------------------------------------------------------------------
+def _sample_property_payload(encoding):
+#---------------------------------------------------------------------------------------------------
+    """Return one optional local sample PROP path and properties for the requested encoding."""
+    for path in _sample_files("PROP"):
+        properties = GSGFile(path).read(shape=None)
+        if any(prop.encoding == encoding for prop in properties):
+            return path, properties
+    pytest.skip(f"No {encoding} sample PROP file found in {_sample_dir()}")
 
 
 #---------------------------------------------------------------------------------------------------
@@ -121,6 +162,29 @@ def _write_fixture(tmp_path, blocks, name="fixture.GSG"):
 
 
 #---------------------------------------------------------------------------------------------------
+def _write_ix_case(tmp_path, case_name="CASE", dimensions=(2, 3, 1)):
+#---------------------------------------------------------------------------------------------------
+    """Write a minimal INTERSECT AFI/IXF case and return the AFI path."""
+    afi_path = tmp_path / f"{case_name}.afi"
+    ixf_path = tmp_path / f"{case_name}_grid.ixf"
+    afi_path.write_text(
+        f'SIMULATION ix "res1" {{\n  INCLUDE "{ixf_path.name}"\n}}\n',
+        encoding="utf-8",
+    )
+    ixf_path.write_text(
+        (
+            'StructuredInfo "Grid" {\n'
+            f"    NumberCellsInI={dimensions[0]}\n"
+            f"    NumberCellsInJ={dimensions[1]}\n"
+            f"    NumberCellsInK={dimensions[2]}\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    return afi_path
+
+
+#---------------------------------------------------------------------------------------------------
 def _axes_block():
 #---------------------------------------------------------------------------------------------------
     """Return a minimal AXES keyword block."""
@@ -135,6 +199,21 @@ def _grid_block(name="GridOnly", dimensions=(3, 4, 5)):
 
 
 #---------------------------------------------------------------------------------------------------
+def _assert_properties_match(actual, expected):
+#---------------------------------------------------------------------------------------------------
+    """Assert that two property sequences have identical metadata and values."""
+    assert len(actual) == len(expected)
+    for actual_prop, expected_prop in zip(actual, expected):
+        assert actual_prop.names == expected_prop.names
+        assert actual_prop.roles == expected_prop.roles
+        assert actual_prop.alias == expected_prop.alias
+        assert actual_prop.dtype == expected_prop.dtype
+        assert actual_prop.encoding == expected_prop.encoding
+        assert actual_prop.size == expected_prop.size
+        np.testing.assert_array_equal(actual_prop.values, expected_prop.values)
+
+
+#---------------------------------------------------------------------------------------------------
 def test_full_float_prop_preserves_float32(tmp_path):
 #---------------------------------------------------------------------------------------------------
     """Read full float PROP data without widening the dtype."""
@@ -146,8 +225,10 @@ def test_full_float_prop_preserves_float32(tmp_path):
         ),
     )
 
-    prop = next(GSGFile(path).properties())
+    properties = GSGFile(path).read()
+    prop = properties[0]
 
+    assert len(properties) == 1
     assert prop.alias == "PORO"
     assert prop.names == ("POROSITY",)
     assert prop.roles == ("g",)
@@ -223,7 +304,7 @@ def test_multi_name_case_props_are_preserved(tmp_path):
 
     assert prop.names == ("EQUATION_OF_STATE_REGION", "PVT_REGION", "EQUILIBRATION_REGION")
     assert prop.roles == ("r", "r", "r")
-    assert GSGFile(path).property("PVT_REGION").alias == "EOSNUM"
+    assert GSGFile(path).read(name="PVT_REGION").alias == "EOSNUM"
 
 
 #---------------------------------------------------------------------------------------------------
@@ -262,11 +343,12 @@ def test_format_comes_from_index_after_extended_header(tmp_path):
     )
 
     gsg = GSGFile(path)
-    grid = gsg.grid()
+    grid = gsg.read()
 
     assert gsg.format == "AXES"
     assert grid.name == "GridOnly"
     assert grid.dimensions == (3, 4, 5)
+    assert gsg.dim() == (3, 4, 5)
 
 
 #---------------------------------------------------------------------------------------------------
@@ -283,7 +365,7 @@ def test_axes_grid_allows_missing_areal_and_pillars(tmp_path):
         ),
     )
 
-    grid = GSGFile(path).grid()
+    grid = GSGFile(path).read()
 
     assert grid.name == "SparseGrid"
     assert grid.dimensions == (9, 8, 7)
@@ -292,40 +374,222 @@ def test_axes_grid_allows_missing_areal_and_pillars(tmp_path):
 
 
 #---------------------------------------------------------------------------------------------------
+def test_prop_read_auto_shapes_from_adjacent_ix_case(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Automatically reshape PROP values from dimensions in the case AFI/IXF files."""
+    _write_ix_case(tmp_path, "CASE", (2, 3, 1))
+    _write_ix_case(tmp_path, "CASE_restart_1", (9, 9, 9))
+    path = _write_fixture(
+        tmp_path,
+        (
+            ("PROP", 0, _prop_block("PORO", 1, 0, np.arange(6, dtype="<f4"))),
+            ("CASE_PROPS", 0, _case_props_block((("POROSITY", "g", 1),))),
+        ),
+        name="CASE_POROSITY.GSG",
+    )
+
+    gsg = GSGFile(path)
+    prop = gsg.read()[0]
+    raw = gsg.read(shape=None)[0]
+
+    assert gsg.dim() == (2, 3, 1)
+    assert prop.values.shape == (2, 3, 1)
+    np.testing.assert_array_equal(prop.values.ravel(order="F"), np.arange(6, dtype="<f4"))
+    assert raw.values.shape == (6,)
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_full_float32_property(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Write and read a full float32 PROP file."""
+    output = tmp_path / "poro.GSG"
+    prop = GSGProperty.from_array("POROSITY", "PORO", [1.25, 2.5, 3.75])
+
+    GSGFile.write_prop(output, prop)
+    actual = GSGFile(output).read()
+
+    _assert_properties_match(actual, (prop,))
+    assert actual[0].values.dtype == np.dtype("<f4")
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_full_int32_property(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Write and read a full int32 PROP file."""
+    output = tmp_path / "satnum.GSG"
+    prop = GSGProperty.from_array("SATURATION_FUNCTION_DRAINAGE_TABLE_NO", "SATNUM", [1, 2, 2, 3])
+
+    GSGFile.write_prop(output, prop)
+    actual = GSGFile(output).read()
+
+    _assert_properties_match(actual, (prop,))
+    assert actual[0].values.dtype == np.dtype("<i4")
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_full_float64_property(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Write and read an explicit float64 PROP file."""
+    output = tmp_path / "double.GSG"
+    values = np.array([1.0, 1.0 + 1e-12], dtype=np.float64)
+    prop = GSGProperty.from_array("DOUBLE_PROPERTY", "DBL", values, dtype=np.float64)
+
+    GSGFile.write_prop(output, prop)
+    actual = GSGFile(output).read()
+
+    _assert_properties_match(actual, (prop,))
+    assert actual[0].values.dtype == np.dtype("<f8")
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_rle_float_and_int_properties(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Write and read RLE encoded float and integer properties."""
+    output = tmp_path / "rle.GSG"
+    float_prop = GSGProperty.from_array(
+        "NET_TO_GROSS_RATIO",
+        "NTG",
+        [1.0, 1.0, 1.0, 0.5, 0.5],
+        encoding="rle",
+    )
+    int_prop = GSGProperty.from_array(
+        "SATURATION_FUNCTION_DRAINAGE_TABLE_NO",
+        "SATNUM",
+        [7, 7, 9, 9, 9],
+        role="r",
+        encoding="rle",
+    )
+
+    GSGFile.write_prop(output, float_prop, int_prop)
+    actual = GSGFile(output).read()
+
+    _assert_properties_match(actual, (float_prop, int_prop))
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_multi_name_property_metadata(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Write and read CASE_PROPS metadata with several names for one property."""
+    output = tmp_path / "regions.GSG"
+    prop = GSGProperty.from_array(
+        ("EQUATION_OF_STATE_REGION", "PVT_REGION", "EQUILIBRATION_REGION"),
+        "EOSNUM",
+        [1, 1, 1, 1],
+        role=("r", "r", "r"),
+        encoding="rle",
+    )
+
+    GSGFile.write_prop(output, prop)
+    actual = GSGFile(output).read()
+
+    _assert_properties_match(actual, (prop,))
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_refuses_existing_file_without_overwrite(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Protect existing files unless overwrite is explicitly requested."""
+    output = tmp_path / "exists.GSG"
+    output.write_bytes(b"already here")
+    prop = GSGProperty.from_array("POROSITY", "PORO", [0.25])
+
+    with pytest.raises(FileExistsError):
+        GSGFile.write_prop(output, prop)
+
+    GSGFile.write_prop(output, prop, overwrite=True)
+    assert GSGFile(output).property("PORO").values[0] == np.float32(0.25)
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_prop_refuses_missing_properties(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Require at least one property when writing a PROP file."""
+    with pytest.raises(ValueError):
+        GSGFile.write_prop(tmp_path / "empty.GSG")
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_gsg_properties_is_not_public_api():
+#---------------------------------------------------------------------------------------------------
+    """Keep helper-style write functions out of the public package API."""
+    import ECLlib
+    import ECLlib.io.input as input_api
+    import ECLlib.io.input.gsgfile as gsgfile
+
+    assert not hasattr(ECLlib, "write_gsg_properties")
+    assert not hasattr(input_api, "write_gsg_properties")
+    assert "write_gsg_properties" not in gsgfile.__all__
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_prop_round_trips_prop_file(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Round-trip a PROP file through the class writer method."""
+    source = tmp_path / "source.GSG"
+    target = tmp_path / "target.GSG"
+    prop = GSGProperty.from_array("POROSITY", "PORO", [0.2, 0.3, 0.4, 0.5])
+    GSGFile.write_prop(source, prop)
+
+    GSGFile.write_prop(target, *GSGFile(source).read())
+
+    _assert_properties_match(GSGFile(target).read(), (prop,))
+
+
+#---------------------------------------------------------------------------------------------------
 def test_sample_property_files_have_expected_cell_count():
 #---------------------------------------------------------------------------------------------------
-    """Read all available Ekofisk sample property files."""
-    if not SAMPLE_DIR.exists():
-        pytest.skip(f"Sample GSG directory not available: {SAMPLE_DIR}")
-
-    for path in sorted(SAMPLE_DIR.glob("*.GSG")):
-        if path.name == "IORSIM_BASECASE_INPUT.GSG":
-            continue
-        for prop in GSGFile(path).properties():
-            assert prop.size == 1284780
-            assert prop.values.size == 1284780
+    """Read all available local sample property files."""
+    for path in _sample_files("PROP"):
+        for prop in GSGFile(path).read(shape=None):
+            assert prop.size > 0
+            assert prop.values.size == prop.size
             assert prop.values.dtype in {np.dtype("<i4"), np.dtype("<f4"), np.dtype("<f8")}
 
 
 #---------------------------------------------------------------------------------------------------
 def test_sample_axes_grid_metadata_and_fault_spans():
 #---------------------------------------------------------------------------------------------------
-    """Read Ekofisk AXES metadata without decoding unsupported complex pillars."""
-    path = SAMPLE_DIR / "IORSIM_BASECASE_INPUT.GSG"
-    if not path.exists():
-        pytest.skip(f"Sample AXES GSG file not available: {path}")
+    """Read local sample AXES metadata without requiring bundled case data."""
+    for path in _sample_files("AXES"):
+        gsg = GSGFile(path)
+        grid = gsg.grid(read_areal=True, read_pillars=False, read_faults=True)
 
-    gsg = GSGFile(path)
-    grid = gsg.grid(read_areal=True, read_pillars=False, read_faults=True)
+        assert gsg.format == "AXES"
+        assert grid.name
+        assert len(grid.dimensions) == 3
+        assert all(value > 0 for value in grid.dimensions)
+        if grid.areal is not None:
+            assert grid.areal.ndim == 2
+            assert grid.areal.shape[1] == 6
+        if grid.pillars is not None:
+            assert grid.pillars.values is None
+            if grid.pillars.grid_type != 0:
+                with pytest.raises(UnsupportedGSGBlock):
+                    gsg.grid(read_areal=False, read_pillars=True)
+        assert len(grid.faults) == sum(entry.key == "FAULTS" for entry in gsg.index())
 
-    assert gsg.format == "AXES"
-    assert grid.name == "FlankMidCase"
-    assert grid.dimensions == (210, 266, 23)
-    assert grid.areal.shape == (55860, 6)
-    assert grid.pillars is not None
-    assert grid.pillars.grid_type == 1
-    assert grid.pillars.values is None
-    assert len(grid.faults) == 42
-    assert sum(entry.key == "FAULTS" for entry in gsg.index()) == 42
-    with pytest.raises(UnsupportedGSGBlock):
-        gsg.grid(read_areal=False, read_pillars=True)
+
+#---------------------------------------------------------------------------------------------------
+def test_sample_full_property_round_trips_through_writer(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Round-trip a real local full-array property file through the PROP writer."""
+    source, expected = _sample_property_payload("full")
+    target = tmp_path / source.name
+
+    GSGFile.write_prop(target, *expected)
+    actual = GSGFile(target).read(shape=None)
+
+    _assert_properties_match(actual, expected)
+
+
+#---------------------------------------------------------------------------------------------------
+def test_sample_rle_property_round_trips_through_writer(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Round-trip a real local RLE property file through the PROP writer."""
+    source, expected = _sample_property_payload("rle")
+    target = tmp_path / source.name
+
+    GSGFile.write_prop(target, *expected)
+    actual = GSGFile(target).read(shape=None)
+
+    _assert_properties_match(actual, expected)
