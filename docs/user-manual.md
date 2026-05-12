@@ -147,7 +147,11 @@ metadata, and values reshaped from case dimensions when available; AXES files re
 `GSGFile(path).properties()`, `GSGFile(path).grid()`, `GSGFile(path).index()`, and
 `GSGFile(path).blocks()` remain available for targeted reads. Pass `shape=None` to
 `read()` when raw one-dimensional PROP values are needed. Use
-`GSGFile.write_prop(path, *properties)` to write PROP GSG files.
+`GSGFile.write_prop(path, *properties)` to write PROP GSG files. Use
+`GSGGrid.from_egrid(egrid)` and `GSGFile.write_grid(path, grid)` to generate simple
+AXES/grid GSG files from vertical-pillar EGRID geometry with optional ACTNUM values.
+Non-vertical or otherwise complex PILLARS geometry is rejected with a clear error until
+the complex GSG pillar encoding is implemented.
 
 ### Output readers (`ECLlib.io.output`)
 

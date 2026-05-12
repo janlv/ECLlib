@@ -1,13 +1,16 @@
 import os
+from dataclasses import replace
 from pathlib import Path
 from struct import pack
 
 import numpy as np
 import pytest
 
-from ECLlib.io.input.gsgfile import GSGFile, GSGProperty, UnsupportedGSGBlock
+from ECLlib.io.input.gsgfile import GSGFile, GSGGrid, GSGProperty, UnsupportedGSGBlock
 
 GSG_SAMPLE_DIR_ENV = "ECLLIB_GSG_SAMPLE_DIR"
+EGRID_SAMPLE_FILE_ENV = "ECLLIB_EGRID_SAMPLE_FILE"
+OPM_EGRID = Path("tests/Model_From_IXF_OPM/MODEL_FROM_IXF_OPM.EGRID")
 _MAGIC = b"GSG000_b\r\n1\n2\r34\x01\x02\x03\x04"
 _DTYPES = {
     0: np.dtype("<i4"),
@@ -59,6 +62,19 @@ def _sample_property_payload(encoding):
         if any(prop.encoding == encoding for prop in properties):
             return path, properties
     pytest.skip(f"No {encoding} sample PROP file found in {_sample_dir()}")
+
+
+#---------------------------------------------------------------------------------------------------
+def _sample_egrid_file():
+#---------------------------------------------------------------------------------------------------
+    """Return the optional local EGRID sample file."""
+    sample_file = os.environ.get(EGRID_SAMPLE_FILE_ENV)
+    if not sample_file:
+        pytest.skip(f"Set {EGRID_SAMPLE_FILE_ENV} to run local EGRID-to-GSG checks")
+    path = Path(sample_file)
+    if not path.exists():
+        pytest.skip(f"Sample EGRID file not available: {path}")
+    return path
 
 
 #---------------------------------------------------------------------------------------------------
@@ -211,6 +227,21 @@ def _assert_properties_match(actual, expected):
         assert actual_prop.encoding == expected_prop.encoding
         assert actual_prop.size == expected_prop.size
         np.testing.assert_array_equal(actual_prop.values, expected_prop.values)
+
+
+#---------------------------------------------------------------------------------------------------
+def _assert_generated_grid_matches(actual, expected):
+#---------------------------------------------------------------------------------------------------
+    """Assert that generated grid metadata and arrays survived a write/read cycle."""
+    assert actual.name == expected.name
+    assert actual.dimensions == expected.dimensions
+    np.testing.assert_array_equal(actual.areal, expected.areal)
+    assert actual.pillars.header == expected.pillars.header
+    np.testing.assert_allclose(actual.pillars.values, expected.pillars.values)
+    if expected.active is None:
+        assert actual.active is None
+    else:
+        np.testing.assert_array_equal(actual.active, expected.active)
 
 
 #---------------------------------------------------------------------------------------------------
@@ -536,6 +567,87 @@ def test_write_prop_round_trips_prop_file(tmp_path):
 
 
 #---------------------------------------------------------------------------------------------------
+def test_grid_from_egrid_fixture_builds_simple_geometry():
+#---------------------------------------------------------------------------------------------------
+    """Create a writable simple GSG grid from a bundled EGRID fixture."""
+    grid = GSGGrid.from_egrid(OPM_EGRID)
+
+    assert grid.name == OPM_EGRID.stem
+    assert grid.dimensions == (25, 25, 5)
+    assert grid.areal.shape == (25 * 25, 6)
+    assert grid.pillars.grid_type == 0
+    assert grid.pillars.header == (0, 0, 26 * 26, 6, 0, 0, -1, 0, 4, 4, 0, 1, 2, 3, 0, 0, 0)
+    assert grid.pillars.values.shape == (26 * 26, 11)
+    assert grid.active.shape == (25, 25, 5)
+    assert int(grid.active.sum()) == 25 * 25 * 5
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_grid_from_egrid_round_trips(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Write an AXES/grid GSG file from EGRID-derived geometry."""
+    output = tmp_path / "grid.GSG"
+    expected = GSGGrid.from_egrid(OPM_EGRID, name="GeneratedGrid")
+
+    GSGFile.write_grid(output, expected)
+    actual = GSGFile(output).read(read_pillars=True)
+
+    assert GSGFile(output).format == "AXES"
+    _assert_generated_grid_matches(actual, expected)
+    assert [entry.key for entry in GSGFile(output).index()] == [
+        "AXES",
+        "GRID",
+        "AREAL",
+        "PILLARS",
+        "PROP",
+        "PROP",
+        "CASE_PROPS",
+    ]
+    assert actual.defined_cells == ((b"c   ", 0, 0, 25 * 25 * 5, 1, 25 * 25 * 5, 1),)
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_grid_preserves_inactive_actnum(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Preserve inactive ACTNUM cells as an embedded grid property."""
+    output = tmp_path / "grid_actnum.GSG"
+    active = GSGGrid.from_egrid(OPM_EGRID).active.copy()
+    active.ravel(order="F")[::7] = 0
+    expected = replace(GSGGrid.from_egrid(OPM_EGRID), active=active)
+
+    GSGFile.write_grid(output, expected)
+    actual = GSGFile(output).read(read_pillars=True)
+
+    _assert_generated_grid_matches(actual, expected)
+    assert int(actual.active.sum()) == int(active.sum())
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_grid_refuses_existing_file_without_overwrite(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Protect existing grid files unless overwrite is explicitly requested."""
+    output = tmp_path / "exists.GSG"
+    output.write_bytes(b"already here")
+    grid = GSGGrid.from_egrid(OPM_EGRID)
+
+    with pytest.raises(FileExistsError):
+        GSGFile.write_grid(output, grid)
+
+    GSGFile.write_grid(output, grid, overwrite=True)
+    assert GSGFile(output).read().dimensions == grid.dimensions
+
+
+#---------------------------------------------------------------------------------------------------
+def test_write_grid_refuses_incomplete_grid(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Require generated AREAL and simple PILLARS arrays when writing grids."""
+    grid = GSGGrid("Incomplete", (1, 1, 1), (0, b"f   m   f   ", 6, 6, 0, 0, 0, 0, 1, 1))
+
+    with pytest.raises(ValueError, match="areal"):
+        GSGFile.write_grid(tmp_path / "bad.GSG", grid)
+
+
+#---------------------------------------------------------------------------------------------------
 def test_sample_property_files_have_expected_cell_count():
 #---------------------------------------------------------------------------------------------------
     """Read all available local sample property files."""
@@ -593,3 +705,23 @@ def test_sample_rle_property_round_trips_through_writer(tmp_path):
     actual = GSGFile(target).read(shape=None)
 
     _assert_properties_match(actual, expected)
+
+
+#---------------------------------------------------------------------------------------------------
+def test_sample_egrid_file_writes_grid_gsg(tmp_path):
+#---------------------------------------------------------------------------------------------------
+    """Optionally generate a GSG grid from a local EGRID file."""
+    source = _sample_egrid_file()
+    try:
+        expected = GSGGrid.from_egrid(source)
+    except ValueError as exc:
+        pytest.skip(f"Local EGRID geometry is not supported by the simple grid writer: {exc}")
+    target = tmp_path / f"{source.stem}.GSG"
+
+    GSGFile.write_grid(target, expected)
+    actual = GSGFile(target).read(read_pillars=True)
+
+    assert actual.dimensions == expected.dimensions
+    assert actual.pillars.values.shape == expected.pillars.values.shape
+    if expected.active is not None:
+        assert int(actual.active.sum()) == int(expected.active.sum())
