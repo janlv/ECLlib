@@ -137,13 +137,13 @@ files with `included_file_data()`.
   all referenced `IXF_file` objects, implements case validation through `check()`,
   and surfaces grid dimensions via `dim()`.
 
-#### GSG helpers (`read_GSG`, `write_GSG`, `change_resolution`)
+#### GSG reader (`GSGFile`)
 
-`ECLlib.io.input.gsgfile` handles Petrel/INTERSECT `.GSG` property files. Use
-`read_GSG()` (or the lower-level `read_prop_file()`) to stream `PROP_data` tuples
-containing alias, datatype, and NumPy arrays. `write_GSG()` serialises new property
-payloads, while `change_resolution(dim, rundir)` rewrites every `.GSG` in a run
-directory to a new grid resolution, keeping backups under `GSG_backup`.
+`ECLlib.io.input.gsgfile` handles Petrel/INTERSECT `.GSG` property and AXES grid
+files. Use `GSGFile(path).properties()` to stream typed `GSGProperty` objects with
+aliases, CASE_PROPS names, original NumPy dtypes, encoding metadata, and values. Use
+`GSGFile(path).grid()` for AXES files; repeated indexed blocks such as `FAULTS` are
+preserved by `GSGFile(path).index()` and `GSGFile(path).blocks()`.
 
 ### Output readers (`ECLlib.io.output`)
 

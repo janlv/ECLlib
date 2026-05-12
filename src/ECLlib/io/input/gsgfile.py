@@ -1,1023 +1,377 @@
-"""
-GSG (Grid Simulation Geometry File)
-Binary unformatted file that stores geometric and structural information linking
-the simulation grid to its geological or Petrel model origin. Contains grid-cell
-mapping, partitioning, and geometry references used to maintain consistency
-between Petrel grids and Eclipse/INTERSECT simulation grids. Primarily used by
-Petrel and related SLB tools for grid transfer and synchronization, not required
-for standalone simulation runs.
-"""
+"""Read Petrel/INTERSECT GSG property and grid files."""
+from __future__ import annotations
 
-from collections import defaultdict, namedtuple
-from itertools import repeat, zip_longest
+from dataclasses import dataclass
 from pathlib import Path
-from functools import partial, wraps
-from math import prod
-from re import compile as re_compile
-from struct import pack, unpack, calcsize
-from os import SEEK_CUR, SEEK_END
-from numpy import array, concatenate, full
 
-from ECLlib.utils import batched_as_list, flatten, list_prec, take, run_length_encode
+import numpy as np
 
-Dtype = namedtuple('dtype', 'format size value')
-DTYPE = {0:Dtype('i', 4, 0), 1:Dtype('f', 4, 1), 2:Dtype('d', 8, 2)}
-format2type = {v.format:k for k,v in DTYPE.items()}
+from ._gsg_binary import (
+    GSGFormatError,
+    GSGMetadataError,
+    UnsupportedGSGBlock,
+    read_exact,
+    read_header,
+    read_index_records,
+    read_keyword,
+    read_struct,
+)
 
-# PROP-data
-#    type: A single character that identify the data
-#           Possible values seen in GSG-files: p, g, r, ?
-#    name: The full variablename of the data
-#    alias: Short version of the full name
-PROP_data = namedtuple('PROP_data', 'type name alias array kind',
-                        defaults=('', '', '', array([]), 0))
+__all__ = [
+    "GSGFile",
+    "GSGIndexEntry",
+    "GSGProperty",
+    "GSGGrid",
+    "GSGPillars",
+    "GSGFormatError",
+    "GSGMetadataError",
+    "UnsupportedGSGBlock",
+]
 
-#--------------------------------------------------------------------------------------------------
-def read_GSG(file, kind='prop', **kwargs):
-#--------------------------------------------------------------------------------------------------
-    """Read GSG PROP data.
-
-    Args:
-        file: Path to the GSG file.
-        kind: Data kind to parse; only ``'prop'`` is supported.
-        **kwargs: Extra arguments forwarded to :func:`read_prop_file`.
-    """
-    if kind.lower() != 'prop':
-        return read_prop_file(file, **kwargs)
-    raise NotImplementedError('Only PROP data is supported in this version of GSG.py')
-
-#--------------------------------------------------------------------------------------------------
-def write_GSG(file, *data:PROP_data):
-#--------------------------------------------------------------------------------------------------
-    """Write a GSG output file.
-
-    Args:
-        file: Destination file path.
-        *data: ``PROP_data`` entries to serialize.
-    """
-    if isinstance(data[0], PROP_data):
-        # Write PROP data
-        write_prop_file(file, *data)
-    else:
-        raise NotImplementedError('Only PROP data is supported in this version of GSG.py')
+_GSG_DTYPES = {
+    0: np.dtype("<i4"),
+    1: np.dtype("<f4"),
+    2: np.dtype("<f8"),
+}
+_ENCODINGS = {
+    0: "full",
+    1: "rle",
+}
 
 
-#--------------------------------------------------------------------------------------------------
-def read_prop_file(file, dim=None, raise_error=False):
-#--------------------------------------------------------------------------------------------------
-    """Read a property file.
+@dataclass(frozen=True, slots=True)
+#===================================================================================================
+class GSGIndexEntry:                                                                 # GSGIndexEntry
+#===================================================================================================
+    """Ordered metadata for one indexed GSG block."""
 
-    Args:
-        file: Path to the PROP-enabled GSG file.
-        dim: Optional shape used to reshape the returned array.
-        raise_error: Whether to raise if PROP data is missing.
-    """
-    # Read data from GSG-file with PROP data.
-    with File(file) as gsg:
-        # Two ints preceeds the start of the data.
-        # The first int is 0 for a full array, and 1 if the values are 
-        # grouped (run-lenght encoded). The second int is a counter of the 
-        # data-values in the GSG-file
-        for var, name_typ, start, end in gsg.data_positions():
-            if var != 'PROP':
-                if raise_error:
-                    raise ValueError(f'Expected PROP, got {var}')
-                return PROP_data()
-            name, typ = zip(*name_typ)
-            gsg.goto(start)
-            # The first two ints are the kind and the number of the data
-            kind, _ = gsg.read_int(2)
-            # Read alias and (b'ca  ', datatype, arr.size)
-            alias, keydata = gsg.read_keyword('4sqi')
-            dtype = DTYPE[keydata[0][1]]
-            nbytes = end - gsg.current_pos()
-            size = nbytes//dtype.size
-            #print(size, nbytes/dtype.size, (size-1)//2)
-            fmt = str(size) + dtype.format
-            if kind == 1:
-                if dtype.format == 'f':
-                    fmt = 'i' + ''.join(repeat('if', (size-1)//2))
-                data = gsg.read_unpack(fmt)
-                data = concatenate([full(count, value) for count, value in zip(data[1::2], data[2::2])])
-            else:
-                data = array(gsg.read_unpack(fmt))
-            if dim:
-                data = data.reshape(dim, order='F')
-            yield PROP_data(type=typ, name=name, alias=alias, array=data, kind=kind )
+    key: str
+    value: int
+    data_pos: int
+    block_start: int
+    block_end: int
 
 
-#--------------------------------------------------------------------------------------------------
-def write_prop_file(file, *prop_data:PROP_data):
-#--------------------------------------------------------------------------------------------------
-    """Write a property file.
+@dataclass(frozen=True, slots=True)
+#===================================================================================================
+class GSGProperty:                                                                     # GSGProperty
+#===================================================================================================
+    """Decoded GSG property values and their CASE_PROPS names."""
 
-    Args:
-        file: Destination file path.
-        *prop_data: Sequences of :class:`PROP_data` to output.
-    """
-    with File(file, write=True) as gsg:
-        gsg.write_header('PetrelForIx', '2022.9.0')
-        kind_pos = []
-        for i, data in enumerate(prop_data):
-            kind_pos.append((data.kind, gsg.current_pos() + 12))
-            gsg.write_keyword('PROP', '2i', (data.kind, i+1))
-            arr = data.array
-            dataformat = format2type[arr.dtype.kind]
-            gsg.write_keyword(data.alias, '4sqi', (b'ca  ', dataformat, arr.size))
-            if arr.ndim > 1:
-               arr = arr.flatten(order='F')
-            if data.kind == 1:
-                # Write grouped data
-                rle_arr = [1] + run_length_encode(arr)
-                fmt = str(len(rle_arr)) + 'i'
-                if dataformat == 1:
-                    # float
-                    fmt = 'i' + ''.join(repeat('if', (len(rle_arr)-1)//2))
-                gsg.write_pack(fmt, rle_arr)
-            else:
-                # Write full array
-                gsg.write(arr.tobytes())
-        # Meta data
-        # CASE_PROPS
-        case_prop_pos = gsg.current_pos() + 18
-        gsg.write_keyword('CASE_PROPS', 'i4s2i', (0, b's   ', 0, len(prop_data)))
-        # Variable names
-        for i, data in enumerate(prop_data):
-            pre = ('8si', (b'ca  s   ', 1))
-            type_ = data.type.ljust(4, ' ').encode('utf-8')
-            gsg.write_keyword(data.name, '4s2i', (type_, 1, i+1), pre=pre)
-        # INDEX
-        index_pos = gsg.current_pos()
-        gsg.write_keyword('INDEX', '2i', (0, len(prop_data) + 1))
-        # PROP
-        for kind, pos in kind_pos:
-            gsg.write_keyword('PROP', 'iq', (kind, pos))
-        # CASE_PROPS
-        gsg.write_keyword('CASE_PROPS', 'iqq', (0, case_prop_pos, index_pos))
+    names: tuple[str, ...]
+    roles: tuple[str, ...]
+    alias: str
+    dtype: np.dtype
+    encoding: str
+    size: int
+    values: np.ndarray
 
 
+@dataclass(frozen=True, slots=True)
+#===================================================================================================
+class GSGPillars:                                                                       # GSGPillars
+#===================================================================================================
+    """PILLARS metadata and optionally decoded pillar rows."""
+
+    header: tuple[int, ...]
+    grid_type: int
+    span: GSGIndexEntry
+    values: np.ndarray | None = None
 
 
-#--------------------------------------------------------------------------------------------------
-def change_resolution(dim, rundir):
-#--------------------------------------------------------------------------------------------------
-    """Return grid metadata with updated resolution.
+@dataclass(frozen=True, slots=True)
+#===================================================================================================
+class GSGGrid:                                                                             # GSGGrid
+#===================================================================================================
+    """Decoded grid metadata and optional geometry payloads."""
 
-    Args:
-        dim: Target grid dimensions.
-        rundir: Directory containing GSG files to update.
-    """
-    rundir = Path(rundir)
-    backup = rundir/'GSG_backup'
-    print(f'Changing resolution to {dim} for GSG-files in {rundir}')
-    backup.mkdir(exist_ok=True)
-    for gsg in rundir.glob('*.GSG'):
-        #print()
-        #print(gsg)
-        data = Data().from_file(gsg)
-        #print(data)
-        backup_path = backup/gsg.name
-        print(f'Moving {gsg} -> {backup_path}')
-        gsg.rename(backup_path)
-        if data.is_grid():
-            data.new_grid(dim)
-        else:
-            data.set_values(dim)
-        data.to_file(gsg)
-        # Test if new file is readable
-        Data().from_file(gsg)
-        #print(testfile)
-        #print(test)
+    name: str
+    dimensions: tuple[int, int, int]
+    axes: tuple
+    areal: np.ndarray | None = None
+    pillars: GSGPillars | None = None
+    faults: tuple[GSGIndexEntry, ...] = ()
+    defined_cells: tuple[tuple, ...] = ()
 
 
-#==================================================================================================
-class File:                                                                                  # File
-#==================================================================================================
-    """High-level convenience wrapper around a filesystem path."""
-
-    #----------------------------------------------------------------------------------------------
-    def __init__(self, filepath, write=False):                                               # File
-    #----------------------------------------------------------------------------------------------
-        """Initialize the File.
-
-        Args:
-            filepath: Path to open.
-            write: Whether to open the file handle in read-write mode.
-        """
-        self.filepath = Path(filepath) #.with_suffix('.GSG')
-        self.file_obj = None
-        self.mode = 'rb'
-        if write:
-            self.mode = 'wb+'
-
-        data = (
-            ('PROP',       '2i',        8),
-            ('data',       '4sqi',     16 , self.read_data    , self.write_data),
-            ('CASE_PROPS', 'i4s2i8si', 28),
-            ('varname',    '4s2i',     12 , self.read_varnames, self.write_varnames))
-
-        grid = (
-            ('AXES',          'i12s2i6f', 48),
-            ('GRID',          '2i',        8),
-            ('case',          '4i',       16, self.read_case   , self.write_case),
-            ('AREAL',         '5i',       20, self.read_areal  , self.write_areal),
-            ('PILLARS',       '17i',      68, self.read_pillars, self.write_pillars),
-            ('PROP',          '2i',        8),
-            ('DEFINED_CELLS', '4s6i',     28),
-            ('CASE_PROPS',    'i4si8si',  24),
-            ('DEFINED_CELLS', '4s3i',     16))
-
-        def get_readers(x):
-            """Return functions that read the block format.
-
-            Args:
-                x: Sequence describing keyword formats and handlers.
-            """
-            return tuple((b, c, d[0] if d else self.read_keyword) for _,b,c,*d in x)
-        def get_writers(x):
-            """Return functions that write the block format.
-
-            Args:
-                x: Sequence describing keyword formats and handlers.
-            """
-            return tuple((b, d[1] if d else self.write_keyword) for _,b,_,*d in x)
-
-        self.readers = {'PROP':get_readers(data), 'AXES':get_readers(grid)}
-        self.writers = {'PROP':get_writers(data), 'AXES':get_writers(grid)}
-
-    #----------------------------------------------------------------------------------------------
-    def __str__(self):                                                                       # File
-    #----------------------------------------------------------------------------------------------
-        """Return a human-readable representation."""
-        return f'{self.filepath}'
-
-    #----------------------------------------------------------------------------------------------
-    def __enter__(self):                                                                     # File
-    #----------------------------------------------------------------------------------------------
-        """Enter the runtime context."""
-        self.file_obj = open(self.filepath, self.mode)
-        return self
-
-    #----------------------------------------------------------------------------------------------
-    def __exit__(self, exc_type, exc_val, exc_tb):                                           # File
-    #----------------------------------------------------------------------------------------------
-        """Exit the runtime context."""
-        if self.file_obj:
-            self.file_obj.close()
-
-    #----------------------------------------------------------------------------------------------
-    def data_positions(self):                                                                # File
-    #----------------------------------------------------------------------------------------------
-        """Return byte offsets for each block."""
-        meta = self.read_meta()
-        nvar = meta['INDEX'][1]-1
-        self.goto(meta['CASE_PROPS'][1] - 18)
-        key, case_props = self.read_keyword('i4s2i') #, 28)
-        try:
-            num = case_props[0][3]
-            kwdata = list(self.read_keyword('4s2i', pre='8si') for _ in range(num))
-            name_type = defaultdict(list)
-            for name, data in kwdata:
-                num, typ = data[1][2], data[1][0].strip().decode('utf-8')
-                name_type[num].append((name, typ))
-            name_type = list(name_type.values())
-        except ValueError:
-            # For AXES files, var-names is not formatted as for PROP files
-            name_type = nvar * [('', '')]
-        var = [m[:4] if m[:4] == 'PROP' else m for m in meta][1:]
-        # Subtract 4 bytes (int) to align startpos just after the 'var' keyword (e.g 'PROP')
-        startpos = [pos[1] - 4 for pos in meta.values()][1:]
-        endpos = [s - len(v) - 4 for v,s in zip(var, startpos)]
-        return list(zip(var, name_type, startpos[:-1], endpos[1:]))
-
-    #----------------------------------------------------------------------------------------------
-    def blocks(self, file_format=None):                                                      # File
-    #----------------------------------------------------------------------------------------------
-        """Iterate over blocks in the file.
-
-        Args:
-            file_format: Optional override for the block type (``'PROP'``/``'AXES'``).
-        """
-        file_format = file_format or self.read_format()
-        for fmt, size, reader in self.readers[file_format]:
-            result = reader(fmt, size)
-            if isinstance(result[0], str):
-                yield result
-            else:
-                for key, value in result:
-                    yield (key, value)
- 
-
-    #----------------------------------------------------------------------------------------------
-    def block_writers(self, datadict:dict, _format:str):                                     # File
-    #----------------------------------------------------------------------------------------------
-        """Return the registered block writer callbacks.
-
-        Args:
-            datadict: Mapping of block names to serialized payload.
-            _format: Keyword identifying whether PROP or AXES writers should be used.
-        """
-        nvar = 0
-        writers = self.writers[_format]
-        for (fmt, writer), (key, data) in zip_longest(writers, datadict.items(), fillvalue=writers[-1]):
-            if nvar > 1:
-                fmt += '8si'
-                nvar -= 1
-            yield (writer, key, fmt, data)
-            if _format == 'PROP' and key == 'CASE_PROPS':
-                nvar = data[0][3]
-                # CASE_PROPS : [[0, b's   ', 0, 1, b'ca  s   ', 1]]
-                #                        nvar --^
-
-    #----------------------------------------------------------------------------------------------
-    def write_pack(self, fmt:str, data, **kwargs):                                           # File
-    #----------------------------------------------------------------------------------------------
-        """Write packed payload data.
-
-        Args:
-            fmt: Struct format string without endian prefix.
-            data: Iterable of values to pack.
-            **kwargs: Additional ``struct.pack`` keyword arguments.
-        """
-        self.write(pack('<'+fmt, *data, **kwargs))
-
-    #----------------------------------------------------------------------------------------------
-    def read_unpack(self, fmt:str, *args, **kwargs):                                         # File
-    #----------------------------------------------------------------------------------------------
-        """Read data and unpack it using ``struct``.
-
-        Args:
-            fmt: Struct format string without endian prefix.
-            *args: Positional arguments forwarded to :meth:`read`.
-            **kwargs: Keyword arguments forwarded to :meth:`read`.
-        """
-        return unpack('<'+fmt, self.read(calcsize('='+fmt), *args, **kwargs))
-
-    #----------------------------------------------------------------------------------------------
-    def read(self, *args, **kwargs):                                                         # File
-    #----------------------------------------------------------------------------------------------
-        """Read the complete file contents.
-
-        Args:
-            *args: Positional arguments forwarded to the underlying file object.
-            **kwargs: Keyword arguments forwarded to the underlying file object.
-        """
-        return self.file_obj.read(*args, **kwargs)
-
-    #----------------------------------------------------------------------------------------------
-    def read_keyword(self, fmt:str, pre=None):                                               # File
-    #----------------------------------------------------------------------------------------------
-        """Read the keyword for the next block.
-
-        Args:
-            fmt: Struct format string describing the metadata payload.
-            pre: Optional struct format to read before the keyword.
-        """
-        data = []
-        if pre:
-            data.append(self.read_unpack(pre))
-        key_size = self.read_unpack('i')[0]
-        if key_size > 1000:
-            self.skip(-4)
-            raise ValueError(f'Wrong size of keyword ({key_size}) at {self.current_pos()}: {self.read(14)}')
-        try:
-            key = self.read(key_size).decode('utf-8')
-        except UnicodeDecodeError as err:
-            self.skip(-key_size)
-            raise UnicodeDecodeError(f'Unable to read keyword of size {key_size}: {self.read(key_size)}') from err
-        data.append(self.read_unpack(fmt))
-        #data = unpack('<'+fmt, self.read(calcsize(fmt)))
-        return (key, data)
-
-    #----------------------------------------------------------------------------------------------
-    def read_format(self):                                                                   # File
-    #----------------------------------------------------------------------------------------------
-        """Read the first keyword to identify the GSG-file type."""
-        try:
-            keyword, _ = self.read_keyword('')
-        except (UnicodeDecodeError, ValueError):
-            # Try to correct the file position and read again
-            self.read_header()
-            keyword, _ = self.read_keyword('')
-        self.skip(-(4+len(keyword)))
-        return keyword
+#---------------------------------------------------------------------------------------------------
+def _decode_token(value):
+#---------------------------------------------------------------------------------------------------
+    """Decode a fixed-width GSG byte token to text."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8").strip(" \x00")
+    return str(value).strip()
 
 
-    #----------------------------------------------------------------------------------------------
-    def read_data(self, *args):                                                              # File
-    #----------------------------------------------------------------------------------------------
-        """Read raw block data.
+#---------------------------------------------------------------------------------------------------
+def _reshape_values(values, shape):
+#---------------------------------------------------------------------------------------------------
+    """Reshape expanded GSG property values using Fortran ordering."""
+    if shape is None:
+        return values
+    return values.reshape(tuple(shape), order="F")
 
-        Args:
-            *args: Parameters forwarded to :meth:`read_unpack`.
-        """
-        # If PROP is [1,1] only 3 data-values are given
-        # Rewind 8 bytes and read the PROP-values
-        self.skip(-8)
-        a, _ = self.read_int(2)
-        key, data = self.read_keyword(*args)
-        head = data[0]
-        dtype = DTYPE[head[1]]
-        len_data = head[2]
-        fmt = f'{len_data}{dtype.format}'
-        if a == 1:
-            len_data = 3
-            fmt = f'2i{dtype.format}'
-        #print(fmt, dtype.size, len_data, dtype.size*len_data)
-        data = list(unpack(fmt, self.read(dtype.size*len_data)))
-        return (key, [head, data])
 
-    #----------------------------------------------------------------------------------------------
-    def write_data(self, key:str, fmt:str, data2d:list):                                     # File
-    #----------------------------------------------------------------------------------------------
-        """Write raw block data."""
-        # If PROP is [1,1] only 3 data-values are given
-        # Rewind 8 bytes and read the PROP-values
-        self.skip(-8)
-        a, _ = self.read_int(2)
-        head, data = data2d
-        dtype = DTYPE[head[1]]
-        #head[2] = len(data)
-        self.write_keyword(key, fmt, head)
-        fmt = f'{len(data)}{dtype.format}'
-        if a > 0:
-            fmt = f'2i{dtype.format}'
-        self.write(pack(fmt, *data))
+#---------------------------------------------------------------------------------------------------
+def _entry_from_record(record):
+#---------------------------------------------------------------------------------------------------
+    """Return a public index entry from a private index tuple."""
+    return GSGIndexEntry(*record)
 
-    #----------------------------------------------------------------------------------------------
-    def read_varnames(self, *args):                                                          # File
-    #----------------------------------------------------------------------------------------------
-        """Read variable names from the file."""
-        # It seems that the header-data after the keyword is different if more
-        # than one variable is read. For 3 keywords, only the last keyword follow
-        # the usual formatting. Hence, we need to change formatting for the two first
-        # keywords. This seem to only apply to the _REGIONS.GSG files
-        self.skip(-16)
-        nvar = self.read_int()[0]
-        self.skip(12)
-        fmt, size = args
-        # Make nvar copies of fmt and size as lists
-        fmt, size = [list(par) for par in zip(*(nvar*[args]))]
-        if nvar > 1:
-            for i in range(2):
-                fmt[i] += '8si'
-                size[i] += 12
-        return [self.read_keyword(fmt[i]) for i in range(nvar)]
-        #return [self.read_keyword(fmt[i], size[i]) for i in range(nvar)]
 
-    #----------------------------------------------------------------------------------------------
-    def write_varnames(self, *args):                                                         # File
-    #----------------------------------------------------------------------------------------------
-        """Write variable names to disk."""
-        self.write_keyword(*args)
+#===================================================================================================
+class GSGFile:                                                                             # GSGFile
+#===================================================================================================
+    """Read-only parser for Petrel/INTERSECT ``.GSG`` files."""
 
-    #----------------------------------------------------------------------------------------------
-    def read_case(self, *args):                                                              # File
-    #----------------------------------------------------------------------------------------------
-        """Read metadata from the case file."""
-        key, data = self.read_keyword(*args)
-        head = data[0]
-        chars = []
-        while (n := self.read_int()[0]) > 0:
-            chars.extend((n, self.read(4*n)))
-        return (key, [head + chars + [n]])
+    #-----------------------------------------------------------------------------------------------
+    def __init__(self, path):                                                            # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Initialize the parser for ``path``."""
+        self.path = Path(path)
+        self.creator = ""
+        self.version = ""
+        self._data_start = 0
+        self._format = None
+        self._index = None
+        with self.path.open("rb") as file_obj:
+            self.creator, self.version, self._data_start = read_header(file_obj)
+            self._index = tuple(_entry_from_record(record) for record in read_index_records(file_obj))
+        if not self._index:
+            raise GSGMetadataError("GSG file has no indexed blocks")
+        self._format = self._index[0].key
 
-    #----------------------------------------------------------------------------------------------
-    def write_case(self, key:str, fmt:str, data:list):                                       # File
-    #----------------------------------------------------------------------------------------------
-        """Write metadata to the case file."""
-        # Example data: [-1, 20, 1, 1, 1, b'scor', 1, b'sp  ', 1, b'vp  ', 0]
-        data = data[0]
-        fmt += f'i{4*data[4]}si{4*data[6]}si{4*data[8]}si'
-        self.write_keyword(key, fmt, data)
+    @property
+    #-----------------------------------------------------------------------------------------------
+    def format(self):                                                                    # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Return the first indexed GSG keyword, usually ``PROP`` or ``AXES``."""
+        return self._format
 
-    #----------------------------------------------------------------------------------------------
-    def read_areal(self, *args, len_areal=6):                                                # File
-    #----------------------------------------------------------------------------------------------
-        """Read AREAL grid data."""
-        key, data = self.read_keyword(*args)
-        head = data[0]
-        num_areal = head[3]
-        data = list(batched_as_list(self.read_int(len_areal*num_areal), len_areal))
-        return (key, [head, data])
+    #-----------------------------------------------------------------------------------------------
+    def index(self):                                                                     # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Return ordered index entries, preserving repeated keys."""
+        if self._index is None:
+            with self.path.open("rb") as file_obj:
+                self._index = tuple(_entry_from_record(record) for record in read_index_records(file_obj))
+        return self._index
 
-    #----------------------------------------------------------------------------------------------
-    def write_areal(self, key:str, fmt:str, data2d:list):                                    # File
-    #----------------------------------------------------------------------------------------------
-        """Write AREAL keyword data."""
-        head, data = data2d
-        # nxny = len(data)
-        # nx = data[0][2]-1
-        # ny = nxny//nx
-        # head[3:3+2] = (nxny, nx+ny+1)
-        self.write_keyword(key, fmt, head)
-        self.write_int(list(flatten(data)))
+    #-----------------------------------------------------------------------------------------------
+    def blocks(self, key=None):                                                          # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Yield indexed block spans, optionally filtered by keyword."""
+        for entry in self.index():
+            if key is None or entry.key == key:
+                yield entry
 
-    #----------------------------------------------------------------------------------------------
-    def read_pillars(self, *args):                                                           # File
-    #----------------------------------------------------------------------------------------------
-        """Read pillar coordinate data."""
-        key, data = self.read_keyword(*args)
-        head = data[0]
-        num_pillars, len_pillar, grid_type = head[2], head[3]+5, head[14]
-        # Check if grid is not complex
+    #-----------------------------------------------------------------------------------------------
+    def properties(self, expand=True, shape=None):                                       # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Yield decoded PROP records as :class:`GSGProperty` objects."""
+        if self.format != "PROP":
+            raise GSGFormatError(f"properties() requires a PROP GSG file, got {self.format!r}")
+        if shape is not None and not expand:
+            raise ValueError("shape requires expand=True")
+
+        names_by_prop = self._case_property_names()
+        with self.path.open("rb") as file_obj:
+            for entry in self.blocks("PROP"):
+                yield self._read_property(file_obj, entry, names_by_prop, expand, shape)
+
+    #-----------------------------------------------------------------------------------------------
+    def property(self, alias_or_name, expand=True, shape=None):                          # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Return one property matched by alias or CASE_PROPS name."""
+        target = alias_or_name.casefold()
+        for prop in self.properties(expand=expand, shape=shape):
+            names = (prop.alias, *prop.names)
+            if any(name.casefold() == target for name in names):
+                return prop
+        raise KeyError(alias_or_name)
+
+    #-----------------------------------------------------------------------------------------------
+    def grid(self, read_areal=True, read_pillars=False, read_faults=False):              # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Return decoded AXES grid metadata and optional payload arrays."""
+        if self.format != "AXES":
+            raise GSGFormatError(f"grid() requires an AXES GSG file, got {self.format!r}")
+
+        entries = self.index()
+        entry_by_key = {entry.key: entry for entry in entries if entry.key not in {"FAULTS"}}
+        fault_entries = tuple(entry for entry in entries if entry.key == "FAULTS")
+        with self.path.open("rb") as file_obj:
+            axes = self._read_axes(file_obj, entry_by_key["AXES"])
+            name, dimensions = self._read_grid_case(file_obj, entry_by_key["GRID"])
+            areal = None
+            if read_areal and "AREAL" in entry_by_key:
+                areal = self._read_areal(file_obj, entry_by_key["AREAL"])
+            pillars = None
+            if "PILLARS" in entry_by_key:
+                pillars = self._read_pillars(file_obj, entry_by_key["PILLARS"], read_pillars)
+            defined_cells = self._read_defined_cells(file_obj, entries)
+        faults = fault_entries if read_faults else ()
+        return GSGGrid(name, dimensions, axes, areal, pillars, faults, defined_cells)
+
+    #-----------------------------------------------------------------------------------------------
+    def _case_property_names(self):                                                       # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Return CASE_PROPS names grouped by one-based property number."""
+        entries = tuple(self.blocks("CASE_PROPS"))
+        if not entries:
+            return {}
+        entry = entries[-1]
+        grouped = {}
+        with self.path.open("rb") as file_obj:
+            key, data, _, _ = read_keyword(file_obj, "i4s2i", offset=entry.block_start)
+            if key != "CASE_PROPS":
+                raise GSGMetadataError(f"Expected CASE_PROPS, got {key!r}")
+            for _ in range(data[3]):
+                read_struct(file_obj, "8si")
+                name, payload, _, _ = read_keyword(file_obj, "4s2i")
+                role = _decode_token(payload[0])
+                prop_number = payload[2]
+                names, roles = grouped.setdefault(prop_number, ([], []))
+                names.append(name)
+                roles.append(role)
+        return {
+            number: (tuple(names), tuple(roles))
+            for number, (names, roles) in grouped.items()
+        }
+
+    #-----------------------------------------------------------------------------------------------
+    def _read_property(self, file_obj, entry, names_by_prop, expand, shape):              # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Read one indexed PROP block."""
+        key, prop_data, _, _ = read_keyword(file_obj, "2i", offset=entry.block_start)
+        if key != "PROP":
+            raise GSGMetadataError(f"Expected PROP at byte {entry.block_start}, got {key!r}")
+
+        encoding_code, prop_number = prop_data
+        encoding = _ENCODINGS.get(encoding_code)
+        if encoding is None:
+            raise UnsupportedGSGBlock(f"Unsupported PROP encoding {encoding_code}")
+
+        alias, payload, _, _ = read_keyword(file_obj, "4sqi")
+        metadata, dtype_code, size = payload
+        if _decode_token(metadata) != "ca":
+            raise GSGMetadataError(f"Unexpected PROP metadata token {metadata!r}")
+        dtype = _GSG_DTYPES.get(dtype_code)
+        if dtype is None:
+            raise UnsupportedGSGBlock(f"Unsupported PROP dtype code {dtype_code}")
+
+        values = self._read_property_values(file_obj, entry.block_end, dtype, encoding, size, expand)
+        values = _reshape_values(values, shape)
+        names, roles = names_by_prop.get(prop_number, ((), ()))
+        return GSGProperty(names, roles, alias, dtype, encoding, size, values)
+
+    #-----------------------------------------------------------------------------------------------
+    def _read_property_values(self, file_obj, block_end, dtype, encoding, size, expand):  # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Read full or RLE property payload values."""
+        remaining = block_end - file_obj.tell()
+        if remaining < 0:
+            raise GSGMetadataError("Property payload extends beyond its indexed block")
+        if encoding == "full":
+            expected = size * dtype.itemsize
+            if remaining != expected:
+                raise GSGMetadataError(f"Expected {expected} bytes for full PROP, got {remaining}")
+            values = np.fromfile(file_obj, dtype=dtype, count=size)
+            if values.size != size:
+                raise GSGFormatError(f"Expected {size} PROP values, got {values.size}")
+            return values
+
+        read_struct(file_obj, "i")
+        pair_dtype = np.dtype([("count", "<i4"), ("value", dtype)])
+        payload_size = remaining - 4
+        if payload_size < 0 or payload_size % pair_dtype.itemsize:
+            raise GSGMetadataError(f"Invalid RLE payload size {remaining}")
+        pairs = np.frombuffer(read_exact(file_obj, payload_size), dtype=pair_dtype)
+        if pairs["count"].sum(dtype=np.int64) != size:
+            raise GSGMetadataError(f"RLE counts do not expand to {size} values")
+        if not expand:
+            return pairs.copy()
+        values = np.repeat(pairs["value"], pairs["count"])
+        if values.size != size:
+            raise GSGFormatError(f"Expected {size} expanded PROP values, got {values.size}")
+        return values
+
+    #-----------------------------------------------------------------------------------------------
+    def _read_axes(self, file_obj, entry):                                                  # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Read the AXES payload."""
+        key, data, _, _ = read_keyword(file_obj, "i12s2i6f", offset=entry.block_start)
+        if key != "AXES":
+            raise GSGMetadataError(f"Expected AXES, got {key!r}")
+        return data
+
+    #-----------------------------------------------------------------------------------------------
+    def _read_grid_case(self, file_obj, entry):                                           # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Read GRID metadata and the following case-name keyword."""
+        key, _, _, _ = read_keyword(file_obj, "2i", offset=entry.block_start)
+        if key != "GRID":
+            raise GSGMetadataError(f"Expected GRID, got {key!r}")
+        case_name, data, _, _ = read_keyword(file_obj, "4i")
+        dimensions = tuple(int(value) for value in data[1:4])
+        return case_name, dimensions
+
+    #-----------------------------------------------------------------------------------------------
+    def _read_areal(self, file_obj, entry):                                               # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Read AREAL rows as an ``int32`` array."""
+        key, data, _, _ = read_keyword(file_obj, "5i", offset=entry.block_start)
+        if key != "AREAL":
+            raise GSGMetadataError(f"Expected AREAL, got {key!r}")
+        row_count = data[3]
+        values = np.fromfile(file_obj, dtype=np.dtype("<i4"), count=row_count * 6)
+        if values.size != row_count * 6:
+            raise GSGFormatError(f"Expected {row_count * 6} AREAL integers, got {values.size}")
+        return values.reshape((row_count, 6))
+
+    #-----------------------------------------------------------------------------------------------
+    def _read_pillars(self, file_obj, entry, read_values):                                # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Read PILLARS metadata and optionally simple-grid pillar rows."""
+        key, header, _, _ = read_keyword(file_obj, "17i", offset=entry.block_start)
+        if key != "PILLARS":
+            raise GSGMetadataError(f"Expected PILLARS, got {key!r}")
+        grid_type = header[14]
+        if not read_values:
+            return GSGPillars(header, grid_type, entry)
         if grid_type != 0:
-            print('Unable to read PILLARS for this type of grid, aborting...')
-            return None
-            # raise NotImplementedError('Unable to read PILLARS for this type of grid')
-        bin_data = (self.read(4*len_pillar) for _ in range(num_pillars))
-        data =  [list(unpack(f'<i{len_pillar-1}f', data)) for data in bin_data]
-        return (key, [head, data])
+            raise UnsupportedGSGBlock(f"Cannot decode PILLARS for grid type {grid_type}")
 
-    #----------------------------------------------------------------------------------------------
-    def write_pillars(self, key:str, fmt:str, data2d:list):                                  # File 
-    #----------------------------------------------------------------------------------------------
-        """Write pillar coordinate data."""
-        head, data = data2d
-        len_pillar = len(data[0])
-        # num_pillars = len(data)
-        # head[2], head[3] = num_pillars, len_pillar - 5
-        self.write_keyword(key, fmt, head)
-        fmt = f'<i{len_pillar-1}f'
-        for val in data:
-            self.write(pack(fmt, *val))
+        row_count = header[2]
+        row_width = header[3] + 5
+        row_dtype = np.dtype([("pillar", "<i4"), ("values", "<f4", row_width - 1)])
+        rows = np.fromfile(file_obj, dtype=row_dtype, count=row_count)
+        if rows.size != row_count:
+            raise GSGFormatError(f"Expected {row_count} PILLARS rows, got {rows.size}")
+        values = np.empty((row_count, row_width), dtype=np.float32)
+        values[:, 0] = rows["pillar"]
+        values[:, 1:] = rows["values"]
+        return GSGPillars(header, grid_type, entry, values)
 
-    #----------------------------------------------------------------------------------------------
-    def write_header(self, creator, version):                                                # File
-    #----------------------------------------------------------------------------------------------
-        """Write a block header."""
-        header = (1, 1, len(creator), creator.encode(), len(version), version.encode(), 0, 0, 0, 1)
-        packed_header = pack(f'<3i{len(creator)}si{len(version)}s4i', *header)
-        self.write(b'GSG000_b\r\n1\n2\r34\x01\x02\x03\x04' + packed_header)
-
-    #----------------------------------------------------------------------------------------------
-    def read_header(self):                                                                   # File
-    #----------------------------------------------------------------------------------------------
-        """Read the next block header."""
-        self.goto(28)
-        creator, _ = self.read_keyword('')
-        version, _ = self.read_keyword('4i')
-        return (creator, version)
-
-    #----------------------------------------------------------------------------------------------
-    def read_meta(self, search=False):                                                       # File
-    #----------------------------------------------------------------------------------------------
-        """
-        Read meta-keys at the end of the file. These keys are data-key positions taken 
-        one int (4 bytes) away from the end of the keyword string
-        """
-        meta = {}
-        if search:
-            _, pos = next(self.keyword_positions('INDEX'))
-            self.goto(pos-9)
-        else:
-            # Last 8 bytes of the file is the position of the INDEX-key
-            self.end(-8)
-            index_pos, = self.read_uint()
-            self.goto(index_pos)
-        #print(self.read(10))
-        #self.skip(-10)
-        index, data = self.read_keyword('2i')
-        #print(index, data)
-        meta[index] = data[0]
-        for i in range(meta['INDEX'][1]):
-            key, data = self.read_keyword('iq')
-            #print(key, data)
-            if key == 'PROP':
-                key = f'PROP_{i}'
-            meta[key] = data[0]
-        meta[key] += self.read_uint()
-        return meta
-
-    #----------------------------------------------------------------------------------------------
-    def write_meta(self, meta:dict):                                                         # File
-    #----------------------------------------------------------------------------------------------
-        """
-        Write meta-keys at the end of the GSG-file with file-positions of the data-keys.
-        The first (int) value in the meta-key refer to the first value of the data-key.
-        """
-        end_data = self.current_pos()
-        # INDEX refers to the number of meta-keys
-        self.write_keyword('INDEX', '2i', meta.pop('INDEX'))
-        # Iterate over meta-key positions (after keyword)  
-        keys = list(meta.keys())
-        for key, data_pos in take(len(keys), self.keyword_positions(*keys)):
-            # Save current position for writing
-            write_pos = self.current_pos()
-            # Read first value of the data-key
-            self.goto(data_pos)
-            ival = self.read_int()[0]
-            # Jump to write position
-            self.goto(write_pos)
-            self.write_keyword(key, 'iq', (ival, data_pos+4))
-        self.write_uint([end_data])
-
-    #----------------------------------------------------------------------------------------------
-    def read_int(self, length=1):                                                            # File
-    #----------------------------------------------------------------------------------------------
-        """Read a signed integer."""
-        return unpack(f'<{length}i', self.read(4*length))
-
-    #----------------------------------------------------------------------------------------------
-    def read_uint(self, length=1):                                                           # File
-    #----------------------------------------------------------------------------------------------
-        """Read an unsigned integer."""
-        return unpack(f'<{length}q', self.read(8*length))
-
-    #----------------------------------------------------------------------------------------------
-    def write_fmt(self, fmt, data, length=None):                                             # File
-    #----------------------------------------------------------------------------------------------
-        """Write formatted records."""
-        length = length or len(data)
-        return self.write(pack(f'<{length}{fmt}', *data))
-
-    #----------------------------------------------------------------------------------------------
-    def write_int(self, *args, **kwargs):                                                    # File
-    #----------------------------------------------------------------------------------------------
-        """Write a signed integer."""
-        return self.write_fmt('i', *args, **kwargs)
-
-    #----------------------------------------------------------------------------------------------
-    def write_uint(self, *args, **kwargs):                                                   # File
-    #----------------------------------------------------------------------------------------------
-        """Write an unsigned integer."""
-        return self.write_fmt('q', *args, **kwargs)
-
-    #----------------------------------------------------------------------------------------------
-    def write_keyword(self, keyword:str, fmt:str, data:tuple, pre=None):                     # File
-    #----------------------------------------------------------------------------------------------
-        """
-        Writes a keyword and its associated data to a binary format.
-        Args:
-            keyword (str): The keyword to be written.
-            fmt (str): The format string specifying the binary structure of the data.
-            data (tuple): The data to be written, which can be a tuple or a 2D list.
-            pre (tuple, optional): Additional data to be written before the main data. Defaults to None.
-        Returns:
-            int: The number of bytes written to the binary stream.
-        """
-        
-        # Reduce to single list if a 2D list is passed
-        if isinstance(data[0], list):
-            data = data[0]
-        if pre:
-            self.write_pack(*pre)
-        return self.write_pack(f'i{len(keyword)}s'+fmt, (len(keyword), keyword.encode(), *data))
-
-
-    #----------------------------------------------------------------------------------------------
-    def keyword_positions(self, *keywords):                                                  # File
-    #----------------------------------------------------------------------------------------------
-        """Return keyword locations within the file."""
-        chunk_size = 1024
-        pattern = re_compile(rb'(' + rb'|'.join(k.encode() for k in keywords) + rb')')
-        current_pos = self.current_pos()
-        self.goto(0)
-        try:
-            for i,chunk in enumerate(iter(partial(self.read, chunk_size), b'')):
-                for match in pattern.finditer(chunk):
-                    pos = match.end() + i*chunk_size
-                    yield (match.group().decode('utf-8'), pos)
-        finally:
-            self.goto(current_pos)
-
-    #----------------------------------------------------------------------------------------------
-    def skip(self, pos):                                                                     # File
-    #----------------------------------------------------------------------------------------------
-        """Skip the provided keywords."""
-        self.file_obj.seek(pos, SEEK_CUR)
-
-    #----------------------------------------------------------------------------------------------
-    def end(self, pos):                                                                      # File
-    #----------------------------------------------------------------------------------------------
-        """Return the block end marker."""
-        self.file_obj.seek(pos, SEEK_END)
-
-    #----------------------------------------------------------------------------------------------
-    def goto(self, pos):                                                                     # File
-    #----------------------------------------------------------------------------------------------
-        """Seek to the requested block."""
-        self.file_obj.seek(pos)
-
-    #----------------------------------------------------------------------------------------------
-    def current_pos(self):                                                                   # File
-    #----------------------------------------------------------------------------------------------
-        """Return the current file position."""
-        return self.file_obj.tell()
-
-    #----------------------------------------------------------------------------------------------
-    def size(self):                                                                          # File
-    #----------------------------------------------------------------------------------------------
-        """Return the file size in bytes."""
-        return self.filepath.stat().st_size
-
-    #----------------------------------------------------------------------------------------------
-    def write(self, *args, **kwargs):                                                        # File
-    #----------------------------------------------------------------------------------------------
-        """Write data to the file."""
-        return self.file_obj.write(*args, **kwargs)
-
-
-#--------------------------------------------------------------------------------------------------
-def grid_function(method):  
-#--------------------------------------------------------------------------------------------------
-    """Apply a function to grid data."""
-    @wraps(method)
-    def wrapper(self, *args, **kwargs):
-        """Wrap the function and print errors."""
-        if not self.is_grid():
-            raise ValueError("Operation only allowed for grid-objects")
-        return method(self, *args, **kwargs)
-    return wrapper
-
-#--------------------------------------------------------------------------------------------------
-def data_function(method):
-#--------------------------------------------------------------------------------------------------
-    """Return a callback that reads block data."""
-    @wraps(method)
-    def wrapper(self, *args, **kwargs):
-        """Wrap the function and print errors."""
-        if self.is_grid():
-            raise ValueError("Operation only allowed for data-objects")
-        return method(self, *args, **kwargs)
-    return wrapper
-
-#==================================================================================================
-class Data():                                                                                # Data
-#==================================================================================================
-    """Container for summary table rows."""
-    Grid = namedtuple('Grid', 'name dim size res num_areal num_pillars')
-
-    #----------------------------------------------------------------------------------------------
-    def __init__(self):                                                                      # Data
-    #----------------------------------------------------------------------------------------------
-        """Initialize the Data."""
-        self.data = {}
-        self.meta = {}
-        self.creator = ''
-        self.version = ''
-        self.format = ''
-        self.grid = None
-
-    #----------------------------------------------------------------------------------------------
-    def __str__(self):                                                                       # Data
-    #----------------------------------------------------------------------------------------------
-        """Return a human-readable representation."""
-        if not self.data:
-            return 'No data to show'
-        marg = 1 + max(map(len, self.data.keys()))
-        lines = []
-        for key, val in self.data.items():
-            valstr = str(val[0])
-            if len(val) > 1:
-                if len(val[1]) > 10:
-                    valstr += f'{val[1][:3]} ... {val[1][-3:]}'
-                else:
-                    valstr += str(val[1])
-            lines.append(f'{key:{marg}s}: ' + valstr)
-        return '\n'.join(lines)
-
-    #----------------------------------------------------------------------------------------------
-    def __getitem__(self, key):                                                              # Data
-    #----------------------------------------------------------------------------------------------
-        """Return the requested item."""
-        # Return value of the given key in self.data
-        return self.data.get(key, None)
-
-    #----------------------------------------------------------------------------------------------
-    def __setitem__(self, key, value):                                                       # Data
-    #----------------------------------------------------------------------------------------------
-        """Assign the requested item."""
-        # Make sure keyword is unique
-        #key = unique_key(key, list(self.data.keys()))
-        self.data[key][1] = value
-
-    #----------------------------------------------------------------------------------------------
-    def is_grid(self):                                                                       # Data
-    #----------------------------------------------------------------------------------------------
-        """Return whether the keyword describes a grid."""
-        if self.format == 'AXES':
-            return True
-        return False
-
-    @data_function
-    #----------------------------------------------------------------------------------------------
-    def is_indexed(self):                                                                    # Data
-    #----------------------------------------------------------------------------------------------
-        """Return whether the block contains indices."""
-        # Data is given by a range of two ints and a common float/int value
-        if self.data['PROP'][0][0] == 1:
-            return True
-        return False
-
-    @data_function
-    #----------------------------------------------------------------------------------------------
-    def set_values(self, dim):                                                               # Data
-    #----------------------------------------------------------------------------------------------
-        """Assign values to the block."""
-        head, data = self.data[self.keys()[1]]
-        head[2] = dim[0]*dim[1]
-        if self.is_indexed():
-            data[1] = head[2]
-        else:
-            data[:] = head[2]*[data[0]]
-
-
-    @data_function
-    #----------------------------------------------------------------------------------------------
-    def num_variables(self):                                                                 # Data
-    #----------------------------------------------------------------------------------------------
-        """Return the number of summary variables."""
-        return self.data['CASE_PROPS'][0][3]
-        # CASE_PROPS : [[0, b's   ', 0, 1, b'ca  s   ', 1]]
-        #                        nvar --^
-
-
-    #----------------------------------------------------------------------------------------------
-    def keys(self):                                                                          # Data
-    #----------------------------------------------------------------------------------------------
-        """Return the available block keywords."""
-        return tuple(self.data.keys())
-
-    #----------------------------------------------------------------------------------------------
-    def unique_key(self, key):                                                               # Data
-    #----------------------------------------------------------------------------------------------
-        """Return a keyword guaranteed to be unique."""
-        if (count := self.keys().count(key)):
-            key += f"{'#'}{count}"
-        return key
-        #return unique_key(key, self.keys())
-
-    #----------------------------------------------------------------------------------------------
-    def from_file(self, filepath):                                                           # Data
-    #----------------------------------------------------------------------------------------------
-        """Load block data from a file."""
-        with File(filepath) as file:
-            self.creator, self.version = file.read_header()
-            self.format = file.read_format()
-            # Read data blocks
-            try:
-                for keyword, data in file.blocks(self.format):
-                    if not data:
-                        return self
-                    self.data[self.unique_key(keyword)] = data
-            except ValueError as err:
-                print(self)
-                raise err
-            # Read meta blocks with file positions
-            self.meta = file.read_meta()
-            # If this is a grid, set relevant variables
-            if self.is_grid():
-                self.set_grid_variables()
-        return self
-
-    #----------------------------------------------------------------------------------------------
-    def to_file(self, filepath):                                                             # Data
-    #----------------------------------------------------------------------------------------------
-        """Write the data back to disk."""
-        with File(filepath, write=True) as file:
-            file.write_header(self.creator, self.version)
-            for writer, key, fmt, data in file.block_writers(self.data, self.format):
-                writer(key.split('#')[0], fmt, data)
-            file.write_meta(self.meta)
-
-
-    #----------------------------------------------------------------------------------------------
-    def info(self):                                                                          # Data
-    #----------------------------------------------------------------------------------------------
-        """Return a textual summary of the file."""
-        if self.is_grid():
-            self._grid_info()
-        else:
-            self._data_info()
-
-    #----------------------------------------------------------------------------------------------
-    def _data_info(self):                                                                    # Data
-    #----------------------------------------------------------------------------------------------
-        """Return metadata describing the data layout."""
-        varname = self.keys()[1]
-        print()
-        print(f'GSG data: {varname}')
-        print('-------------------------------------')
-        print(f'Length : {len(self.data[varname])}' )
-
-    @grid_function
-    #----------------------------------------------------------------------------------------------
-    def _grid_info(self):                                                                    # Data
-    #----------------------------------------------------------------------------------------------
-        """Return metadata describing the grid layout."""
-        fmt = '.4f'
-        print()
-        print(f'GSG grid: {self.grid.name}')
-        print('-------------------------------------')
-        print( 'Size       : ' + list_prec(self.grid.size, fmt))
-        print(f'Dimension  : {self.grid.dim}')
-        print( 'Resolution : '  + list_prec(self.grid.res, fmt))
-        print(f'Areal      : {self.grid.num_areal}')
-        print(f'Pillars    : {self.grid.num_pillars}')
-
-    @grid_function
-    #----------------------------------------------------------------------------------------------
-    def set_grid_variables(self):                                                            # Data
-    #----------------------------------------------------------------------------------------------
-        """Assign variables describing the grid."""
-        name = self.keys()[2]
-        dim = self.data[name][0][1:4]
-        num_areal = self.data['AREAL'][0][3]
-        num_pillars = self.data['PILLARS'][0][2]
-        size = self.grid_size(dim=dim)
-        res = self.grid_resolution(size=size, dim=dim)
-        self.grid = self.Grid(name, dim, size, res, num_areal, num_pillars)
-
-    @grid_function
-    #----------------------------------------------------------------------------------------------
-    def grid_size(self, dim=None):                                                           # Data
-    #----------------------------------------------------------------------------------------------
-        """Return the total grid size."""
-        if not self.is_grid():
-            print('This is not a grid')
-            return
-        dim = dim or self.grid.dim
-        pill = self.data['PILLARS'][1]
-        origo = pill[0]
-        lx = pill[ dim[0] ][1] - origo[1]
-        ly = pill[ (dim[0]+1)*dim[1] ][2] - origo[2]
-        lz = origo[-1] - origo[5]
-        return (lx, ly, lz)
-
-    @grid_function
-    #----------------------------------------------------------------------------------------------
-    def grid_resolution(self, size=None, dim=None):                                          # Data
-    #----------------------------------------------------------------------------------------------
-        """Return metadata about the grid resolution."""
-        size = size or self.grid_size()
-        dim = dim or self.grid.dim
-        return [l/n for l,n in zip(size, dim)]
-
-    @grid_function
-    #----------------------------------------------------------------------------------------------
-    def set_areal(self, dim):                                                                # Data
-    #----------------------------------------------------------------------------------------------
-        """Write AREAL grid data."""
-        head, data = self.data['AREAL']
-        #self.data['AREAL'][0][3:3+2] = (dim[0]*dim[1], dim[0]+dim[1]+1)
-        head[3:3+2] = (dim[0]*dim[1], dim[0]+dim[1]+1)
-        #areal = []
-        data[:] = []
-        n = 0
-        for j in range(dim[1]):
-            a = j*(dim[0]+1)
-            b = a + (dim[0]+1)
-            for i in range(dim[0]):
-                #areal.append((n, 4, b+i,  a+i , a+i+1, b+i+1))
-                data.append((n, 4, b+i,  a+i , a+i+1, b+i+1))
-                n += 1
-        #self.data['AREAL'][1] = areal
-
-    @grid_function
-    #----------------------------------------------------------------------------------------------
-    def set_pillars_xy(self, dim):                                                           # Data
-    #----------------------------------------------------------------------------------------------
-        """Write pillar XY coordinates."""
-        # NBNB! Currently only the xy-pos of the pillars are updated
-        # Get new grid resolution. NB! Need to do this before modifying the original pillars
-        dl = self.grid_resolution(dim=dim)
-        nx, ny = dim[0]+1, dim[1]+1
-        npillars = nx*ny
-        head, data = self.data['PILLARS']
-        # Update header
-        head[2] = npillars
-        head[3] = dim[2] + 1
-        #self.data['PILLARS'][0][2] = npillars 
-        #self.data['PILLARS'][0][3] = dim[2] + 1
-        # Update data
-        #pill0 = self.data['PILLARS'][1][0]
-        pill0 = data[0]
-        #pillars = list(batched_as_list(npillars*pill0, len(pill0)))
-        data[:] = list(batched_as_list(npillars*pill0, len(pill0)))
-        for y in range(ny):
-            for x in range(nx):
-                pos = x + y*nx
-                data[pos][1] = x * dl[0]
-                data[pos][2] = y * dl[1]
-        #         pillars[pos][1] = x * dl[0]
-        #         pillars[pos][2] = y * dl[1]
-        # self.data['PILLARS'][1] = pillars
-
-    @grid_function
-    #----------------------------------------------------------------------------------------------
-    def new_grid(self, dim):                                                                 # Data
-    #----------------------------------------------------------------------------------------------
-        """Return a grid definition built from the blocks."""
-        if not self.grid:
-            print('This is not a grid')
-            return
-        # Update grid dimension
-        self.data[self.grid.name][0][1:4] = dim
-        self.data['DEFINED_CELLS'][0][3:3+4:2] = 2*[prod(dim)]
-        # Areal
-        self.set_areal(dim)
-        # Pillars
-        self.set_pillars_xy(dim)
-        return self
-    
+    #-----------------------------------------------------------------------------------------------
+    def _read_defined_cells(self, file_obj, entries):                                     # GSGFile
+    #-----------------------------------------------------------------------------------------------
+        """Read child DEFINED_CELLS records from compound grid spans."""
+        cells = []
+        for entry in entries:
+            if entry.key == "PROP":
+                read_keyword(file_obj, "2i", offset=entry.block_start)
+                fmt = "4s6i"
+            elif entry.key == "CASE_PROPS":
+                read_keyword(file_obj, "i4si8si", offset=entry.block_start)
+                fmt = "4s3i"
+            else:
+                continue
+            if file_obj.tell() >= entry.block_end:
+                continue
+            position = file_obj.tell()
+            key, _, _, _ = read_keyword(file_obj, offset=position)
+            if key == "DEFINED_CELLS":
+                _, data, _, _ = read_keyword(file_obj, fmt, offset=position)
+                cells.append(data)
+        return tuple(cells)
