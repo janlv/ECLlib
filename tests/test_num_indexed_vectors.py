@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import ECLlib.io.output.unformatted_files as uf
+import ECLlib.output.unformatted_files as uf
 
 
 class _DummySpec:

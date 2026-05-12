@@ -6,21 +6,20 @@
 # setuptools_scm will automatically detect this tag and set the version accordingly.
 from ._version import version as __version__
 
-from .core import File, AutoRefreshIterator, Restart
-from .io.input.eclipse import DATA_file, ECL_input
-from .io.input.gsgfile import (
+from .core import ENDSOL, AutoRefreshIterator, File, Restart, unfmt_block, unfmt_file
+from .input.eclipse import DATA_file, ECL_input
+from .input.gsg import (
     GSGFile, GSGGrid, GSGIndexEntry, GSGPillars, GSGProperty,
     GSGFormatError, GSGMetadataError, UnsupportedGSGBlock,
 )
-from .io.input.intersect import AFI_file, IXF_file, IX_input
+from .input.intersect import AFI_file, IXF_file, IX_input
 
-from .io.output import (
+from .output import (
     EGRID_file, FUNRST_file, INIT_file, MSG_file, PRTX_file, PRT_file, 
     RFT_file, RSM_block, RSM_file, SMSPEC_file, UNRST_file, UNSMRY_file,
     NameIndexedValues, KeyIndexedValues, RSSPEC_file, fmt_block, fmt_file, text_file,
 )
-from .io.unformatted.base import ENDSOL, unfmt_block, unfmt_file
-from .io.output.file_checker import File_checker
+from .output.file_checker import File_checker
 
 __all__ = [
     "__version__",

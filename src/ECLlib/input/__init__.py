@@ -2,7 +2,7 @@
 
 from .eclipse import DATA_file, ECL_input
 from .intersect import AFI_file, IXF_file, IX_input
-from .gsgfile import (
+from .gsg import (
     GSGFile, GSGGrid, GSGIndexEntry, GSGPillars, GSGProperty,
     GSGFormatError, GSGMetadataError, UnsupportedGSGBlock,
 )

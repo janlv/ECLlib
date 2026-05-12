@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ECLlib.io.input import DATA_file, ECL_input
+from ECLlib.input import DATA_file, ECL_input
 
 
 #---------------------------------------------------------------------------------------------------

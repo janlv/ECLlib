@@ -13,7 +13,7 @@ from math import hypot
 
 from numpy import arange, array as nparray, concatenate, full, zeros
 
-from ..unformatted.base import unfmt_file
+from ..core.unformatted import unfmt_file
 
 __all__ = ["EGRID_file"]
 

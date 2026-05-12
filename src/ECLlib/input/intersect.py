@@ -10,8 +10,8 @@ from re import MULTILINE, findall, finditer, compile as re_compile, search as re
 
 from numpy import fromstring
 
-from ...core import File, Restart
-from ...utils import (
+from ..core import File, Restart
+from ..utils import (
     any_cell_in_box,
     bounding_box,
     date_range,

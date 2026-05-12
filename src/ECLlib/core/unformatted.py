@@ -8,9 +8,10 @@ from struct import pack, unpack, error as struct_error
 from numpy import (array as nparray, asarray, char as npchar, cumsum, dtype as npdtype, empty,
     frombuffer, ndarray, split as npsplit)
 
-from ...core import File, DTYPE
-from ...config import DEBUG, ENDIAN
-from ...utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all,
+from .datatypes import DTYPE
+from .file import File
+from ..config import DEBUG, ENDIAN
+from ..utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all,
     index_limits, match_in_wildlist, nth, pad, pairwise, slice_range, string_split, take)
 
 __all__ = ["unfmt_header", "unfmt_block", "unfmt_section_span", "unfmt_file", "ENDSOL"]

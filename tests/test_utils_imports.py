@@ -30,7 +30,7 @@ builtins.__import__ = blocked_import
 import ECLlib
 import ECLlib.utils
 from ECLlib import IX_input
-from ECLlib.io.input import IX_input as input_IX_input
+from ECLlib.input import IX_input as input_IX_input
 from ECLlib.utils import batched, ceildiv
 
 assert IX_input is input_IX_input

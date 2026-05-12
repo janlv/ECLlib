@@ -6,7 +6,7 @@ from struct import pack
 import numpy as np
 import pytest
 
-from ECLlib.io.input.gsgfile import GSGFile, GSGGrid, GSGProperty, UnsupportedGSGBlock
+from ECLlib.input.gsg import GSGFile, GSGGrid, GSGProperty, UnsupportedGSGBlock
 
 GSG_SAMPLE_DIR_ENV = "ECLLIB_GSG_SAMPLE_DIR"
 EGRID_SAMPLE_FILE_ENV = "ECLLIB_EGRID_SAMPLE_FILE"
@@ -544,12 +544,12 @@ def test_write_gsg_properties_is_not_public_api():
 #---------------------------------------------------------------------------------------------------
     """Keep helper-style write functions out of the public package API."""
     import ECLlib
-    import ECLlib.io.input as input_api
-    import ECLlib.io.input.gsgfile as gsgfile
+    import ECLlib.input as input_api
+    import ECLlib.input.gsg as gsg_api
 
     assert not hasattr(ECLlib, "write_gsg_properties")
     assert not hasattr(input_api, "write_gsg_properties")
-    assert "write_gsg_properties" not in gsgfile.__all__
+    assert "write_gsg_properties" not in gsg_api.__all__
 
 
 #---------------------------------------------------------------------------------------------------

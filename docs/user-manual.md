@@ -13,8 +13,9 @@ For command-line restart merging and records text insertion, see the
 ECLlib is a toolkit for reading, writing, and analysing Eclipse and Intersect simulator
 files. It groups the API into three main areas:
 
-- **Core** primitives such as `File` and `Restart` that other modules build upon.
-- **I/O** helpers under `ECLlib.io` that parse binary, formatted, and textual artefacts.
+- **Core** primitives such as `File`, `Restart`, and unformatted binary block helpers.
+- **Input/output** helpers under `ECLlib.input` and `ECLlib.output` that parse simulator
+  case files and result artefacts.
 - **Utility** functions in `ECLlib.utils` for array manipulation, filesystem access,
   iteration, logging, and time handling.
 
@@ -102,9 +103,9 @@ unformatted readers described later.
 
 ---
 
-## I/O API (`ECLlib.io`)
+## File API
 
-### Input decks (`ECLlib.io.input`)
+### Input decks (`ECLlib.input`)
 
 #### `DATA_file`
 
@@ -139,7 +140,7 @@ files with `included_file_data()`.
 
 #### GSG reader/writer (`GSGFile`)
 
-`ECLlib.io.input.gsgfile` handles Petrel/INTERSECT `.GSG` property and AXES grid
+`ECLlib.input.gsg` handles Petrel/INTERSECT `.GSG` property and AXES grid
 files. Use `GSGFile(path).read()` for the default read path: PROP files return typed
 `GSGProperty` objects with aliases, CASE_PROPS names, original NumPy dtypes, encoding
 metadata, and values reshaped from case dimensions when available; AXES files return
@@ -153,7 +154,7 @@ AXES/grid GSG files from vertical-pillar EGRID geometry with optional ACTNUM val
 Non-vertical or otherwise complex PILLARS geometry is rejected with a clear error until
 the complex GSG pillar encoding is implemented.
 
-### Output readers (`ECLlib.io.output`)
+### Output readers (`ECLlib.output`)
 
 #### Unformatted binaries
 
@@ -275,7 +276,7 @@ regular-expression patterns and converters:
 works with any `unfmt_file` instance, tracking matching start/end markers via
 `blocks_complete()` and reporting offsets through `warn_if_offset()`.
 
-### Unformatted base layer (`ECLlib.io.unformatted.base`)
+### Unformatted base layer (`ECLlib.core.unformatted`)
 
 The unformatted foundation defines:
 

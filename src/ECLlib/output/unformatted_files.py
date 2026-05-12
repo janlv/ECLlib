@@ -30,8 +30,8 @@ from operator import attrgetter, itemgetter
 from matplotlib.pyplot import figure as pl_figure
 from numpy import array as nparray, empty as npempty, stack
 
-from ..unformatted.base import unfmt_block, unfmt_file
-from ...utils import cumtrapz, flatten
+from ..core.unformatted import unfmt_block, unfmt_file
+from ..utils import cumtrapz, flatten
 
 
 __all__ = [

@@ -21,9 +21,9 @@ from mmap import mmap
 from pathlib import Path
 from struct import pack
 
-from ...config import ENDIAN
-from ...core import DTYPE, File
-from ...utils import batched, float_or_str, flatten
+from ..config import ENDIAN
+from ..core import DTYPE, File
+from ..utils import batched, float_or_str, flatten
 from .unrst_file import UNRST_file
 
 __all__ = ["fmt_block", "fmt_file", "FUNRST_file", "RSM_block", "RSM_file"]

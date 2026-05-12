@@ -1,6 +1,6 @@
 """Global constants used across :mod:`ECLlib`.
 
-The module intentionally avoids importing :mod:`.io.unformatted.base` at import
+The module intentionally avoids importing :mod:`.core.unformatted` at import
 time to prevent a circular dependency between the two modules.  The ``ENDSOL``
 marker is therefore provided lazily via ``__getattr__``.
 """
@@ -15,7 +15,7 @@ ENDIAN = '>'  # Big-endian
 __all__ = ["DEBUG", "ENDIAN"] #, "ENDSOL"]
 
 # if TYPE_CHECKING:  # pragma: no cover - import only needed for type checking
-#     from .io.unformatted.base import unfmt_block as _unfmt_block
+#     from .core.unformatted import unfmt_block as _unfmt_block
 
 #     ENDSOL: _unfmt_block
 
@@ -24,7 +24,7 @@ __all__ = ["DEBUG", "ENDIAN"] #, "ENDSOL"]
 #     """Provide lazy access to ``ENDSOL`` without creating import cycles."""
 
 #     if name == "ENDSOL":
-#         from .io.unformatted.base import ENDSOL as endsol
+#         from .core.unformatted import ENDSOL as endsol
 
 #         globals()[name] = endsol
 #         return endsol

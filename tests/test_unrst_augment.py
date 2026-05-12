@@ -135,7 +135,7 @@ def test_unfmt_file_section_spans_reject_incomplete_sections(tmp_path):
 def test_unrst_file_public_imports_are_stable():
 #---------------------------------------------------------------------------------------------------
     """Keep the public UNRST_file imports stable across the module split."""
-    from ECLlib.io.output import UNRST_file as output_unrst_file
+    from ECLlib.output import UNRST_file as output_unrst_file
 
     assert output_unrst_file is UNRST_file
 

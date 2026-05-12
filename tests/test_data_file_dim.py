@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ECLlib.io.input import DATA_file
+from ECLlib.input import DATA_file
 
 
 #---------------------------------------------------------------------------------------------------

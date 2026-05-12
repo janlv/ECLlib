@@ -12,9 +12,9 @@ from itertools import islice
 
 from numpy import array as nparray, sum as npsum
 
-from ...core import AutoRefreshIterator, File
-from ...utils import flatten, flatten_all, remove_chars
-from ..unformatted.base import ENDSOL, unfmt_block, unfmt_file
+from ..core import AutoRefreshIterator, File
+from ..utils import flatten, flatten_all, remove_chars
+from ..core.unformatted import ENDSOL, unfmt_block, unfmt_file
 
 __all__ = ["UNRST_file"]
 

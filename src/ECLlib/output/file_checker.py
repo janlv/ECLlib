@@ -1,5 +1,5 @@
 from numpy import asarray
-from ECLlib.io.unformatted.base import unfmt_file
+from ECLlib.core.unformatted import unfmt_file
 from ECLlib.utils import list2str
 
 DEBUG = False
