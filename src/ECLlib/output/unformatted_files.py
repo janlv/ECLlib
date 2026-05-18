@@ -654,7 +654,8 @@ class SMSPEC_file(unfmt_file):                                                  
     grid dimensions, and run start time; required to interpret UNSMRY data.
     """
 
-    start = 'INTEHEAD'
+    # DIMENS is the first common SMSPEC metadata anchor in Eclipse and INTERSECT layouts.
+    start = 'DIMENS'
     Data = namedtuple('Data', 'keys wells measures units nums', defaults=5*(None,))
 
     #----------------------------------------------------------------------------------------------
