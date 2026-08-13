@@ -12,7 +12,7 @@ from .datatypes import DTYPE
 from .file import File
 from ..config import DEBUG, ENDIAN
 from ..utils import (batched, batched_when, ensure_bytestring, expand_pattern, flatten, flatten_all,
-    index_limits, match_in_wildlist, nth, pad, pairwise, slice_range, string_split, take)
+    index_limits, match_in_wildlist, nth, pad, slice_range, string_split, take)
 
 __all__ = ["unfmt_header", "unfmt_block", "unfmt_section_span", "unfmt_file", "ENDSOL"]
 
@@ -960,43 +960,76 @@ class unfmt_file(File):                                                         
                 yield unfmt_block(header=header, file_obj=file, file=self.path)
 
 
-    #----------------------------------------------------------------------------------------------
-    def tail_blocks(self, **kwargs):                                                   # unfmt_file
-    #----------------------------------------------------------------------------------------------
-        """Return the last blocks in the file."""
+    #-----------------------------------------------------------------------------------------------
+    def tail_blocks(self, start=None, use_mmap=True, **kwargs):                         # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Return blocks in reverse file order from a mmap or seekable file."""
         if not self.is_file() or self.size() < 24: # Header is 24 bytes
-            return ()
+            return iter(())
+        endpos = self.size() if start is None else min(start, self.size())
+        if use_mmap:
+            return self.tail_blocks_from_mmap(endpos)
+        return self.tail_blocks_from_file(endpos)
+
+    #-----------------------------------------------------------------------------------------------
+    def _tail_blocks_from_source(self, source, endpos, mapped):                         # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Yield reverse blocks from an open mmap or seekable binary file."""
+        pos = endpos
+        while pos > 0:
+            block_end = pos
+            header = None
+            while pos >= 8:
+                try:
+                    source.seek(pos - 4)
+                    raw_size = source.read(4)
+                    if len(raw_size) != 4:
+                        return
+                    size = unpack(ENDIAN+'i', raw_size)[0]
+                    record_start = pos - size - 8
+                    if size < 0 or record_start < 0:
+                        return
+                    if size == 16:
+                        source.seek(record_start + 4)
+                        raw_header = source.read(16)
+                        if len(raw_header) == 16 and raw_header[12:16] in DTYPE:
+                            header = self.read_header(raw_header, record_start)
+                            if header:
+                                # A valid header is not a complete block until every declared payload
+                                # record reaches the current physical block boundary.
+                                if header.endpos != block_end:
+                                    return
+                                break
+                    pos = record_start
+                except (OSError, ValueError, struct_error):
+                    return
+            if header is None:
+                return
+
+            # Payload methods borrow this open source until iteration advances or closes.
+            if mapped:
+                yield unfmt_block(header=header, data=source, file=self.path)
+            else:
+                yield unfmt_block(header=header, file_obj=source, file=self.path)
+            pos = header.startpos
+
+    #-----------------------------------------------------------------------------------------------
+    def tail_blocks_from_mmap(self, endpos):                                            # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Yield reverse blocks backed by a memory map."""
+        try:
+            with open(self.path, mode='rb') as file:
+                with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
+                    yield from self._tail_blocks_from_source(data, endpos, mapped=True)
+        except ValueError: # Catch 'cannot mmap an empty file'
+            return
+
+    #-----------------------------------------------------------------------------------------------
+    def tail_blocks_from_file(self, endpos):                                            # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Yield reverse blocks using seek-based reads without creating an mmap."""
         with open(self.path, mode='rb') as file:
-            with mmap(file.fileno(), length=0, access=ACCESS_READ) as data:
-                # Goto end of file
-                data.seek(0, 2)
-                while data.tell() > 0:
-                    end = data.tell()
-                    # Header
-                    # Rewind until we find a header
-                    while data.tell() > 0:
-                        try:
-                            data.seek(-4, 1)
-                            size = unpack(ENDIAN+'i',data.read(4))[0]
-                            data.seek(-4-size, 1)
-                            # if self.is_header(data, size, data.tell()):
-                            pos = data.tell()
-                            ### Check if this is a header
-                            if size == 16 and data[pos+12:pos+16] in DTYPE:
-                                start = data.tell()-4
-                                key, length, typ = unpack(ENDIAN+'8si4s', data.read(16))
-                                data.seek(4, 1)
-                                # Found header
-                                break 
-                            data.seek(-4, 1)
-                        except (ValueError, struct_error):
-                            return #()
-                    ### Value array
-                    #data_start = data.tell()
-                    data.seek(start, 0)
-                    yield unfmt_block(header=unfmt_header(key, length, typ, start, end), data=data, file=self.path)
-                    # yield unfmt_block(key=key, length=length, type=typ, start=start, end=end,
-                    #                 data=data, file=self.path)
+            yield from self._tail_blocks_from_source(file, endpos, mapped=False)
 
     #----------------------------------------------------------------------------------------------
     def fix_errors(self):                                                              # unfmt_file
@@ -1137,9 +1170,9 @@ class unfmt_file(File):                                                         
         yield n
 
 
-    #----------------------------------------------------------------------------------------------
-    def section_blocks(self, tail=False, only_new=False, **kwargs):                    # unfmt_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def section_blocks(self, tail=False, only_new=False, **kwargs):                     # unfmt_file
+    #-----------------------------------------------------------------------------------------------
         """
         Yields batches of blocks corresponding to sections in the file. The sections are 
         determined by the start blocks defined in the file.
@@ -1157,24 +1190,70 @@ class unfmt_file(File):                                                         
         """
         self.exists(raise_error=True)
         blocks_func = self.tail_blocks if tail else self.blocks
-        start_indx = self.section_start_indices(tail=tail, start=self._endpos if only_new else None)
-        # Use pairwise to get start and end positions of each section
-        # TODO: use start argument to skip to correct section
-        section_pos = islice(pairwise(start_indx), None)
-        blocks_iter = blocks_func(only_new=only_new, **kwargs)
-        prev = 0
-        a, b = next(section_pos, (0, 0))
-        while True:
-            # Use islice to get blocks from a to b, where a and b are the start and end
-            # Need to subtract prev to get the correct slice since the iterator is consumed
-            batch = tuple(islice(blocks_iter, a - prev, b - prev))
-            if not batch:
-                break
-            yield batch
-            prev = b
-            a, b = next(section_pos, (b, b))
-            if a == b:  # No more sections
-                break
+        marker = self.end if tail else self.start
+        source_kwargs = dict(kwargs)
+        transactional = only_new and not tail
+        commit_complete = transactional and bool(self.end)
+        if transactional:
+            # Cursor updates occur only at section boundaries so early close cannot skip data.
+            source_kwargs["start"] = self._endpos
+            blocks_iter = iter(blocks_func(only_new=False, **source_kwargs))
+        else:
+            blocks_iter = iter(blocks_func(only_new=only_new, **source_kwargs))
+
+        batch = []
+        source_end = self.size()
+        last_complete_end = self._endpos
+        try:
+            for block in blocks_iter:
+                if block.endpos > source_end:
+                    # A parseable header does not make its declared payload physically complete.
+                    break
+                last_complete_end = block.endpos
+                if marker in block:
+                    if batch:
+                        if commit_complete:
+                            # A second start before the declared end leaves the first section partial.
+                            return
+                        if transactional:
+                            self._endpos = block.startpos
+                        yield tuple(batch)
+                    batch = [block]
+                elif batch:
+                    batch.append(block)
+
+                if (commit_complete and batch and self.end in block
+                        and block.endpos <= source_end):
+                    self._endpos = block.endpos
+                    yield tuple(batch)
+                    batch = []
+                    continue
+
+                # Avoid exhausting the borrowed source before yielding the final static section.
+                source_boundary = block.startpos == 0 if tail else block.endpos >= source_end
+                if not commit_complete and source_boundary and batch:
+                    if transactional:
+                        self._endpos = last_complete_end
+                    yield tuple(batch)
+                    batch = []
+                    return
+
+            if batch and not commit_complete:
+                if transactional:
+                    self._endpos = last_complete_end
+                    yield tuple(batch)
+                    return
+                # Invalid trailing bytes may exhaust the original source before its final tuple is
+                # yielded. Reborrow a seekable source so that static grouping semantics are retained.
+                with open(self.path, mode='rb') as file:
+                    for block in batch:
+                        block._data = None
+                        block._file_obj = file
+                    yield tuple(batch)
+        finally:
+            close = getattr(blocks_iter, "close", None)
+            if close is not None:
+                close()
     
 
     #-----------------------------------------------------------------------------------------------
