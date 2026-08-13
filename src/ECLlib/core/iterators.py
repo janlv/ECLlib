@@ -4,14 +4,14 @@ from __future__ import annotations
 import inspect
 
 
-#==================================================================================================
-class AutoRefreshIterator:
-#==================================================================================================
+#===================================================================================================
+class AutoRefreshIterator:                                                     # AutoRefreshIterator
+#===================================================================================================
     """Iterator wrapper that refreshes itself when exhausted."""
 
-    #----------------------------------------------------------------------------------------------
-    def __init__(self, iterable_factory, *args, **kwargs):
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def __init__(self, iterable_factory, *args, **kwargs):                     # AutoRefreshIterator
+    #-----------------------------------------------------------------------------------------------
         """Initialize the RefreshIterator.
 
         Args:
@@ -29,26 +29,59 @@ class AutoRefreshIterator:
         self._iter = self._factory(*args, **kwargs)
         self._args = args
         self._kwargs = dict(kwargs)
+        self._closed = False
 
-    #----------------------------------------------------------------------------------------------
-    def __iter__(self):
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def __iter__(self):                                                        # AutoRefreshIterator
+    #-----------------------------------------------------------------------------------------------
         """Return an iterator over the object."""
         return self
 
-    #----------------------------------------------------------------------------------------------
-    def _refresh(self):
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def _refresh(self):                                                        # AutoRefreshIterator
+    #-----------------------------------------------------------------------------------------------
         """Create a fresh underlying iterator from the factory."""
-
+        if self._closed:
+            return
         self._iter = self._factory(*self._args, **self._kwargs)
 
-    #----------------------------------------------------------------------------------------------
-    def __next__(self):
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def _close_current(self):                                                  # AutoRefreshIterator
+    #-----------------------------------------------------------------------------------------------
+        """Close and release the current underlying iterator exactly once."""
+        current = self._iter
+        self._iter = None
+        close = getattr(current, "close", None)
+        if close is not None:
+            close()
+
+    #-----------------------------------------------------------------------------------------------
+    def close(self):                                                           # AutoRefreshIterator
+    #-----------------------------------------------------------------------------------------------
+        """Close the current iterator and prevent subsequent refreshes."""
+        if self._closed:
+            return
+        self._closed = True
+        self._close_current()
+
+    #-----------------------------------------------------------------------------------------------
+    def __next__(self):                                                        # AutoRefreshIterator
+    #-----------------------------------------------------------------------------------------------
         """Return the next item from the iterator."""
+        if self._closed:
+            raise StopIteration
+        refreshed = self._iter is None
+        if refreshed:
+            self._refresh()
         try:
             return next(self._iter)
         except StopIteration:
+            self._close_current()
+            if self._closed or refreshed:
+                raise
             self._refresh()
-            return next(self._iter)
+            try:
+                return next(self._iter)
+            except StopIteration:
+                self._close_current()
+                raise
