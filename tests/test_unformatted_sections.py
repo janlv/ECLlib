@@ -210,6 +210,35 @@ def test_static_section_blocks_still_yields_partial_final_section(tmp_path):
 
 #---------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("use_mmap", [True, False])
+@pytest.mark.parametrize("only_new", [False, True])
+def test_no_end_final_section_with_trailing_bytes_keeps_payload_source_open(
+        tmp_path, use_mmap, only_new):
+#---------------------------------------------------------------------------------------------------
+    """Reborrow a final section when invalid trailing bytes exhaust its original source."""
+    path = tmp_path / "no-end-trailing-bytes.UNRST"
+    with open(path, "wb") as file:
+        file.write(_serialized_block("START", 1))
+        file.write(_serialized_block("VALUE", 10))
+        complete_end = file.tell()
+        file.write(b"short")
+
+    reader = unfmt_file(path)
+    reader.start = "START"
+    sections = reader.section_blocks(only_new=only_new, use_mmap=use_mmap)
+    section = next(sections)
+    payload = section[1]
+    assert payload.data().tolist() == [10]
+    assert payload._data is None
+    source = payload._file_obj
+    assert source.closed is False
+    assert reader._endpos == (complete_end if only_new else 0)
+
+    sections.close()
+    assert source.closed is True
+
+
+#---------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("use_mmap", [True, False])
 def test_only_new_withholds_partial_append_and_emits_once_when_complete(tmp_path, use_mmap):
 #---------------------------------------------------------------------------------------------------
     """Commit the only-new cursor only after an appended section receives its end marker."""

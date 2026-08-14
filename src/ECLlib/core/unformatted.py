@@ -1203,8 +1203,6 @@ class unfmt_file(File):                                                         
         batch = []
         if transactional:
             self._endpos = last_complete_end
-            yield section
-            return
         # Invalid trailing bytes may exhaust the source before the final tuple is yielded.
         yield from self._reborrow_section(section)
 
