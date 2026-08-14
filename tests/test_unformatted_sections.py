@@ -245,6 +245,49 @@ def test_only_new_withholds_partial_append_and_emits_once_when_complete(tmp_path
 
 #---------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("use_mmap", [True, False])
+def test_only_new_complete_section_early_close_resumes_at_next_section(tmp_path, use_mmap):
+#---------------------------------------------------------------------------------------------------
+    """Commit a yielded complete section so reopening resumes at the following section."""
+    path = tmp_path / "complete-early-close.UNRST"
+    _write_section_file(path, [(1, "PRESSURE", 10), (2, "SWAT", 20)])
+    reader = _section_reader(path)
+
+    sections = reader.section_blocks(only_new=True, use_mmap=use_mmap)
+    first = next(sections)
+    first_end = first[-1].endpos
+    assert [block.key() for block in first] == ["SEQNUM", "PRESSURE", "ENDSOL"]
+    assert reader._endpos == first_end
+    sections.close()
+
+    assert _section_keys(reader, only_new=True, use_mmap=use_mmap) == [
+        ["SEQNUM", "SWAT", "ENDSOL"]
+    ]
+    assert reader._endpos == path.stat().st_size
+
+
+#---------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("use_mmap", [True, False])
+def test_only_new_nested_start_before_end_leaves_cursor_unchanged(tmp_path, use_mmap):
+#---------------------------------------------------------------------------------------------------
+    """Withhold malformed nested sections without committing past the first start marker."""
+    path = tmp_path / "nested-start.UNRST"
+    with open(path, "wb") as file:
+        for key, value in (
+            ("SEQNUM", 1),
+            ("PRESSURE", 10),
+            ("SEQNUM", 2),
+            ("SWAT", 20),
+            ("ENDSOL", None),
+        ):
+            file.write(_serialized_block(key, value))
+
+    reader = _section_reader(path)
+    assert _section_keys(reader, only_new=True, use_mmap=use_mmap) == []
+    assert reader._endpos == 0
+
+
+#---------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("use_mmap", [True, False])
 def test_only_new_withholds_terminal_block_with_truncated_payload(tmp_path, use_mmap):
 #---------------------------------------------------------------------------------------------------
     """Do not commit a declared terminal block until its nonempty payload is complete."""

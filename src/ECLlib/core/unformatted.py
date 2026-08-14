@@ -1144,9 +1144,99 @@ class unfmt_file(File):                                                         
             if b.key() in keyset:
                 yield (step, b)
 
-    #----------------------------------------------------------------------------------------------
-    def section_start_indices(self, tail=False, start=None):                           # unfmt_file
-    #----------------------------------------------------------------------------------------------
+    #-----------------------------------------------------------------------------------------------
+    def _section_direction(self, tail):                                                 # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Return the block source and section marker for one traversal direction."""
+        if tail:
+            return self.tail_blocks, self.end
+        return self.blocks, self.start
+
+    #-----------------------------------------------------------------------------------------------
+    def _reborrow_section(self, section):                                               # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Yield one section backed by a temporary seekable file source."""
+        with open(self.path, mode='rb') as file:
+            for block in section:
+                block._data = None
+                block._file_obj = file
+            yield section
+
+    #-----------------------------------------------------------------------------------------------
+    def _marker_section_blocks(self, blocks_iter, marker, source_end, *, tail,
+                               transactional):                                          # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Yield sections delimited by one directional marker."""
+        batch = []
+        last_complete_end = self._endpos
+        for block in blocks_iter:
+            block_end = block.endpos
+            if block_end > source_end:
+                # A parseable header does not make its declared payload physically complete.
+                break
+            last_complete_end = block_end
+            key = block.key()
+            if key == marker:
+                if batch:
+                    section = tuple(batch)
+                    batch = [block]
+                    if transactional:
+                        self._endpos = block.startpos
+                    yield section
+                else:
+                    batch = [block]
+            elif batch:
+                batch.append(block)
+
+            source_boundary = block.startpos == 0 if tail else block_end >= source_end
+            if source_boundary and batch:
+                section = tuple(batch)
+                batch = []
+                if transactional:
+                    self._endpos = last_complete_end
+                yield section
+                return
+
+        if not batch:
+            return
+        section = tuple(batch)
+        batch = []
+        if transactional:
+            self._endpos = last_complete_end
+            yield section
+            return
+        # Invalid trailing bytes may exhaust the source before the final tuple is yielded.
+        yield from self._reborrow_section(section)
+
+    #-----------------------------------------------------------------------------------------------
+    def _complete_section_blocks(self, blocks_iter, source_end):                        # unfmt_file
+    #-----------------------------------------------------------------------------------------------
+        """Yield complete start/end-delimited sections and commit their cursor positions."""
+        batch = []
+        start_marker = self.start
+        end_marker = self.end
+        for block in blocks_iter:
+            block_end = block.endpos
+            if block_end > source_end:
+                return
+            key = block.key()
+            if key == start_marker:
+                if batch:
+                    # A second start before the declared end leaves the first section partial.
+                    return
+                batch = [block]
+            elif batch:
+                batch.append(block)
+
+            if batch and key == end_marker:
+                section = tuple(batch)
+                batch = []
+                self._endpos = block_end
+                yield section
+
+    #-----------------------------------------------------------------------------------------------
+    def section_start_indices(self, tail=False, start=None):                            # unfmt_file
+    #-----------------------------------------------------------------------------------------------
         """
         Generator that yields the block index of the start-block of each section in a file,
         and finally the total number of blocks.
@@ -1159,8 +1249,7 @@ class unfmt_file(File):                                                         
             int: Block index of the start-block of each section.
             int: After all sections, yields the total number of blocks.
         """
-        blocks_func = self.tail_blocks if tail else self.blocks
-        start_token = self.end if tail else self.start
+        blocks_func, start_token = self._section_direction(tail)
 
         n = 0
         for i, block in enumerate(blocks_func(start=start)):
@@ -1189,67 +1278,27 @@ class unfmt_file(File):                                                         
             FileNotFoundError: If the file does not exist.
         """
         self.exists(raise_error=True)
-        blocks_func = self.tail_blocks if tail else self.blocks
-        marker = self.end if tail else self.start
-        source_kwargs = dict(kwargs)
+        blocks_func, marker = self._section_direction(tail)
         transactional = only_new and not tail
-        commit_complete = transactional and bool(self.end)
         if transactional:
             # Cursor updates occur only at section boundaries so early close cannot skip data.
-            source_kwargs["start"] = self._endpos
-            blocks_iter = iter(blocks_func(only_new=False, **source_kwargs))
+            kwargs["start"] = self._endpos
+            blocks_iter = iter(blocks_func(only_new=False, **kwargs))
         else:
-            blocks_iter = iter(blocks_func(only_new=only_new, **source_kwargs))
+            blocks_iter = iter(blocks_func(only_new=only_new, **kwargs))
 
-        batch = []
         source_end = self.size()
-        last_complete_end = self._endpos
         try:
-            for block in blocks_iter:
-                if block.endpos > source_end:
-                    # A parseable header does not make its declared payload physically complete.
-                    break
-                last_complete_end = block.endpos
-                if marker in block:
-                    if batch:
-                        if commit_complete:
-                            # A second start before the declared end leaves the first section partial.
-                            return
-                        if transactional:
-                            self._endpos = block.startpos
-                        yield tuple(batch)
-                    batch = [block]
-                elif batch:
-                    batch.append(block)
-
-                if (commit_complete and batch and self.end in block
-                        and block.endpos <= source_end):
-                    self._endpos = block.endpos
-                    yield tuple(batch)
-                    batch = []
-                    continue
-
-                # Avoid exhausting the borrowed source before yielding the final static section.
-                source_boundary = block.startpos == 0 if tail else block.endpos >= source_end
-                if not commit_complete and source_boundary and batch:
-                    if transactional:
-                        self._endpos = last_complete_end
-                    yield tuple(batch)
-                    batch = []
-                    return
-
-            if batch and not commit_complete:
-                if transactional:
-                    self._endpos = last_complete_end
-                    yield tuple(batch)
-                    return
-                # Invalid trailing bytes may exhaust the original source before its final tuple is
-                # yielded. Reborrow a seekable source so that static grouping semantics are retained.
-                with open(self.path, mode='rb') as file:
-                    for block in batch:
-                        block._data = None
-                        block._file_obj = file
-                    yield tuple(batch)
+            if transactional and self.end:
+                yield from self._complete_section_blocks(blocks_iter, source_end)
+            else:
+                yield from self._marker_section_blocks(
+                    blocks_iter,
+                    marker,
+                    source_end,
+                    tail=tail,
+                    transactional=transactional,
+                )
         finally:
             close = getattr(blocks_iter, "close", None)
             if close is not None:
