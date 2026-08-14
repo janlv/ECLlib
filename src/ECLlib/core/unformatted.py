@@ -1148,15 +1148,18 @@ class unfmt_file(File):                                                         
     def _section_direction(self, tail):                                                 # unfmt_file
     #-----------------------------------------------------------------------------------------------
         """Return the block source and section marker for one traversal direction."""
+        # Reverse traversal encounters end markers first; forward traversal uses start markers.
         if tail:
             return self.tail_blocks, self.end
         return self.blocks, self.start
 
     #-----------------------------------------------------------------------------------------------
-    def _reborrow_section(self, section):                                               # unfmt_file
+    def _yield_file_backed_section(self, section):                                      # unfmt_file
     #-----------------------------------------------------------------------------------------------
-        """Yield one section backed by a temporary seekable file source."""
+        """Yield a section while all blocks share one open seekable file."""
+        # The original backing may be closed or unable to safely cover the final batch.
         with open(self.path, mode='rb') as file:
+            # Rebind every block to one handle that stays open across the outward yield.
             for block in section:
                 block._data = None
                 block._file_obj = file
@@ -1168,6 +1171,7 @@ class unfmt_file(File):                                                         
     #-----------------------------------------------------------------------------------------------
         """Yield sections delimited by one directional marker."""
         batch = []
+        # Track the last physically complete block so transactional cursors remain safe.
         last_complete_end = self._endpos
         for block in blocks_iter:
             block_end = block.endpos
@@ -1178,9 +1182,11 @@ class unfmt_file(File):                                                         
             key = block.key()
             if key == marker:
                 if batch:
+                    # A new marker completes the preceding marker-delimited section.
                     section = tuple(batch)
                     batch = [block]
                     if transactional:
+                        # Stop before the new marker so early close replays the next section.
                         self._endpos = block.startpos
                     yield section
                 else:
@@ -1188,6 +1194,7 @@ class unfmt_file(File):                                                         
             elif batch:
                 batch.append(block)
 
+            # Yield before advancing past the physical boundary, while borrowed data is still live.
             source_boundary = block.startpos == 0 if tail else block_end >= source_end
             if source_boundary and batch:
                 section = tuple(batch)
@@ -1203,8 +1210,8 @@ class unfmt_file(File):                                                         
         batch = []
         if transactional:
             self._endpos = last_complete_end
-        # Invalid trailing bytes may exhaust the source before the final tuple is yielded.
-        yield from self._reborrow_section(section)
+        # The scan ended without a known source boundary; use a fresh handle for the final batch.
+        yield from self._yield_file_backed_section(section)
 
     #-----------------------------------------------------------------------------------------------
     def _complete_section_blocks(self, blocks_iter, source_end):                        # unfmt_file
@@ -1216,6 +1223,7 @@ class unfmt_file(File):                                                         
         for block in blocks_iter:
             block_end = block.endpos
             if block_end > source_end:
+                # Withhold this section until the block's declared payload is physically complete.
                 return
             key = block.key()
             if key == start_marker:
@@ -1229,6 +1237,7 @@ class unfmt_file(File):                                                         
             if batch and key == end_marker:
                 section = tuple(batch)
                 batch = []
+                # Commit before yielding so an accepted section is not replayed after early close.
                 self._endpos = block_end
                 yield section
 
@@ -1279,7 +1288,7 @@ class unfmt_file(File):                                                         
         blocks_func, marker = self._section_direction(tail)
         transactional = only_new and not tail
         if transactional:
-            # Cursor updates occur only at section boundaries so early close cannot skip data.
+            # Bypass per-block cursor updates; helpers commit only at safe section boundaries.
             kwargs["start"] = self._endpos
             blocks_iter = iter(blocks_func(only_new=False, **kwargs))
         else:
@@ -1287,6 +1296,7 @@ class unfmt_file(File):                                                         
 
         source_end = self.size()
         try:
+            # End-delimited transactions withhold partial sections; other modes split on marker.
             if transactional and self.end:
                 yield from self._complete_section_blocks(blocks_iter, source_end)
             else:
@@ -1298,6 +1308,7 @@ class unfmt_file(File):                                                         
                     transactional=transactional,
                 )
         finally:
+            # Release the borrowed source on exhaustion, exceptions, or consumer GeneratorExit.
             close = getattr(blocks_iter, "close", None)
             if close is not None:
                 close()
